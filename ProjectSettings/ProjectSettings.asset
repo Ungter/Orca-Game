@@ -935,11 +935,11 @@ PlayerSettings:
   activeInputHandler: 1
   windowsGamepadBackendHint: 0
   enableDirectStorage: 0
-  cloudProjectId: f07ed5be-3c4d-4c29-a557-9ec6d403ab38
+  cloudProjectId: d000b55e-e609-46bd-9873-35de48aadbaa
   framebufferDepthMemorylessMode: 0
   qualitySettingsNames: []
-  projectName: Orca
-  organizationId: theodoresha17
+  projectName: My project
+  organizationId: eshan1633006
   cloudEnabled: 0
   legacyClampBlendShapeWeights: 0
   hmiLoadingImage: {fileID: 0}
