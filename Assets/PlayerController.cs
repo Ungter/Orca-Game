@@ -18,6 +18,12 @@ public class PlayerController : MonoBehaviour
 
     private void Update()
     {
+        if (Camera.main != null)
+        {
+            // Rotates the object to face the main camera continuously
+            transform.LookAt(Camera.main.transform);
+            transform.rotation = Quaternion.Euler(0, Camera.main.transform.eulerAngles.y, 0);
+        }
         bool grounded = characterController.isGrounded;
         if (grounded && verticalVelocity < 0f)
         {
