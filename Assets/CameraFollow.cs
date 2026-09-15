@@ -35,7 +35,7 @@ public class CameraFollow : MonoBehaviour
 
     private void LateUpdate()
     {
-        if (target == null)
+        if (target == null || InventoryInspection.IsOpen)
         {
             return;
         }

@@ -18,6 +18,11 @@ public class PlayerController : MonoBehaviour
 
     private void Update()
     {
+        if (InventoryInspection.IsOpen)
+        {
+            return;
+        }
+
         if (Camera.main != null)
         {
             // Rotates the object to face the main camera continuously
