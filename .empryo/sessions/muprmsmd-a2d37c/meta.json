@@ -1,0 +1,51 @@
+{
+  "id": "muprmsmd-a2d37c",
+  "title": "I just cloned this repo from github and unity says it has...",
+  "cwd": "D:\\ORCA\\Orca-Game",
+  "startedAt": 1790873147753,
+  "updatedAt": 1790876737246,
+  "activeTabId": "t_mupsraze_1",
+  "forgeMode": "default",
+  "tabs": [
+    {
+      "id": "t_mupsraze_1",
+      "label": "Clue Game Recreation",
+      "activeModel": "subscriptions/claude-opus-5-5",
+      "sessionId": "muprmsmd-a2d37c",
+      "planMode": false,
+      "planRequest": null,
+      "coAuthorCommits": false,
+      "forgeMode": "auto",
+      "tokenUsage": {
+        "prompt": 3340176,
+        "completion": 108288,
+        "total": 3448464,
+        "cacheRead": 3194155,
+        "cacheWrite": 145777,
+        "cost": 3.5337734,
+        "subagentInput": 0,
+        "subagentOutput": 0
+      },
+      "messageRange": {
+        "startLine": 0,
+        "endLine": 6
+      },
+      "checkpointTags": [
+        {
+          "index": 3,
+          "anchorMessageId": "m_muptg5kw_g0b4",
+          "gitTag": "empryo/cp-m_muptg5-3-a-couple-of-changes-to-the-min"
+        }
+      ],
+      "lastRequest": {
+        "inputTokens": 175028,
+        "requestChars": 545007,
+        "systemChars": 32387,
+        "overheadChars": 64665
+      },
+      "effortByFamily": {
+        "claude": "xhigh"
+      }
+    }
+  ]
+}

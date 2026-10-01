@@ -11,6 +11,7 @@ public class InventoryInspection : MonoBehaviour
 
     private const float HoldDuration = 0.35f;
     private const float RotationSpeed = 90f;
+    private const string InspectControls = "W A S D  Rotate     /     ESC  Close";
     private static readonly Key[] SlotKeys = { Key.Digit1, Key.Digit2, Key.Digit3, Key.Digit4, Key.Digit5 };
 
     private InventorySystem inventory;
@@ -22,10 +23,19 @@ public class InventoryInspection : MonoBehaviour
     private Canvas canvas;
     private Image itemImage;
     private Text title;
+    private Text controls;
+    private ClueMinigame minigame;
+    private bool puzzleOpen;
 
     private void Awake()
     {
         inventory = GetComponent<InventorySystem>();
+        minigame = GetComponent<ClueMinigame>();
+        if (minigame == null)
+        {
+            // Scenes saved before the clue puzzle existed do not carry it yet.
+            minigame = gameObject.AddComponent<ClueMinigame>();
+        }
     }
 
     private void OnDisable()
@@ -81,7 +91,8 @@ public class InventoryInspection : MonoBehaviour
             }
         }
 
-        if (!IsOpen)
+        // The clue puzzle reads WASD itself instead of rotating the letter.
+        if (!IsOpen || puzzleOpen)
         {
             return;
         }
@@ -100,7 +111,7 @@ public class InventoryInspection : MonoBehaviour
 
     private void LateUpdate()
     {
-        if (!IsOpen)
+        if (!IsOpen || puzzleOpen)
         {
             return;
         }
@@ -113,8 +124,10 @@ public class InventoryInspection : MonoBehaviour
 
     private void Open(int slot)
     {
+        string itemName = inventory.GetItem(slot);
         Sprite sprite = inventory.GetSprite(slot);
-        if (sprite == null)
+        bool puzzle = minigame.Handles(itemName);
+        if (sprite == null && !puzzle)
         {
             return; // Empty slots and items without artwork have nothing to inspect.
         }
@@ -123,10 +136,22 @@ public class InventoryInspection : MonoBehaviour
         {
             BuildView();
         }
-        itemImage.sprite = sprite;
-        itemImage.rectTransform.localRotation = Quaternion.identity;
-        rotation = Vector2.zero;
-        title.text = inventory.GetItem(slot);
+        // Inspecting the clue letter opens the puzzle written on it.
+        puzzleOpen = puzzle;
+        itemImage.gameObject.SetActive(!puzzle);
+        if (puzzle)
+        {
+            minigame.Show((RectTransform)canvas.transform);
+        }
+        else
+        {
+            minigame.Hide();
+            itemImage.sprite = sprite;
+            itemImage.rectTransform.localRotation = Quaternion.identity;
+            rotation = Vector2.zero;
+        }
+        controls.text = puzzle ? ClueMinigame.Controls : InspectControls;
+        title.text = itemName;
         inspectedSlot = slot;
         IsOpen = true;
         canvas.gameObject.SetActive(true);
@@ -140,6 +165,8 @@ public class InventoryInspection : MonoBehaviour
         }
         IsOpen = false;
         inspectedSlot = -1;
+        puzzleOpen = false;
+        minigame.Hide();
         canvas.gameObject.SetActive(false);
         inventory.NotifyInteraction();
     }
@@ -174,8 +201,7 @@ public class InventoryInspection : MonoBehaviour
 
         Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         title = CreateLabel("Item name", font, 22, 0.94f);
-        Text controls = CreateLabel("Controls", font, 14, 0.06f);
-        controls.text = "W A S D  Rotate     /     ESC  Close";
+        controls = CreateLabel("Controls", font, 14, 0.06f);
         controls.color = new Color(1f, 1f, 1f, 0.7f);
     }
 

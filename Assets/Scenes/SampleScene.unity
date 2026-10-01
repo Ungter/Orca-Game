@@ -1050,6 +1050,7 @@ GameObject:
   - component: {fileID: 900000003}
   - component: {fileID: 900000004}
   - component: {fileID: 900000007}
+  - component: {fileID: 900000008}
   m_Layer: 0
   m_Name: Inventory System
   m_TagString: Untagged
@@ -1189,6 +1190,24 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 488abcd1203e490b8db8c8e3c0fa9ea1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &900000008
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 900000001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e50de73e37b67cb4ebf42ed2a86c731e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  triggerItem: Clue Letter
+  borderTiles:
+  - {fileID: 2800000, guid: e9f66588df37bc643be849413f7bfe5a, type: 3}
+  - {fileID: 2800000, guid: ee97e4871287762af1a4c08f2ae65984, type: 3}
+  - {fileID: 2800000, guid: defaef734a593a40a94e24f86c64b304, type: 3}
+  - {fileID: 2800000, guid: 4388310f35890c3f23dd46139f0e173f, type: 3}
 --- !u!1 &1000000100
 GameObject:
   m_ObjectHideFlags: 0
