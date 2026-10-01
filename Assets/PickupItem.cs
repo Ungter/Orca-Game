@@ -72,7 +72,7 @@ public class PickupItem : MonoBehaviour
 
     private void Update()
     {
-        if (pickedUp || player == null)
+        if (pickedUp || player == null || InventoryInspection.IsOpen)
         {
             return;
         }
@@ -87,7 +87,9 @@ public class PickupItem : MonoBehaviour
         Keyboard keyboard = Keyboard.current;
         if (keyboard != null && keyboard.eKey.wasPressedThisFrame)
         {
-            bool added = InventorySystem.instance != null && InventorySystem.instance.TryAdd(itemName);
+            SpriteRenderer spriteRenderer = GetComponent<SpriteRenderer>();
+            Sprite sprite = spriteRenderer != null ? spriteRenderer.sprite : null;
+            bool added = InventorySystem.instance != null && InventorySystem.instance.TryAdd(itemName, sprite);
             if (added)
             {
                 pickedUp = true;
@@ -98,7 +100,7 @@ public class PickupItem : MonoBehaviour
 
     private void OnGUI()
     {
-        if (pickedUp || player == null || Camera.main == null)
+        if (pickedUp || player == null || Camera.main == null || InventoryInspection.IsOpen)
         {
             return;
         }
