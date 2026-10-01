@@ -3,7 +3,7 @@
   "title": "I just cloned this repo from github and unity says it has...",
   "cwd": "D:\\ORCA\\Orca-Game",
   "startedAt": 1790873147753,
-  "updatedAt": 1790876737246,
+  "updatedAt": 1790878302455,
   "activeTabId": "t_mupsraze_1",
   "forgeMode": "default",
   "tabs": [
@@ -17,18 +17,18 @@
       "coAuthorCommits": false,
       "forgeMode": "auto",
       "tokenUsage": {
-        "prompt": 3340176,
-        "completion": 108288,
-        "total": 3448464,
-        "cacheRead": 3194155,
-        "cacheWrite": 145777,
-        "cost": 3.5337734,
+        "prompt": 7648309,
+        "completion": 145248,
+        "total": 7793557,
+        "cacheRead": 7301354,
+        "cacheWrite": 346633,
+        "cost": 6.099005200000001,
         "subagentInput": 0,
         "subagentOutput": 0
       },
       "messageRange": {
         "startLine": 0,
-        "endLine": 6
+        "endLine": 10
       },
       "checkpointTags": [
         {
@@ -38,8 +38,8 @@
         }
       ],
       "lastRequest": {
-        "inputTokens": 175028,
-        "requestChars": 545007,
+        "inputTokens": 230107,
+        "requestChars": 720157,
         "systemChars": 32387,
         "overheadChars": 64665
       },

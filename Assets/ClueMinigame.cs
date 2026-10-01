@@ -23,6 +23,14 @@ public class ClueMinigame : MonoBehaviour
     private const float SketchCanvas = 840f;
     private const int Floor = -1;
 
+    // Where the board and step counter sit on Letter_screen.png (384 x 240, measured from
+    // the top-left). Its blank paper spans x 9-332, y 12-185.
+    private const float BoardSide = 156f;
+    private static readonly Vector2 LetterSize = new Vector2(384f, 240f);
+    private static readonly Vector2 BoardCentre = new Vector2(170f, 98f);
+    private static readonly Vector2 StepsCentre = new Vector2(290f, 98f);
+    private static readonly Color32 Ink = new Color32(80, 68, 56, 255);
+
     // Walls take the colour of their nearest target, so each colour gathers in its own
     // patch of the map, with a share of strays. Legs between targets keep routes long.
     private const float WallDensity = 0.65f;
@@ -87,6 +95,8 @@ public class ClueMinigame : MonoBehaviour
     private Outcome outcome;
 
     private RectTransform surface;
+    private RectTransform boardRoot;
+    private Image letterImage;
     private Texture2D texture;
     private Color32[] pixels;
     private GameObject border;
@@ -102,12 +112,14 @@ public class ClueMinigame : MonoBehaviour
     }
 
     // Progress survives closing the letter; only E or R start over.
-    public void Show(RectTransform parent)
+    public void Show(RectTransform parent, Sprite letter)
     {
         if (surface == null)
         {
             BuildView(parent);
         }
+        letterImage.sprite = letter;
+        letterImage.enabled = letter != null;
         surface.gameObject.SetActive(true);
         Redraw();
     }
@@ -169,13 +181,18 @@ public class ClueMinigame : MonoBehaviour
             return;
         }
 
-        // Square, leaving room for the step counter under the board.
+        // The letter takes an inspected sprite's footprint; the board keeps its place on the paper.
         Rect bounds = ((RectTransform)surface.parent).rect;
-        float side = Mathf.Min(bounds.height * 0.72f, bounds.width * 0.84f);
-        surface.sizeDelta = new Vector2(side, side);
+        Sprite letter = letterImage.sprite;
+        float aspect = letter != null ? letter.rect.width / letter.rect.height : LetterSize.x / LetterSize.y;
+        float height = Mathf.Min(bounds.height * 0.76f, bounds.width * 0.84f / aspect);
+        surface.sizeDelta = new Vector2(height * aspect, height);
+        float side = height * BoardSide / LetterSize.y;
+        boardRoot.sizeDelta = new Vector2(side, side);
         float scale = side / SketchCanvas;
         endTitle.fontSize = Mathf.Max(1, Mathf.RoundToInt(42f * scale));
         endSubtitle.fontSize = Mathf.Max(1, Mathf.RoundToInt(18f * scale));
+        stepsLabel.fontSize = Mathf.Max(1, Mathf.RoundToInt(height * 0.05f));
     }
 
     private void Restart()
@@ -460,7 +477,7 @@ public class ClueMinigame : MonoBehaviour
         endSubtitle.gameObject.SetActive(ended);
         endTitle.text = outcome == Outcome.Won ? "Fell, Jerk, Thief" : outcome == Outcome.OutOfSteps ? "Out of steps" : "Dead end";
         endSubtitle.text = outcome == Outcome.Won ? "Press 'E' to Restart" : "Press 'E' to Retry";
-        stepsLabel.text = "Steps left: " + stepsLeft;
+        stepsLabel.text = "Steps left\n" + stepsLeft;
     }
 
     private void DrawBoard()
@@ -574,6 +591,18 @@ public class ClueMinigame : MonoBehaviour
         surface.anchorMin = surface.anchorMax = new Vector2(0.5f, 0.5f);
         surface.anchoredPosition = Vector2.zero;
 
+        letterImage = new GameObject("Letter", typeof(RectTransform), typeof(Image)).GetComponent<Image>();
+        letterImage.transform.SetParent(surface, false);
+        letterImage.raycastTarget = false;
+        letterImage.rectTransform.anchorMin = Vector2.zero;
+        letterImage.rectTransform.anchorMax = Vector2.one;
+        letterImage.rectTransform.offsetMin = letterImage.rectTransform.offsetMax = Vector2.zero;
+
+        boardRoot = new GameObject("Board", typeof(RectTransform)).GetComponent<RectTransform>();
+        boardRoot.SetParent(surface, false);
+        boardRoot.anchorMin = boardRoot.anchorMax = OnLetter(BoardCentre);
+        boardRoot.anchoredPosition = Vector2.zero;
+
         pixels = new Color32[CanvasSize * CanvasSize];
         // Mipmaps keep the thin grid lines even when the view is shrunk on small screens.
         texture = new Texture2D(CanvasSize, CanvasSize, TextureFormat.RGBA32, true)
@@ -582,11 +611,11 @@ public class ClueMinigame : MonoBehaviour
             filterMode = FilterMode.Trilinear,
             wrapMode = TextureWrapMode.Clamp,
         };
-        CreateTile("Board", surface, 0, 0, BorderSize).texture = texture;
+        CreateTile("Board image", boardRoot, 0, 0, BorderSize).texture = texture;
 
         border = new GameObject("Border", typeof(RectTransform));
         RectTransform frame = (RectTransform)border.transform;
-        frame.SetParent(surface, false);
+        frame.SetParent(boardRoot, false);
         frame.anchorMin = Vector2.zero;
         frame.anchorMax = Vector2.one;
         frame.offsetMin = frame.offsetMax = Vector2.zero;
@@ -599,19 +628,21 @@ public class ClueMinigame : MonoBehaviour
         for (int y = last - 1; y > 0; y--) AddBorderTile(frame, index++, 0, y);
 
         Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        endTitle = CreateLabel("End title", font, Color.white);
+        endTitle = CreateLabel("End title", boardRoot, font, Color.white);
         PlaceOnCentre(endTitle, 25f);
-        endSubtitle = CreateLabel("End subtitle", font, new Color(180f / 255f, 180f / 255f, 180f / 255f));
+        endSubtitle = CreateLabel("End subtitle", boardRoot, font, new Color(180f / 255f, 180f / 255f, 180f / 255f));
         PlaceOnCentre(endSubtitle, -35f);
 
-        stepsLabel = CreateLabel("Steps left", font, new Color(1f, 1f, 1f, 0.85f));
-        stepsLabel.fontSize = 16;
+        // Written on the paper beside the board.
+        stepsLabel = CreateLabel("Steps left", surface, font, Ink);
         RectTransform steps = stepsLabel.rectTransform;
-        steps.anchorMin = Vector2.zero;
-        steps.anchorMax = new Vector2(1f, 0f);
-        steps.pivot = new Vector2(0.5f, 1f);
-        steps.sizeDelta = new Vector2(0f, 22f);
-        steps.anchoredPosition = new Vector2(0f, -6f);
+        steps.anchorMin = steps.anchorMax = OnLetter(StepsCentre);
+        steps.sizeDelta = Vector2.zero;
+    }
+
+    private static Vector2 OnLetter(Vector2 letterPixels)
+    {
+        return new Vector2(letterPixels.x / LetterSize.x, 1f - letterPixels.y / LetterSize.y);
     }
 
     private void AddBorderTile(Transform parent, int index, int x, int y)
@@ -635,10 +666,10 @@ public class ClueMinigame : MonoBehaviour
         return image;
     }
 
-    private Text CreateLabel(string name, Font font, Color color)
+    private static Text CreateLabel(string name, Transform parent, Font font, Color color)
     {
         Text label = new GameObject(name, typeof(RectTransform), typeof(Text)).GetComponent<Text>();
-        label.transform.SetParent(surface, false);
+        label.transform.SetParent(parent, false);
         label.font = font;
         label.fontStyle = FontStyle.Bold;
         label.color = color;

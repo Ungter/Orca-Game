@@ -141,7 +141,7 @@ public class InventoryInspection : MonoBehaviour
         itemImage.gameObject.SetActive(!puzzle);
         if (puzzle)
         {
-            minigame.Show((RectTransform)canvas.transform);
+            minigame.Show((RectTransform)canvas.transform, sprite);
         }
         else
         {
