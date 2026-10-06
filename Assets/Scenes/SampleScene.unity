@@ -1262,7 +1262,7 @@ CharacterController:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Height: 2
+  m_Height: 1.82
   m_Radius: 0.5
   m_SlopeLimit: 45
   m_StepOffset: 0.3
@@ -1284,6 +1284,19 @@ MonoBehaviour:
   moveSpeed: 5
   jumpSpeed: 6
   gravity: -9.81
+  frontIdle: {fileID: 21300000, guid: ce189d6f131a865d27c66164f12c8c66, type: 3}
+  backIdle: {fileID: 21300000, guid: 293aaf126f7f55153ecd4abf5fb46c6d, type: 3}
+  frontWalk:
+  - {fileID: -5000047119814858839, guid: 8122018d89129dccab01deacba0e073c, type: 3}
+  - {fileID: -6000081488029225193, guid: 8122018d89129dccab01deacba0e073c, type: 3}
+  backWalk:
+  - {fileID: -5000510766930315750, guid: 1e6c31bd3c781198af82418a1a4ba4db, type: 3}
+  - {fileID: -6000112879000199616, guid: 1e6c31bd3c781198af82418a1a4ba4db, type: 3}
+  walkFrameRate: 6
+  shadowCaster: {fileID: 2023870997}
+  shadowLight: {fileID: 0}
+  shadowWidthScale: 0.52
+  shadowLift: 0.62
 --- !u!212 &1000000106
 SpriteRenderer:
   serializedVersion: 3
@@ -1333,7 +1346,7 @@ SpriteRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 0
   m_MaskInteraction: 0
-  m_Sprite: {fileID: -7869641336813247935, guid: ccc44c790003155489af668831f17613, type: 3}
+  m_Sprite: {fileID: 21300000, guid: ce189d6f131a865d27c66164f12c8c66, type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
   m_FlipY: 0
@@ -2101,8 +2114,8 @@ MeshRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2023870994}
   m_Enabled: 1
-  m_CastShadows: 1
-  m_ReceiveShadows: 1
+  m_CastShadows: 3
+  m_ReceiveShadows: 0
   m_DynamicOccludee: 1
   m_StaticShadowCaster: 0
   m_MotionVectors: 1
@@ -2243,3 +2256,4 @@ SceneRoots:
   - {fileID: 44970711}
   - {fileID: 436676104}
   - {fileID: 721448118}
+  - {fileID: 900000002}
