@@ -30,16 +30,16 @@ Material:
     - _FoamScale: 0.29
     - _FresnelPower: 2.72
     - _ReflectionStrength: 0.286
-    - _RippleScale: 1.53
-    - _RippleSpeed: 0.6
-    - _RippleStrength: 0.45
+    - _RippleScale: 1.08
+    - _RippleSpeed: 0.4
+    - _RippleStrength: 0.23
     - _ScatterStrength: 1
     - _ShoreFoamAmount: 0.8
     - _ShoreFoamDistance: 1.5
     - _Smoothness: 0.17
     - _SpecularIntensity: 3
     - _SpecularPower: 256
-    - _WaveHeight: 1.39
+    - _WaveHeight: 0.96
     - _WaveSpeed: 0.56
     m_Colors:
     - _DeepColor: {r: 0.01, g: 0.089999996, b: 0.19999996, a: 1}

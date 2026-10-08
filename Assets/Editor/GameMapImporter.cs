@@ -6,9 +6,9 @@ using UnityEngine.SceneManagement;
 [InitializeOnLoad]
 public static class GameMapImporter
 {
-    const string MapPath = "Assets/gameprodmap.fbx";
+    const string MapPath = "Assets/IslanddemoV3.fbx";
     const string ScenePath = "Assets/Scenes/SampleScene.unity";
-    const string MapName = "gameprodmap";
+    const string MapName = "IslanddemoV3";
     const string DoneKey = "OrcaGame.GameMapImported";
 
     static GameMapImporter()
@@ -61,26 +61,19 @@ public static class GameMapImporter
             Undo.RegisterCreatedObjectUndo(map, "Import Game Map");
         }
 
-        int added = 0;
         foreach (var filter in map.GetComponentsInChildren<MeshFilter>(true))
         {
-            var go = filter.gameObject;
-            GameObjectUtility.SetStaticEditorFlags(go,
+            GameObjectUtility.SetStaticEditorFlags(filter.gameObject,
                 StaticEditorFlags.BatchingStatic | StaticEditorFlags.NavigationStatic |
                 StaticEditorFlags.OccluderStatic | StaticEditorFlags.OccludeeStatic |
                 StaticEditorFlags.ContributeGI | StaticEditorFlags.ReflectionProbeStatic);
-
-            if (filter.sharedMesh == null) continue;
-            var col = go.GetComponent<MeshCollider>();
-            if (col == null) { col = go.AddComponent<MeshCollider>(); added++; }
-            col.sharedMesh = filter.sharedMesh;
-            col.convex = false;
         }
 
         EditorSceneManager.MarkSceneDirty(scene);
         EditorSceneManager.SaveScene(scene);
         Selection.activeGameObject = map;
-        Debug.Log($"[GameMapImporter] '{MapName}' placed in {ScenePath}; {added} MeshCollider(s) added.");
+        // Collision comes from the model importer's Generate Colliders: one MeshCollider per mesh.
+        Debug.Log($"[GameMapImporter] '{MapName}' placed in {ScenePath}.");
         return true;
     }
 }
