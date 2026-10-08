@@ -83,6 +83,7 @@ public class LetterBurn
     private Phase phase;
     private float time;
     private Action midpoint;
+    private float clock;
 
     public LetterBurn(RectTransform surface, Image letter)
     {
@@ -93,7 +94,10 @@ public class LetterBurn
     public bool IsPlaying => phase != Phase.Idle;
 
     // onMidpoint runs while the letter is fully burnt: change the game state there.
-    public void Play(Action onMidpoint)
+    // origin: where the fire starts, in 0..1 of the letter (bottom-left origin); null picks
+    // two random points near the bottom. headline: optional flame text that grows in while
+    // the letter burns and crumbles away as it rebuilds.
+    public void Play(Action onMidpoint, Vector2? origin = null, string headline = null)
     {
         if (IsPlaying)
         {
@@ -103,7 +107,9 @@ public class LetterBurn
         midpoint = onMidpoint;
         EnsureOverlay();
         before = Capture();
-        igniteAt = BurnOrder();
+        igniteAt = BurnOrder(origin);
+        PrepareHeadline(headline, origin ?? new Vector2(0.5f, 0.5f));
+        clock = 0f;
         embers.Clear();
         specks.Clear();
         SetContentVisible(false);
@@ -123,6 +129,7 @@ public class LetterBurn
 
         float dt = Mathf.Min(deltaTime, 0.05f);
         time += dt;
+        clock += dt;
         UpdateEmbers(dt);
         switch (phase)
         {
@@ -135,7 +142,7 @@ public class LetterBurn
                 break;
 
             case Phase.Pause:
-                if (time >= PauseDuration)
+                if (time >= (headlinePixels.Count > 0 ? HeadlinePause : PauseDuration))
                 {
                     RunMidpoint();
                     after = Capture();
@@ -253,10 +260,15 @@ public class LetterBurn
 
     // When each cell catches, 0..1: distance from two ignition points near the bottom,
     // roughened with noise so the flame front is ragged.
-    private float[] BurnOrder()
+    private float[] BurnOrder(Vector2? origin)
     {
         var a = new Vector2((float)random.NextDouble() * cols, 0f);
         var b = new Vector2((float)random.NextDouble() * cols, (float)random.NextDouble() * rows * 0.4f);
+        if (origin.HasValue)
+        {
+            // One fire, fanning out from a fixed point.
+            a = b = new Vector2(origin.Value.x * cols, origin.Value.y * rows);
+        }
         int seed = random.Next();
         var order = new float[cols * rows];
         for (int y = 0; y < rows; y++)
@@ -418,6 +430,7 @@ public class LetterBurn
             DrawSpecks();
         }
         DrawEmbers();
+        DrawHeadline();
         texture.SetPixels32(frame);
         texture.Apply(false);
     }
@@ -562,6 +575,191 @@ public class LetterBurn
             (byte)((over.g * a + under.g * ua * (1f - a)) / outA),
             (byte)((over.b * a + under.b * ua * (1f - a)) / outA),
             (byte)(outA * 255f));
+    }
+
+    // ---- Flame headline ------------------------------------------------------------------
+
+    // Built from PixelFont capitals, each font pixel a 2x2-cell block. Letters appear in a
+    // random order; each grows outward from a random seed point inside the letter's box.
+    // Three pre-baked frames of flame tongues and colour jitter loop while it's on screen.
+    private const float HeadlinePause = 1.2f;
+    private const int HeadlineFontPixel = 2;   // Cells per font pixel.
+    private const float HeadlineFirst = 0.1f;
+    private const float HeadlineLast = 1.0f;
+    private const float HeadlineGrow = 0.35f;
+    private const float HeadlineFps = 9f;
+    private const float HeadlineCrumble = 0.4f;
+    private static readonly Color32 HeadlineOutline = new Color32(26, 14, 8, 235);
+
+    private struct HeadPixel
+    {
+        public int X;       // Font pixels from the phrase's left edge.
+        public int Y;       // Font pixels down from cap height; flame tongues are negative.
+        public int Letter;
+        public int Frame;   // -1 = every frame (the letter body), else only that frame.
+    }
+
+    private readonly List<HeadPixel> headlinePixels = new List<HeadPixel>();
+    private float[] letterStart = new float[0];
+    private Vector2[] letterSeed = new Vector2[0];
+    private float[] letterReach = new float[0];
+    private int headlineX;
+    private int headlineTop;
+
+    private void PrepareHeadline(string text, Vector2 centre)
+    {
+        headlinePixels.Clear();
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        var boxes = new List<RectInt>();
+        int pen = 0;
+        foreach (char c in text)
+        {
+            string[] glyph = PixelFont.GetRows(c);
+            int glyphWidth = glyph[0].Length;
+            if (c != ' ')
+            {
+                int letter = boxes.Count;
+                boxes.Add(new RectInt(pen, 0, glyphWidth, PixelFont.CapHeight));
+                for (int col = 0; col < glyphWidth; col++)
+                {
+                    int topInk = -1;
+                    for (int row = 0; row < PixelFont.CapHeight && row < glyph.Length; row++)
+                    {
+                        if (glyph[row][col] != '#') continue;
+                        headlinePixels.Add(new HeadPixel { X = pen + col, Y = row, Letter = letter, Frame = -1 });
+                        if (topInk < 0) topInk = row;
+                    }
+                    if (topInk < 0) continue;
+                    // Flame tongues licking up from the top of each column, different per frame.
+                    for (int frameIndex = 0; frameIndex < 3; frameIndex++)
+                    {
+                        int tongue = random.Next(0, 3);
+                        for (int k = 1; k <= tongue; k++)
+                        {
+                            headlinePixels.Add(new HeadPixel { X = pen + col, Y = topInk - k, Letter = letter, Frame = frameIndex });
+                        }
+                    }
+                }
+            }
+            pen += glyphWidth + PixelFont.Spacing;
+        }
+
+        // Random reveal order, spread over the burn; random seed point per letter.
+        int count = boxes.Count;
+        letterStart = new float[count];
+        letterSeed = new Vector2[count];
+        letterReach = new float[count];
+        var order = new List<int>();
+        for (int i = 0; i < count; i++) order.Add(i);
+        for (int i = count - 1; i > 0; i--)
+        {
+            int j = random.Next(i + 1);
+            (order[i], order[j]) = (order[j], order[i]);
+        }
+        for (int slot = 0; slot < count; slot++)
+        {
+            int letter = order[slot];
+            letterStart[letter] = Mathf.Lerp(HeadlineFirst, HeadlineLast, count > 1 ? slot / (float)(count - 1) : 0f);
+            RectInt box = boxes[letter];
+            letterSeed[letter] = new Vector2(box.x + Range(0f, box.width), Range(0f, box.height));
+            float reach = 0f;
+            foreach (Vector2 corner in new[] { new Vector2(box.xMin, -2f), new Vector2(box.xMax, -2f), new Vector2(box.xMin, box.yMax), new Vector2(box.xMax, box.yMax) })
+            {
+                reach = Mathf.Max(reach, Vector2.Distance(corner, letterSeed[letter]));
+            }
+            letterReach[letter] = reach + 1f;
+        }
+
+        int phraseWidth = Mathf.Max(0, pen - PixelFont.Spacing);
+        headlineX = Mathf.RoundToInt(centre.x * cols) - phraseWidth * HeadlineFontPixel / 2;
+        headlineTop = Mathf.RoundToInt(centre.y * rows) + PixelFont.CapHeight * HeadlineFontPixel / 2;
+    }
+
+    private void DrawHeadline()
+    {
+        if (headlinePixels.Count == 0)
+        {
+            return;
+        }
+
+        int frameIndex = (int)(clock * HeadlineFps) % 3;
+        float crumble = phase == Phase.Rebuild ? Mathf.Clamp01(time / HeadlineCrumble) : 0f;
+        if (crumble >= 1f)
+        {
+            return;
+        }
+
+        // Dark outline first, then the flames, so neighbouring letters never cover each other's glow.
+        for (int pass = 0; pass < 2; pass++)
+        {
+            foreach (HeadPixel pixel in headlinePixels)
+            {
+                if (pixel.Frame >= 0 && pixel.Frame != frameIndex)
+                {
+                    continue;
+                }
+                float age = clock - letterStart[pixel.Letter];
+                if (age < 0f)
+                {
+                    continue;
+                }
+
+                // Grows from the seed: a pixel shows once the growth radius passes it (ragged edge).
+                float grow = Mathf.Clamp01(age / HeadlineGrow);
+                float radius = grow * grow * (3f - 2f * grow) * letterReach[pixel.Letter];
+                float jitter = Hash(pixel.X, pixel.Y, 31 + pixel.Letter) * 0.8f;
+                float since = radius - (Vector2.Distance(new Vector2(pixel.X + 0.5f, pixel.Y + 0.5f), letterSeed[pixel.Letter]) + jitter);
+                if (since < 0f)
+                {
+                    continue;
+                }
+                if (crumble > 0f && Hash(pixel.X, pixel.Y, 47) < crumble)
+                {
+                    continue; // Crumbles away as the letter rebuilds.
+                }
+
+                int cx = headlineX + pixel.X * HeadlineFontPixel;
+                int cy = headlineTop - (pixel.Y + 1) * HeadlineFontPixel;
+                if (pass == 0)
+                {
+                    for (int y = cy - 1; y <= cy + HeadlineFontPixel; y++)
+                    {
+                        for (int x = cx - 1; x <= cx + HeadlineFontPixel; x++)
+                        {
+                            FillBlock(x, y, HeadlineOutline, 0.85f);
+                        }
+                    }
+                    continue;
+                }
+
+                Color32 color = FlameColor(pixel, frameIndex);
+                // Freshly grown pixels flash white-hot for a moment.
+                float flash = Mathf.Clamp01(1f - since * 1.5f);
+                color = Color32.Lerp(color, FireRamp[0], flash);
+                for (int y = cy; y < cy + HeadlineFontPixel; y++)
+                {
+                    for (int x = cx; x < cx + HeadlineFontPixel; x++)
+                    {
+                        FillBlock(x, y, color, 1f);
+                    }
+                }
+            }
+        }
+    }
+
+    // Hot at the bottom of each letter, cooling to red at the tongues, with a per-frame
+    // shift so the colours flicker between the three frames.
+    private static Color32 FlameColor(HeadPixel pixel, int frameIndex)
+    {
+        int step = pixel.Y < 0 ? 3 : pixel.Y <= 1 ? 2 : pixel.Y <= 3 ? 1 : 0;
+        float shift = Hash(pixel.X, pixel.Y, 53 + frameIndex);
+        if (shift < 0.25f) step = Mathf.Max(0, step - 1);
+        else if (shift > 0.8f) step = Mathf.Min(4, step + 1);
+        return FireRamp[step];
     }
 
     // ---- Capture ----------------------------------------------------------------------

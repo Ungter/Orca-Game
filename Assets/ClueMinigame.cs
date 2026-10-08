@@ -18,10 +18,8 @@ public class ClueMinigame : MonoBehaviour
     private const int BorderSize = GridSize + 2;
     private const int TileSize = 35;
     private const int CanvasSize = BorderSize * TileSize;
-    // The sketch measured tiles in 14 px and its end screen against a 12-tile canvas of
-    // 70 px tiles; both are rescaled to this board.
+    // The sketch measured tiles in 14 px; TilePx rescales those sizes to this board.
     private const float SketchTile = 14f;
-    private const float SketchCanvas = 840f;
     private const int Floor = -1;
 
     // Where the board, step counter and colour hint sit on Letter_screen.png (384 x 240,
@@ -29,7 +27,7 @@ public class ClueMinigame : MonoBehaviour
     // centred on it, the counter and hint fill the margins either side.
     private const float BoardSide = 168f;
     private static readonly Vector2 LetterSize = new Vector2(384f, 240f);
-    private static readonly Vector2 BoardCentre = new Vector2(182f, 104f);
+    private static readonly Vector2 BoardCentre = new Vector2(182f, 115f);
     private static readonly Vector2 StepsCentre = new Vector2(313f, 104f);
     private const float HintX = 52f;
     private const float HintSwatch = 30f;
@@ -58,33 +56,28 @@ public class ClueMinigame : MonoBehaviour
         new Vector2Int(0, -1),
     };
 
+    // Muted pigments, so the tiles read as paint on parchment yet stay easy to tell apart.
     private static readonly Color32[] Colors =
     {
-        new Color32(255, 0, 0, 255),
-        new Color32(255, 127, 0, 255),
-        new Color32(255, 255, 0, 255),
-        new Color32(0, 255, 0, 255),
-        new Color32(0, 0, 255, 255),
-        new Color32(75, 0, 130, 255),
-        new Color32(255, 255, 255, 255),
+        new Color32(176, 52, 38, 255),   // vermilion
+        new Color32(204, 114, 40, 255),  // orange ochre
+        new Color32(218, 174, 58, 255),  // saffron
+        new Color32(70, 132, 84, 255),   // verdigris
+        new Color32(44, 80, 154, 255),   // lapis
+        new Color32(94, 56, 120, 255),   // murex purple
+        new Color32(238, 230, 206, 255), // chalk
     };
 
-    private static readonly Color32 Background = new Color32(80, 80, 120, 255);
-    private static readonly Color32 Outline = new Color32(38, 35, 80, 255);
-    private static readonly Color32 Shade = new Color32(0, 0, 0, 70);
-    private static readonly Color32 Shine = new Color32(255, 255, 255, 90);
-    private static readonly Color32 PlayerShadow = new Color32(0, 0, 0, 120);
-    private static readonly Color32 White = new Color32(255, 255, 255, 255);
-    private static readonly Color32 EndBackground = new Color32(8, 8, 12, 255);
-    private static readonly Color32 EndBox = new Color32(20, 20, 30, 255);
+    // Pen ink for grid lines, tile and swatch outlines.
+    private static readonly Color32 Outline = new Color32(52, 36, 24, 255);
+    // The grid keeps going past the board onto the paper and fades out over this many tiles.
+    private const float PaperLineFade = 3.5f;
+    // Paper-lines texture resolution, in texels per letter pixel.
+    private const int PaperLineScale = 4;
 
     [SerializeField]
     private string triggerItem = "Clue Letter";
 
-    // Cycled clockwise around the frame: orca, gazelle, iguana, panther.
-    // Unassigned tiles draw black, like the sketch before its images load.
-    [SerializeField]
-    private Texture2D[] borderTiles = new Texture2D[4];
 
     private readonly System.Random random = new System.Random();
     private readonly int[,] layout = new int[GridSize, GridSize];
@@ -102,22 +95,32 @@ public class ClueMinigame : MonoBehaviour
     private RectTransform boardRoot;
     private Image letterImage;
     private Texture2D texture;
+    // Runtime caches. NonSerialized so a script reload in Play mode resets them to null
+    // (Unity would otherwise restore them as empty arrays) and they get rebuilt.
+    [System.NonSerialized]
     private Color32[] pixels;
+    [System.NonSerialized]
+    private float[] grain;
+    // The paper lines: the board grid continued onto the letter (hidden on the end screen).
     private GameObject border;
-    private PixelText endTitle;
-    private PixelText endSubtitle;
+    private Texture2D paperLinesTexture;
+    private Sprite paperLinesFor;
     private PixelText stepsLabel;
-    private PixelText clueLabel;
+    // The clue, written out in cursive once the puzzle is solved.
+    private const string ClueText = "Fell, Jerk, Thief";
+    private RawImage clueInk;
+    private LetterBurn burn;
+    [System.NonSerialized]
+    private CursiveWriter clueWriter;
     private GameObject hint;
     private PixelText hintHeading;
     private PixelText hintThen;
-    private Image nextSwatch;
-    private Image afterSwatch;
+    private RawImage nextSwatch;
+    private RawImage afterSwatch;
+    // One painted tile per colour (the board's own PaintTile) for the colour hints.
+    [System.NonSerialized]
+    private Texture2D[] swatchTextures;
 
-    // Losing burns the letter after this pause; E or R burn it straight away.
-    private const float AutoBurnDelay = 1f;
-    private LetterBurn burn;
-    private float autoBurnIn = -1f;
 
     public bool IsShowing => surface != null && surface.gameObject.activeSelf;
 
@@ -140,14 +143,22 @@ public class ClueMinigame : MonoBehaviour
         }
         letterImage.sprite = letter;
         letterImage.enabled = letter != null;
+        if (paperLinesTexture == null || paperLinesFor != letter)
+        {
+            BuildPaperLines(letter);
+        }
         surface.gameObject.SetActive(true);
         Redraw();
     }
 
 public void Hide()
     {
-        // Closing mid-animation finishes the reset at once.
+        // Closing mid-animation finishes the reset (or the writing) at once.
         burn?.Cancel();
+        if (clueWriter != null && clueWriter.IsPlaying)
+        {
+            clueWriter.Complete();
+        }
         if (surface != null)
         {
             surface.gameObject.SetActive(false);
@@ -166,7 +177,33 @@ private void OnDestroy()
         {
             Destroy(texture);
         }
+        if (paperLinesTexture != null)
+        {
+            Destroy(paperLinesTexture);
+        }
+        if (swatchTextures != null)
+        {
+            foreach (Texture2D swatch in swatchTextures)
+            {
+                if (swatch != null) Destroy(swatch);
+            }
+        }
         burn?.Dispose();
+        clueWriter?.Dispose();
+    }
+
+    // Lays the cursive clue out once and points the clue image at its texture.
+    private void EnsureClueWriter()
+    {
+        if (clueWriter == null)
+        {
+            clueWriter = new CursiveWriter(ClueText, 300f, 18.2f, 4);
+        }
+        if (clueInk != null && clueInk.texture != clueWriter.Texture)
+        {
+            clueInk.texture = clueWriter.Texture;
+            PlaceOnLetter(clueInk.rectTransform, BoardCentre, clueWriter.SizeInLetterPixels);
+        }
     }
 
 private void Update()
@@ -179,6 +216,10 @@ private void Update()
         {
             burn.Tick(Time.unscaledDeltaTime);
             return; // Input waits for the letter to rebuild.
+        }
+        if (clueWriter != null && clueWriter.IsPlaying)
+        {
+            clueWriter.Tick(Time.unscaledDeltaTime);
         }
 
         Keyboard keyboard = Keyboard.current;
@@ -197,27 +238,28 @@ private void Update()
         }
         else if (Step(keyboard))
         {
+            if (outcome == Outcome.Won)
+            {
+                EnsureClueWriter();
+                clueWriter.Play();
+            }
             Redraw();
             if (outcome == Outcome.OutOfSteps)
             {
-                autoBurnIn = AutoBurnDelay;
-            }
-        }
-        else if (autoBurnIn >= 0f)
-        {
-            autoBurnIn -= Time.unscaledDeltaTime;
-            if (autoBurnIn < 0f)
-            {
-                BurnAndReset(false);
+                // The last step is drawn, then the letter goes up in flames from the board's
+                // centre while "OUT OF STEPS" burns into view.
+                BurnAndReset(false, true);
             }
         }
     }
 
     // The letter burns up; while it is ash the board resets (or is replaced), and
     // the letter rebuilds showing the fresh game.
-    private void BurnAndReset(bool newBoard)
+// The letter burns up; while it is ash the board resets (or is replaced), and
+    // the letter rebuilds showing the fresh game. Running out of steps always burns from
+    // the board's centre and writes the flame headline; E and R start random fires.
+    private void BurnAndReset(bool newBoard, bool outOfSteps = false)
     {
-        autoBurnIn = -1f;
         burn ??= new LetterBurn(surface, letterImage);
         burn.Play(() =>
         {
@@ -227,7 +269,7 @@ private void Update()
             }
             Restart();
             Redraw();
-        });
+        }, outOfSteps ? OnLetter(BoardCentre) : (Vector2?)null, outOfSteps ? "OUT OF STEPS" : null);
     }
 
     private void LateUpdate()
@@ -245,15 +287,11 @@ private void Update()
         surface.sizeDelta = new Vector2(height * aspect, height);
         float side = height * BoardSide / LetterSize.y;
         boardRoot.sizeDelta = new Vector2(side, side);
-        float scale = side / SketchCanvas;
         // Sizes are cap heights; PixelText rounds them to whole screen pixels per font pixel.
-        endTitle.fontSize = 30f * scale;
-        endSubtitle.fontSize = 13f * scale;
         float inkSize = height * 0.035f;
         stepsLabel.fontSize = inkSize;
         hintHeading.fontSize = inkSize;
         hintThen.fontSize = height * 0.028f;
-        clueLabel.fontSize = height * 0.07f;
     }
 
     private void Restart()
@@ -515,113 +553,241 @@ private void Update()
 
     private void Redraw()
     {
-        bool ended = outcome != Outcome.Playing;
-        if (ended)
+        EnsureCanvas();
+        EnsureSwatches();
+        // Running out of steps still shows the board: the burn takes it from there. Once
+        // solved the board is hidden (and the player has no colour left to wear).
+        DrawPaper();
+        if (!IsSolved)
         {
-            DrawEndScreen();
-        }
-        else
-        {
-            Fill(0, 0, CanvasSize, CanvasSize, Background);
             DrawBoard();
             DrawPlayer();
         }
+        ApplyLighting();
         texture.SetPixels32(pixels);
         texture.Apply();
 
-        // The end screen covers the whole canvas, frame included.
-        border.SetActive(!ended);
-        endTitle.gameObject.SetActive(ended);
-        endSubtitle.gameObject.SetActive(ended);
-        endTitle.text = "OUT OF STEPS";
-        endSubtitle.text = "PRESS [E] TO RETRY";
         stepsLabel.text = "Steps left\n" + stepsLeft;
 
         // Solving wipes the puzzle off the letter and leaves only the clue written on it.
         boardRoot.gameObject.SetActive(!IsSolved);
+        border.SetActive(!IsSolved); // The grid running out onto the paper goes with the board.
         stepsLabel.gameObject.SetActive(!IsSolved);
-        clueLabel.gameObject.SetActive(IsSolved);
+        clueInk.gameObject.SetActive(IsSolved);
+        if (IsSolved)
+        {
+            EnsureClueWriter();
+            if (!clueWriter.HasStarted)
+            {
+                clueWriter.Complete(); // Solved earlier: show it already written.
+            }
+        }
 
         // The player wears the colour it is on; the hint shows the two that follow it.
         int next = currentColor + 1;
         int after = currentColor + 2;
-        hint.SetActive(!ended && next < Colors.Length);
+        hint.SetActive(!IsSolved && next < Colors.Length);
         if (hint.activeSelf)
         {
-            nextSwatch.color = Colors[next];
+            nextSwatch.texture = swatchTextures[next];
             bool hasAfter = after < Colors.Length;
-            afterSwatch.transform.parent.gameObject.SetActive(hasAfter);
+            afterSwatch.gameObject.SetActive(hasAfter);
             hintThen.gameObject.SetActive(hasAfter);
             if (hasAfter)
             {
-                afterSwatch.color = Colors[after];
+                afterSwatch.texture = swatchTextures[after];
             }
         }
     }
 
-    private void DrawBoard()
+private void DrawBoard()
     {
-        int edge = TilePx(0.8f);
         int inset = TilePx(1.6f);
-        int face = TileSize - TilePx(3.2f);
-        int shine = TilePx(1.2f);
+        int face = TileSize - inset * 2;
         for (int y = 0; y < GridSize; y++)
         {
             for (int x = 0; x < GridSize; x++)
             {
-                int px = (x + 1) * TileSize;
-                int py = (y + 1) * TileSize;
-                Frame(px, py, TileSize, TileSize, edge, Outline);
-
                 int tile = board[y, x];
-                if (tile == Floor)
+                if (tile != Floor)
                 {
-                    continue;
+                    PaintTile((x + 1) * TileSize + inset, (y + 1) * TileSize + inset, face, Colors[tile]);
                 }
-                Fill(px + inset, py + inset, face, face, Colors[tile]);
-                Fill(px + inset, py + face, face, inset, Shade);
-                Fill(px + face, py + inset, inset, face, Shade);
-                Fill(px + inset, py + inset, face, shine, Shine);
-                Fill(px + inset, py + inset, shine, face, Shine);
+            }
+        }
+
+        // Pen grid over the paint, wobbling and fading like ink from a nib.
+        int start = TileSize;
+        int end = TileSize * (GridSize + 1);
+        for (int k = 0; k <= GridSize; k++)
+        {
+            int at = TileSize * (k + 1);
+            int width = k == 0 || k == GridSize ? 3 : 2;
+            InkLine(start, at, end - start, true, width, k * 7 + 1);
+            InkLine(at, start, end - start, false, width, k * 7 + 3);
+        }
+    }
+
+    // A square of pigment: soft cast shadow, ragged brush edges, granulated paint,
+    // light from the top-left (bright upper/left rims, dark lower/right rims), inked outline.
+    private void PaintTile(int x0, int y0, int size, Color32 color)
+    {
+        int shadow = TilePx(1.2f);
+        for (int v = 0; v < size; v++)
+        {
+            for (int u = 0; u < size; u++)
+            {
+                int x = x0 + u + shadow;
+                int y = y0 + v + shadow;
+                Blend(x, y, Outline, 0.22f * (0.7f + 0.6f * Grain(x, y)));
+            }
+        }
+
+        int rim = Mathf.Max(2, TilePx(0.9f));
+        for (int v = 0; v < size; v++)
+        {
+            for (int u = 0; u < size; u++)
+            {
+                int x = x0 + u;
+                int y = y0 + v;
+                int edge = Mathf.Min(Mathf.Min(u, v), Mathf.Min(size - 1 - u, size - 1 - v));
+                if (edge < 2 && Hash01(x, y, 11) < 0.4f * (2 - edge) / 2f)
+                {
+                    continue; // Ragged brush edge.
+                }
+
+                float diagonal = (u + v) / (2f * size);
+                float light = 1.08f - 0.2f * diagonal;
+                if (u < rim || v < rim) light *= 1.14f;
+                if (u >= size - rim || v >= size - rim) light *= 0.76f;
+                light *= 0.9f + 0.2f * Grain(x, y);
+
+                var paint = new Color32(
+                    (byte)Mathf.Clamp(color.r * light, 0f, 255f),
+                    (byte)Mathf.Clamp(color.g * light, 0f, 255f),
+                    (byte)Mathf.Clamp(color.b * light, 0f, 255f),
+                    255);
+                Blend(x, y, paint, 0.96f);
+
+                if (edge == 0 || edge == 1 && Hash01(x, y, 13) < 0.3f)
+                {
+                    Blend(x, y, Outline, 0.55f * (0.6f + 0.4f * Grain(x, y)));
+                }
             }
         }
     }
 
-    private void DrawPlayer()
+    // A pen stroke along one grid line. Ink density follows the paper grain and the line
+    // drifts sideways by a pixel now and then.
+    private void InkLine(int x, int y, int length, bool horizontal, int width, int seed)
     {
-        int px = (player.x + 1) * TileSize;
-        int py = (player.y + 1) * TileSize;
-        int shadowAt = TilePx(3.4f);
-        int shadowSize = TileSize - TilePx(5.2f);
-        int bodyAt = TilePx(2.8f);
-        int bodySize = TileSize - TilePx(5.6f);
-        int stroke = TilePx(1.4f);
-        int outside = (stroke + 1) / 2;
-        Fill(px + shadowAt, py + shadowAt, shadowSize, shadowSize, PlayerShadow);
-        Fill(px + bodyAt, py + bodyAt, bodySize, bodySize, Colors[currentColor]);
-        // The white stroke straddles the body's edge, as p5 draws it.
-        Frame(px + bodyAt - outside, py + bodyAt - outside, bodySize + stroke, bodySize + stroke, stroke, White);
-        Fill(px + TilePx(4f), py + TilePx(4f), TilePx(1.6f), TilePx(1.6f), White);
+        for (int t = 0; t < length; t++)
+        {
+            int wobble = Mathf.RoundToInt((Noise(t / 46f, seed) - 0.5f) * 2.4f);
+            for (int w = 0; w < width; w++)
+            {
+                int px = horizontal ? x + t : x + wobble + w - width / 2;
+                int py = horizontal ? y + wobble + w - width / 2 : y + t;
+                float density = 0.5f + 0.35f * Grain(px, py) + 0.15f * Noise(t / 9f, seed + 5);
+                Blend(px, py, Outline, density * (w == 0 || w == width - 1 ? 0.75f : 1f));
+            }
+        }
     }
 
-    private void DrawEndScreen()
+// The player is a wax seal in the colour it carries: drop shadow, darker pressed rim,
+    // a stamped inner ring, shading from the top-left and a small glint.
+    private void DrawPlayer()
     {
-        int boxWidth = CanvasPx(380f);
-        int boxHeight = CanvasPx(200f);
-        int corner = CanvasPx(20f);
-        int stroke = CanvasPx(5f);
-        int boxX = (CanvasSize - boxWidth) / 2;
-        int boxY = (CanvasSize - boxHeight) / 2;
-        int outside = (stroke + 1) / 2;
-        int inside = stroke / 2;
+        float cx = (player.x + 1) * TileSize + TileSize * 0.5f;
+        float cy = (player.y + 1) * TileSize + TileSize * 0.5f;
+        float r = TileSize * 0.36f;
+        float shadowOffset = TilePx(1.4f);
+        Color32 wax = Colors[currentColor];
 
-        Fill(0, 0, CanvasSize, CanvasSize, EndBackground);
-        Fill(boxX - outside, boxY - outside, boxWidth + outside * 2, boxHeight + outside * 2, White);
-        Fill(boxX + inside, boxY + inside, boxWidth - inside * 2, boxHeight - inside * 2, EndBox);
-        Fill(boxX, boxY, corner, corner, White);
-        Fill(boxX + boxWidth - corner, boxY, corner, corner, White);
-        Fill(boxX, boxY + boxHeight - corner, corner, corner, White);
-        Fill(boxX + boxWidth - corner, boxY + boxHeight - corner, corner, corner, White);
+        int x0 = Mathf.FloorToInt(cx - r - 2f);
+        int y0 = Mathf.FloorToInt(cy - r - 2f);
+        int span = Mathf.CeilToInt(r * 2f + 4f + shadowOffset);
+        for (int y = y0; y < y0 + span; y++)
+        {
+            for (int x = x0; x < x0 + span; x++)
+            {
+                float sx = x + 0.5f - cx - shadowOffset;
+                float sy = y + 0.5f - cy - shadowOffset;
+                float shadowCover = Mathf.Clamp01(r + 1.5f - Mathf.Sqrt(sx * sx + sy * sy));
+                Blend(x, y, Outline, shadowCover * 0.35f);
+            }
+        }
+
+        for (int y = y0; y < y0 + span; y++)
+        {
+            for (int x = x0; x < x0 + span; x++)
+            {
+                float dx = x + 0.5f - cx;
+                float dy = y + 0.5f - cy;
+                float d = Mathf.Sqrt(dx * dx + dy * dy);
+                float cover = Mathf.Clamp01(r + 0.5f - d);
+                if (cover <= 0f)
+                {
+                    continue;
+                }
+
+                float light = 1f - 0.28f * (dx + dy) / (r * 1.41f);
+                if (d > r * 0.78f) light *= 0.72f;
+                float ring = Mathf.Abs(d - r * 0.48f);
+                if (ring < 1.2f) light *= dx + dy < 0f ? 0.8f : 1.2f; // Stamp edge catches light below-right.
+                else if (d < r * 0.48f) light *= 0.9f;
+                light *= 0.94f + 0.12f * Grain(x, y);
+
+                var body = new Color32(
+                    (byte)Mathf.Clamp(wax.r * light, 0f, 255f),
+                    (byte)Mathf.Clamp(wax.g * light, 0f, 255f),
+                    (byte)Mathf.Clamp(wax.b * light, 0f, 255f),
+                    255);
+                Blend(x, y, body, cover);
+
+                float gx = dx + r * 0.38f;
+                float gy = dy + r * 0.38f;
+                float glint = Mathf.Clamp01(r * 0.16f - Mathf.Sqrt(gx * gx + gy * gy) + 0.5f);
+                Blend(x, y, new Color32(255, 248, 230, 255), glint * 0.6f);
+
+                float edgeInk = Mathf.Clamp01(1.4f - Mathf.Abs(d - r));
+                Blend(x, y, Outline, edgeInk * 0.7f);
+            }
+        }
+    }
+
+
+    // Thin aged wash over the board area; the letter's paper shows through it.
+// The board has no background of its own: the letter's paper shows straight through.
+    private void DrawPaper()
+    {
+        System.Array.Clear(pixels, 0, pixels.Length);
+    }
+
+    // Static candle light over the finished board: brighter and warmer at the top-left,
+    // falling off toward the bottom-right, darker toward the edges.
+    private void ApplyLighting()
+    {
+        float inv = 1f / CanvasSize;
+        for (int y = 0; y < CanvasSize; y++)
+        {
+            for (int x = 0; x < CanvasSize; x++)
+            {
+                float nx = x * inv;
+                float ny = y * inv;
+                float ex = nx - 0.5f;
+                float ey = ny - 0.5f;
+                float vignette = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.42f, 0.74f, Mathf.Sqrt(ex * ex + ey * ey)));
+                float light = (1.07f - 0.17f * (nx + ny) * 0.5f) * (1f - 0.3f * vignette);
+
+                int i = Index(x, y);
+                Color32 c = pixels[i];
+                c.r = (byte)Mathf.Clamp(c.r * light * 1.04f, 0f, 255f);
+                c.g = (byte)Mathf.Clamp(c.g * light, 0f, 255f);
+                c.b = (byte)Mathf.Clamp(c.b * light * 0.9f, 0f, 255f);
+                pixels[i] = c;
+            }
+        }
     }
 
     private static int TilePx(float sketchPixels)
@@ -629,36 +795,123 @@ private void Update()
         return Mathf.FloorToInt(sketchPixels * TileSize / SketchTile + 0.5f);
     }
 
-    private static int CanvasPx(float sketchPixels)
-    {
-        return Mathf.FloorToInt(sketchPixels * CanvasSize / SketchCanvas + 0.5f);
-    }
-
-    private void Frame(int x, int y, int width, int height, int thickness, Color32 color)
-    {
-        Fill(x, y, width, thickness, color);
-        Fill(x, y + height - thickness, width, thickness, color);
-        Fill(x, y + thickness, thickness, height - thickness * 2, color);
-        Fill(x + width - thickness, y + thickness, thickness, height - thickness * 2, color);
-    }
-
     // Alpha-blends a rectangle measured from the top-left, like p5's rect().
-    private void Fill(int x, int y, int width, int height, Color32 color)
+private void Fill(int x, int y, int width, int height, Color32 color)
     {
-        int alpha = color.a;
-        int keep = 255 - alpha;
+        float alpha = color.a / 255f;
+        color.a = 255;
         for (int row = y; row < y + height; row++)
         {
-            // Texture rows run bottom-up.
-            int start = (CanvasSize - 1 - row) * CanvasSize;
-            for (int i = start + x; i < start + x + width; i++)
+            for (int col = x; col < x + width; col++)
             {
-                Color32 under = pixels[i];
-                pixels[i] = alpha == 255 ? color : new Color32(
-                    (byte)((color.r * alpha + under.r * keep + 127) / 255),
-                    (byte)((color.g * alpha + under.g * keep + 127) / 255),
-                    (byte)((color.b * alpha + under.b * keep + 127) / 255),
-                    255);
+                Blend(col, row, color, alpha);
+            }
+        }
+    }
+
+    // Paints color over one canvas pixel (top-left origin), keeping the canvas's own
+    // transparency so the letter shows through thin washes.
+    private void Blend(int x, int y, Color32 color, float alpha)
+    {
+        if (x < 0 || y < 0 || x >= CanvasSize || y >= CanvasSize || alpha <= 0f)
+        {
+            return;
+        }
+        int i = Index(x, y);
+        Color32 under = pixels[i];
+        float a = Mathf.Clamp01(alpha);
+        float ua = under.a / 255f;
+        float outA = a + ua * (1f - a);
+        if (outA <= 0f)
+        {
+            return;
+        }
+        pixels[i] = new Color32(
+            (byte)((color.r * a + under.r * ua * (1f - a)) / outA),
+            (byte)((color.g * a + under.g * ua * (1f - a)) / outA),
+            (byte)((color.b * a + under.b * ua * (1f - a)) / outA),
+            (byte)(outA * 255f));
+    }
+
+    // Texture rows run bottom-up; the canvas is drawn top-down.
+    private static int Index(int x, int y)
+    {
+        return (CanvasSize - 1 - y) * CanvasSize + x;
+    }
+
+    // Static paper grain, 0..1: soft blotches, finer mottling, horizontal fibres and the
+    // odd dark fleck. Built once, so every redraw shares the same paper.
+    private float Grain(int x, int y)
+    {
+        if (grain == null || grain.Length != CanvasSize * CanvasSize)
+        {
+            grain = new float[CanvasSize * CanvasSize];
+            for (int gy = 0; gy < CanvasSize; gy++)
+            {
+                for (int gx = 0; gx < CanvasSize; gx++)
+                {
+                    float n = ValueNoise(gx / 60f, gy / 60f, 1) * 0.45f
+                        + ValueNoise(gx / 14f, gy / 14f, 2) * 0.3f
+                        + ValueNoise(gx / 24f, gy / 2.5f, 3) * 0.25f;
+                    if (Hash01(gx, gy, 4) < 0.003f) n -= 0.4f;
+                    grain[gy * CanvasSize + gx] = Mathf.Clamp01(n);
+                }
+            }
+        }
+        x = Mathf.Clamp(x, 0, CanvasSize - 1);
+        y = Mathf.Clamp(y, 0, CanvasSize - 1);
+        return grain[y * CanvasSize + x];
+    }
+
+    private static float Noise(float t, int seed)
+    {
+        return ValueNoise(t, seed * 3.7f, seed);
+    }
+
+    private static float ValueNoise(float x, float y, int seed)
+    {
+        int xi = Mathf.FloorToInt(x);
+        int yi = Mathf.FloorToInt(y);
+        float fx = x - xi;
+        float fy = y - yi;
+        fx = fx * fx * (3f - 2f * fx);
+        fy = fy * fy * (3f - 2f * fy);
+        float top = Mathf.Lerp(Hash01(xi, yi, seed), Hash01(xi + 1, yi, seed), fx);
+        float bottom = Mathf.Lerp(Hash01(xi, yi + 1, seed), Hash01(xi + 1, yi + 1, seed), fx);
+        return Mathf.Lerp(top, bottom, fy);
+    }
+
+    private static float Hash01(int x, int y, int seed)
+    {
+        unchecked
+        {
+            uint h = (uint)(x * 374761393 + y * 668265263 + seed * 982451653);
+            h = (h ^ (h >> 13)) * 1274126177u;
+            h ^= h >> 16;
+            return h / (float)uint.MaxValue;
+        }
+    }
+
+    // Recreates the board buffer and texture if they were lost (e.g. a script reload while
+    // playing), and hands the texture back to the board image.
+    private void EnsureCanvas()
+    {
+        if (pixels == null || pixels.Length != CanvasSize * CanvasSize)
+        {
+            pixels = new Color32[CanvasSize * CanvasSize];
+        }
+        if (texture == null)
+        {
+            texture = new Texture2D(CanvasSize, CanvasSize, TextureFormat.RGBA32, true)
+            {
+                name = "Clue minigame",
+                filterMode = FilterMode.Trilinear,
+                wrapMode = TextureWrapMode.Clamp,
+            };
+            Transform image = boardRoot != null ? boardRoot.Find("Board image") : null;
+            if (image != null)
+            {
+                image.GetComponent<RawImage>().texture = texture;
             }
         }
     }
@@ -692,27 +945,16 @@ private void Update()
         };
         CreateTile("Board image", boardRoot, 0, 0, BorderSize).texture = texture;
 
-        border = new GameObject("Border", typeof(RectTransform));
-        RectTransform frame = (RectTransform)border.transform;
-        frame.SetParent(boardRoot, false);
-        frame.anchorMin = Vector2.zero;
-        frame.anchorMax = Vector2.one;
-        frame.offsetMin = frame.offsetMax = Vector2.zero;
-        // Walk the frame clockwise from the top-left corner, as the sketch does.
-        int last = BorderSize - 1;
-        int index = 0;
-        for (int x = 0; x <= last; x++) AddBorderTile(frame, index++, x, 0);
-        for (int y = 1; y <= last; y++) AddBorderTile(frame, index++, last, y);
-        for (int x = last - 1; x >= 0; x--) AddBorderTile(frame, index++, x, last);
-        for (int y = last - 1; y > 0; y--) AddBorderTile(frame, index++, 0, y);
+        // Drawn on the paper under the board (see BuildPaperLines).
+        RawImage lines = new GameObject("Paper lines", typeof(RectTransform), typeof(RawImage)).GetComponent<RawImage>();
+        lines.transform.SetParent(surface, false);
+        lines.transform.SetSiblingIndex(letterImage.transform.GetSiblingIndex() + 1);
+        lines.raycastTarget = false;
+        lines.rectTransform.anchorMin = Vector2.zero;
+        lines.rectTransform.anchorMax = Vector2.one;
+        lines.rectTransform.offsetMin = lines.rectTransform.offsetMax = Vector2.zero;
+        border = lines.gameObject;
 
-        endTitle = CreateLabel("End title", boardRoot, Color.white);
-        endTitle.shadowColor = new Color(0f, 0f, 0f, 0.6f);
-        PlaceOnCentre(endTitle, 25f);
-        endSubtitle = CreateLabel("End subtitle", boardRoot, new Color(180f / 255f, 180f / 255f, 180f / 255f));
-        endSubtitle.highlightBrackets = true;
-        endSubtitle.keyColor = Color.white;
-        PlaceOnCentre(endSubtitle, -35f);
 
         // Written on the paper beside the board.
         stepsLabel = CreateLabel("Steps left", surface, Ink);
@@ -737,27 +979,59 @@ private void Update()
         afterSwatch = CreateSwatch("Colour after", hintRect, new Vector2(HintX, 142f));
 
         // Revealed on the paper once the puzzle is solved.
-        clueLabel = CreateLabel("Clue", surface, Ink);
-        clueLabel.text = "Fell, Jerk, Thief";
-        PlaceOnLetter(clueLabel.rectTransform, BoardCentre, Vector2.zero);
+        clueInk = new GameObject("Clue", typeof(RectTransform), typeof(RawImage)).GetComponent<RawImage>();
+        clueInk.transform.SetParent(surface, false);
+        clueInk.raycastTarget = false;
+        clueInk.gameObject.SetActive(false);
     }
 
-    // A tile-style square on the letter: an outline around the colour face. Returns the face.
-    private static Image CreateSwatch(string name, Transform parent, Vector2 centre)
+    // A colour hint on the letter: shows a painted tile, the same as on the board.
+    private static RawImage CreateSwatch(string name, Transform parent, Vector2 centre)
     {
-        Image outline = new GameObject(name, typeof(RectTransform), typeof(Image)).GetComponent<Image>();
-        outline.transform.SetParent(parent, false);
-        outline.raycastTarget = false;
-        outline.color = Outline;
-        PlaceOnLetter(outline.rectTransform, centre, new Vector2(HintSwatch, HintSwatch));
+        RawImage swatch = new GameObject(name, typeof(RectTransform), typeof(RawImage)).GetComponent<RawImage>();
+        swatch.transform.SetParent(parent, false);
+        swatch.raycastTarget = false;
+        PlaceOnLetter(swatch.rectTransform, centre, new Vector2(HintSwatch, HintSwatch));
+        return swatch;
+    }
 
-        Image face = new GameObject("Face", typeof(RectTransform), typeof(Image)).GetComponent<Image>();
-        face.transform.SetParent(outline.transform, false);
-        face.raycastTarget = false;
-        face.rectTransform.anchorMin = new Vector2(0.12f, 0.12f);
-        face.rectTransform.anchorMax = new Vector2(0.88f, 0.88f);
-        face.rectTransform.offsetMin = face.rectTransform.offsetMax = Vector2.zero;
-        return face;
+    // Paints each colour's tile with PaintTile into the board buffer and copies it out into
+    // its own texture. Runs at the start of Redraw, which repaints the buffer right after.
+    // Rebuilt whenever the textures are missing (first use, or a script reload while playing).
+    private void EnsureSwatches()
+    {
+        if (swatchTextures != null && swatchTextures.Length == Colors.Length && System.Array.TrueForAll(swatchTextures, t => t != null))
+        {
+            return;
+        }
+
+        int inset = TilePx(1.6f);
+        int face = TileSize - inset * 2;
+        int size = face + TilePx(1.2f) + 2;
+        swatchTextures = new Texture2D[Colors.Length];
+        for (int colour = 0; colour < Colors.Length; colour++)
+        {
+            System.Array.Clear(pixels, 0, pixels.Length);
+            PaintTile(1, 1, face, Colors[colour]);
+            var swatch = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    swatch[(size - 1 - y) * size + x] = pixels[Index(x, y)];
+                }
+            }
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, true)
+            {
+                name = "Clue swatch " + colour,
+                filterMode = FilterMode.Trilinear,
+                wrapMode = TextureWrapMode.Clamp,
+            };
+            tex.SetPixels32(swatch);
+            tex.Apply(true);
+            swatchTextures[colour] = tex;
+        }
+        System.Array.Clear(pixels, 0, pixels.Length);
     }
 
     // Spans a box measured in Letter_screen pixels, so it scales with the letter.
@@ -773,12 +1047,125 @@ private void Update()
         return new Vector2(letterPixels.x / LetterSize.x, 1f - letterPixels.y / LetterSize.y);
     }
 
-    private void AddBorderTile(Transform parent, int index, int x, int y)
+// Continues the board's grid onto the letter, fading with distance from the play area,
+    // and only where the letter is plain paper (sampled from the letter image itself), so
+    // the lines never run over its edges or decoration. Static: built once per letter sprite.
+    private void BuildPaperLines(Sprite letter)
     {
-        Texture2D art = borderTiles.Length > 0 ? borderTiles[index % borderTiles.Length] : null;
-        RawImage tile = CreateTile("Border tile", parent, x, y, 1);
-        tile.texture = art;
-        tile.color = art != null ? Color.white : Color.black;
+        paperLinesFor = letter;
+        int lw = letter != null ? Mathf.RoundToInt(letter.rect.width) : (int)LetterSize.x;
+        int lh = letter != null ? Mathf.RoundToInt(letter.rect.height) : (int)LetterSize.y;
+        Color32[] paper = letter != null ? ReadSprite(letter, lw, lh) : null;
+
+        float tile = BoardSide / BorderSize;
+        float left = BoardCentre.x - BoardSide * 0.5f + tile;
+        float top = BoardCentre.y - BoardSide * 0.5f + tile;
+        float play = GridSize * tile;
+        float fadeDistance = PaperLineFade * tile;
+        float halfWidth = tile / TileSize * PaperLineScale; // One board-canvas pixel, in texels.
+
+        // The paper's own colour, averaged under the board where the letter is blank.
+        Vector3 reference = new Vector3(214f, 196f, 156f);
+        if (paper != null)
+        {
+            Vector3 sum = Vector3.zero;
+            int count = 0;
+            for (int y = Mathf.Max(0, (int)top); y < Mathf.Min(lh, (int)(top + play)); y += 2)
+            {
+                for (int x = Mathf.Max(0, (int)left); x < Mathf.Min(lw, (int)(left + play)); x += 2)
+                {
+                    Color32 c = paper[(lh - 1 - y) * lw + x];
+                    if (c.a > 200)
+                    {
+                        sum += new Vector3(c.r, c.g, c.b);
+                        count++;
+                    }
+                }
+            }
+            if (count > 0) reference = sum / count;
+        }
+
+        int w = lw * PaperLineScale;
+        int h = lh * PaperLineScale;
+        var texels = new Color32[w * h];
+        for (int ty = 0; ty < h; ty++)
+        {
+            float ly = (ty + 0.5f) / PaperLineScale; // Letter pixels from the top.
+            for (int tx = 0; tx < w; tx++)
+            {
+                float lx = (tx + 0.5f) / PaperLineScale;
+                float dx = Mathf.Max(Mathf.Max(left - lx, lx - (left + play)), 0f);
+                float dy = Mathf.Max(Mathf.Max(top - ly, ly - (top + play)), 0f);
+                float d = Mathf.Sqrt(dx * dx + dy * dy);
+                if (d <= 0f || d >= fadeDistance)
+                {
+                    continue; // The board draws inside the play area itself.
+                }
+
+                float gx = (lx - left) / tile;
+                float gy = (ly - top) / tile;
+                int kx = Mathf.RoundToInt(gx);
+                int ky = Mathf.RoundToInt(gy);
+                float vertical = Mathf.Clamp01(halfWidth + 0.5f - Mathf.Abs(gx - kx) * tile * PaperLineScale);
+                float horizontal = Mathf.Clamp01(halfWidth + 0.5f - Mathf.Abs(gy - ky) * tile * PaperLineScale);
+                // Ink density varies along each line, like the pen grid on the board.
+                vertical *= 0.6f + 0.4f * ValueNoise(gy * 0.7f, kx * 3.1f, 21);
+                horizontal *= 0.6f + 0.4f * ValueNoise(gx * 0.7f, ky * 3.1f, 22);
+                float ink = Mathf.Max(vertical, horizontal);
+                if (ink <= 0f)
+                {
+                    continue;
+                }
+
+                float fade = 1f - d / fadeDistance;
+                fade *= fade;
+
+                float paperness = 1f;
+                if (paper != null)
+                {
+                    Color32 c = paper[(lh - 1 - Mathf.Min(lh - 1, (int)ly)) * lw + Mathf.Min(lw - 1, (int)lx)];
+                    float diff = (Mathf.Abs(c.r - reference.x) + Mathf.Abs(c.g - reference.y) + Mathf.Abs(c.b - reference.z)) / 3f;
+                    paperness = c.a < 128 ? 0f : 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(18f, 45f, diff));
+                }
+
+                Color32 line = Outline;
+                line.a = (byte)(255f * Mathf.Clamp01(ink * fade * paperness * 0.85f));
+                texels[(h - 1 - ty) * w + tx] = line;
+            }
+        }
+
+        if (paperLinesTexture == null || paperLinesTexture.width != w || paperLinesTexture.height != h)
+        {
+            if (paperLinesTexture != null) Destroy(paperLinesTexture);
+            paperLinesTexture = new Texture2D(w, h, TextureFormat.RGBA32, true)
+            {
+                name = "Clue paper lines",
+                filterMode = FilterMode.Trilinear,
+                wrapMode = TextureWrapMode.Clamp,
+            };
+        }
+        paperLinesTexture.SetPixels32(texels);
+        paperLinesTexture.Apply(true);
+        border.GetComponent<RawImage>().texture = paperLinesTexture;
+    }
+
+    // Reads a sprite's pixels through the GPU, so the texture needs no Read/Write flag.
+    private static Color32[] ReadSprite(Sprite sprite, int width, int height)
+    {
+        Texture source = sprite.texture;
+        Rect r = sprite.textureRect;
+        RenderTexture target = RenderTexture.GetTemporary(width, height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+        Graphics.Blit(source, target, new Vector2(r.width / source.width, r.height / source.height),
+            new Vector2(r.x / source.width, r.y / source.height));
+        RenderTexture previous = RenderTexture.active;
+        RenderTexture.active = target;
+        var readback = new Texture2D(width, height, TextureFormat.RGBA32, false);
+        readback.ReadPixels(new Rect(0, 0, width, height), 0, 0, false);
+        Color32[] pixels = readback.GetPixels32();
+        RenderTexture.active = previous;
+        RenderTexture.ReleaseTemporary(target);
+        Destroy(readback);
+        return pixels;
     }
 
     // Places a square image on the tile grid, counted from the top-left.
@@ -802,14 +1189,5 @@ private static PixelText CreateLabel(string name, Transform parent, Color color)
         label.alignment = TextAnchor.MiddleCenter;
         label.raycastTarget = false;
         return label;
-    }
-
-    // offsetY is in sketch canvas pixels above the centre, matching its text() calls.
-    private static void PlaceOnCentre(PixelText label, float offsetY)
-    {
-        float anchorY = 0.5f + offsetY / SketchCanvas;
-        label.rectTransform.anchorMin = new Vector2(0f, anchorY);
-        label.rectTransform.anchorMax = new Vector2(1f, anchorY);
-        label.rectTransform.sizeDelta = Vector2.zero;
     }
 }

@@ -8,6 +8,8 @@ Each section names the files involved, so you can jump straight to the code.
 - [3. Inventory UI pixel art](#3-inventory-ui-pixel-art) - `InventoryPixelArt.cs`, `InventoryHUD.cs`
 - [4. Pickup prompt](#4-pickup-prompt) - `PickupItem.cs`
 - [5. Letter burn animation](#5-letter-burn-animation) - `LetterBurn.cs`, `ClueMinigame.cs`
+- [5b. Minigame painted onto the letter](#5b-minigame-painted-onto-the-letter) - `ClueMinigame.cs`
+- [5c. Cursive clue writing itself](#5c-cursive-clue-writing-itself) - `CursiveWriter.cs`
 - [6. Night sky](#6-night-sky) - `Materials/NightSkySkybox.shader`
 - [7. Lighting the sprite player](#7-lighting-the-sprite-player) - `SpriteLightTint.cs`
 - [8. Fixing the map on import](#8-fixing-the-map-on-import) - `Editor/IslandLampLights.cs`
@@ -184,8 +186,8 @@ item name wrapped to two lines under the slot. Fading is just `GUI.color.a`.
 
 **Files:** `Assets/LetterBurn.cs`, `Assets/ClueMinigame.cs`
 
-Plays when the minigame is restarted (`E`), re-rolled (`R`) or lost (automatically, 1 s after
-"OUT OF STEPS"). The letter burns away, the game resets while it's ash, and the letter
+Plays when the minigame is restarted (`E`), re-rolled (`R`) or lost (immediately on the step
+that runs out, with the fire starting at the board's centre and a flame headline). The letter burns away, the game resets while it's ash, and the letter
 re-forms showing the new game.
 
 ### Flatten the UI into one bitmap (`Capture`)
@@ -260,6 +262,24 @@ offset in time, and the whole sheet is guaranteed done at the end.
 - **Glowing seam:** a re-forming cell is the new letter tinted toward warm orange, fading as
   its age goes 0 -> 1, so a soft glow line sweeps inward.
 
+### Losing: fixed ignition and the flame headline
+
+- `Play(midpoint, origin, headline)`. With an `origin` (0..1 on the letter) the burn order
+  is the distance from that single point plus noise, so the fire fans out from the board's
+  centre; `E`/`R` pass none and get two random fires near the bottom.
+- **Flame text** ("OUT OF STEPS"): built from `PixelFont` capitals, each font pixel a 2x2
+  cell block, centred on the origin and drawn on top of the burn.
+  - **Three frames:** for every column of every letter, each frame gets 0-2 flame-tongue
+    pixels above the top ink pixel; frames loop at 9 fps. Colours run white-hot at the
+    bottom to red at the tongues, shifted per pixel per frame by a hash so it flickers.
+  - **Random order, growing in:** letters are shuffled and their start times spread over
+    the burn (0.1-1.0 s). Each letter has a random seed point inside its box; a pixel
+    appears when a growing radius (0.35 s, smoothstep) passes its distance from the seed
+    plus a little hash jitter for a ragged front. Newly grown pixels flash white.
+  - Dark 1-cell outline drawn in a first pass so the text reads over fire and paper.
+  - The pause after burning is 1.2 s when there's a headline (time to read it); during the
+    rebuild the text crumbles away pixel by pixel (hash threshold over 0.4 s).
+
 ### Sequence and integration
 
 1. `Play(midpoint)` captures the current letter, hides the real UI, starts **burn** (1.1 s).
@@ -276,6 +296,88 @@ offset in time, and the whole sheet is guaranteed done at the end.
 - Cost: ~23k cells and 92k pixels rewritten per frame on the CPU, plus one texture upload.
   The two captures do a few GPU readbacks each - a small one-off stall, invisible behind
   the animation.
+
+---
+
+## 5b. Minigame painted onto the letter
+
+**File:** `Assets/ClueMinigame.cs` (`Redraw` and the drawing helpers below it)
+
+The board used to be a flat slate-blue panel with saturated rainbow squares, so it looked
+pasted on. It's now painted into the same 770x770 pixel buffer as before, but styled as
+pigment and pen ink on the letter's paper.
+
+- **No background at all:** the buffer starts fully transparent, so the board's background
+  *is* the letter's paper. `Blend` is a proper alpha-over that keeps the canvas's own
+  transparency (shadows and ink stay translucent over the paper), and `Fill` goes through it.
+- **Grid running out onto the paper** (`BuildPaperLines`): instead of a picture border, a
+  second texture over the whole letter (4 texels per letter pixel, under the board)
+  continues the grid past the play area. Per texel: distance to the play area -> squared
+  fade over `PaperLineFade` tiles; anti-aliased distance to the nearest grid line; ink
+  density noise along each line. Lines are masked to *plain paper*: the letter sprite is read
+  back through the GPU, the paper colour is averaged under the board, and texels whose letter
+  pixel differs from it (edges, decoration) get no ink. Built once per letter sprite.
+- **Paper grain** (`Grain`): one static field built once - large soft blotches, finer
+  mottling, horizontally stretched noise for fibres, rare dark flecks. Paint granulation,
+  shadows and ink density all sample it, which ties the layers together.
+- **Muted pigments:** vermilion, orange ochre, saffron, verdigris, lapis, murex purple,
+  chalk. Desaturated enough to look like period paint, still clearly distinct for play.
+- **Colour hints reuse the board painter** (`EnsureSwatches`): each colour is painted with
+  `PaintTile` into the board buffer and copied out into its own small texture, so the
+  "Next / then" stamps match the board tiles exactly. Built lazily at the start of
+  `Redraw` (the buffer is repainted right after) and rebuilt if missing.
+- **Surviving play-mode script reloads:** Unity restores private runtime arrays as *empty*
+  arrays, not null. Runtime caches (`pixels`, `grain`, `swatchTextures`) are
+  `[NonSerialized]` and every lazy build checks length/nulls; `EnsureCanvas` recreates the
+  buffer and board texture if they went missing.
+- **Painted tiles** (`PaintTile`): soft cast shadow down-right, *ragged edges* (pixels near
+  the edge randomly skipped by a hash), granulation from the grain, light from the top-left
+  (gradient across the tile plus bright upper/left rim and dark lower/right rim), and an
+  uneven inked outline.
+- **Pen grid** (`InkLine`): drawn *over* the paint. Each line drifts sideways by a pixel
+  along slow noise (hand wobble) and its density follows grain + noise (ink running
+  thin). Outer lines are thicker.
+- **Player as a wax seal:** AA disc in the current colour with drop shadow, darker pressed
+  rim, a stamped inner ring that's dark top-left / light bottom-right (reads as debossed),
+  top-left shading and a small glint.
+- **Static lighting** (`ApplyLighting`, last pass every redraw): brighter and warmer
+  top-left falling off to the bottom-right and darker toward the edges. It only scales
+  colour, never alpha, so empty paper stays untouched.
+- **No end screen:** running out of steps draws the final position and burns straight
+  away; "OUT OF STEPS" is part of the burn (see 5)..
+
+---
+
+## 5c. Cursive clue writing itself
+
+**Files:** `Assets/CursiveWriter.cs`, `Assets/ClueMinigame.cs` (`EnsureClueWriter`)
+
+When the puzzle is solved, "Fell, Jerk, Thief" is written onto the letter in cursive,
+stroke by stroke in real writing order, with drops of ink flicking off the nib.
+
+- **Glyphs are pen paths, not bitmaps.** Each glyph is a list of strokes (pen down ... pen
+  up); each stroke is a list of *pieces*, each a Catmull-Rom spline through hand-placed
+  points. A new piece starts a sharp corner (the bottom of an ascender loop in `k`/`h`)
+  without lifting the pen. Units: baseline 0, x-height 1, ascenders ~1.95, descenders ~-0.85.
+- **Joined words:** lowercase letters enter near (0, 0.18) and exit low on their right, so
+  `JoinIn`/`JoinOut` letters are appended to one continuous stroke - a whole word is one
+  pen movement. Capitals like F and T end their stroke; J joins on.
+- **Correct stroke order:** i-dots are `Later` strokes, collected and written after the
+  word, the way people actually dot their i's. F and T are bar, stem, (crossbar).
+- **Broad-nib pen:** every ~0.35 texel along the path, a thin capsule is stamped along a
+  fixed nib angle (35 deg). Moving along the nib gives hairlines, across it gives full
+  width - the thick/thin contrast of calligraphy for free. Starts and ends taper
+  (smoothstep over 1.5 nib widths) like pressure.
+- **Ink buffer only grows:** coverage is max-blended into a byte buffer, so overlapping
+  stamps never darken past solid ink; the frame is rebuilt from it each tick.
+- **Animation:** constant pen speed chosen so the whole text takes ~4 s, a 0.14 s pause on
+  each pen lift. Ink drops spawn at the tip (~220/s, 3-6 texel squares, some double size), shoot backwards/sideways from the
+  motion, slow down, fall slightly and fade in 0.2-0.55 s; drawn as small square pixels.
+- **Showing it:** a `RawImage` on the letter, sized from the layout's bounds. Writing plays
+  on the winning move; reopening a solved letter (or closing mid-write) shows it finished
+  (`Complete()`). The writer is `[NonSerialized]` and rebuilt on demand.
+- **Adding letters:** only the glyphs this clue needs exist (F J T e f h i k l r ,). Add more
+  in `BuildGlyphs()`; missing characters log a warning and leave a gap.
 
 ---
 
