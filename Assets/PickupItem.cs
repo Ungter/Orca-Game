@@ -1,6 +1,5 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
-using UnityEngine.Experimental.Rendering;
 
 // A world object the player can walk up to and pick up by pressing E.
 // While in range, a prompt is shown near the object. The prompt is drawn in
@@ -19,14 +18,26 @@ public class PickupItem : MonoBehaviour
     [SerializeField]
     private float pickupRadius = 2.5f;
 
-    // Constant screen-space gap between the object's projected position and
-    // the prompt. The gap does not change with distance, so the prompt stays
-    // glued just above the object instead of drifting away as the camera moves.
+    // Screen-space gap (reference pixels at 720p) between the top of the item's
+    // sprite and the bottom of the prompt. Constant on screen, so the prompt
+    // sits at the same spot just above the item at any camera distance.
     [SerializeField]
     private float hintOffsetY = 20f;
 
+    // Key shown in brackets, e.g. "[E] PICK UP".
     [SerializeField]
-    private string hintText = "E to pick up";
+    private string hintText = "E";
+
+    [SerializeField]
+    private string actionText = "Pick up";
+
+    // Screen pixels per font pixel at 1280x720; rounded to a whole number at any resolution.
+    [SerializeField]
+    private int promptPixelSize = 3;
+
+    private static readonly Color PromptKeyColor = new Color32(242, 211, 107, 255);
+    private static readonly Color PromptTextColor = new Color32(233, 214, 168, 255);
+    private static readonly Color PromptShadowColor = new Color32(26, 15, 10, 230);
 
     // Optional faint point light that marks the item while it lies on the ground.
     // It lives on a child object, so it goes out with the item when picked up.
@@ -54,15 +65,30 @@ public class PickupItem : MonoBehaviour
     [SerializeField]
     private float glowPulseSpeed = 1.5f;
 
+    // Gentle hover while the item lies on the ground. Bobs around the position
+    // the item was placed at in the scene, so it never sinks below it by more than bobHeight.
+    [Header("Ground bob")]
+    [SerializeField]
+    private bool bob = false;
+
+    [SerializeField]
+    private float bobHeight = 0.08f;
+
+    // Full up-and-down cycles per second.
+    [SerializeField]
+    private float bobSpeed = 0.5f;
+
     private Light glowLight;
+    private Vector3 restPosition;
+    private float bobPhase;
 
     private Transform player;
     private bool pickedUp;
 
-    private Texture2D whiteTexture;
-    private GUIStyle promptBorderStyle;
-    private GUIStyle promptBackgroundStyle;
-    private GUIStyle promptTextStyle;
+    // Height of the sprite's top above the pivot, measured once at rest so the
+    // prompt anchor ignores the bob.
+    private float anchorHeight;
+    private float promptAlpha;
 
     private void Awake()
     {
@@ -82,6 +108,11 @@ public class PickupItem : MonoBehaviour
         {
             player = playerObject.transform;
         }
+
+        restPosition = transform.position;
+        bobPhase = Random.value * Mathf.PI * 2f;
+        Renderer itemRenderer = GetComponent<Renderer>();
+        anchorHeight = itemRenderer != null ? itemRenderer.bounds.max.y - restPosition.y : 0.5f;
 
         if (glow)
         {
@@ -124,6 +155,15 @@ public class PickupItem : MonoBehaviour
             glowLight.intensity = glowIntensity * (1f - glowPulse * wave);
         }
 
+        if (bob && !pickedUp)
+        {
+            float offset = Mathf.Sin(Time.time * bobSpeed * Mathf.PI * 2f + bobPhase) * bobHeight;
+            transform.position = restPosition + Vector3.up * offset;
+        }
+
+        bool showPrompt = !pickedUp && player != null && !InventoryInspection.IsOpen && this == NearestInRange();
+        promptAlpha = Mathf.MoveTowards(promptAlpha, showPrompt ? 1f : 0f, Time.unscaledDeltaTime * 8f);
+
         if (pickedUp || player == null || InventoryInspection.IsOpen)
         {
             return;
@@ -152,40 +192,44 @@ public class PickupItem : MonoBehaviour
 
     private void OnGUI()
     {
-        if (pickedUp || player == null || Camera.main == null || InventoryInspection.IsOpen)
+        if (Event.current.type != EventType.Repaint || promptAlpha <= 0f || pickedUp || Camera.main == null)
         {
             return;
         }
 
-        if (this != NearestInRange())
-        {
-            return;
-        }
-
-        // Project the object's own position - not a point lifted above it. A
-        // lifted anchor drifts relative to the object as the camera angle
-        // changes; anchoring to the object itself keeps the prompt glued to
-        // it, exactly like a little sign standing on the ground next to it.
-        // IMGUI counts from the bottom-left corner, matching WorldToScreenPoint.
-        Vector3 screenPos = Camera.main.WorldToScreenPoint(transform.position);
+        // Anchor on the top of the sprite at its rest position: the prompt sits
+        // just above the item and does not follow the bob.
+        Vector3 anchor = restPosition + Vector3.up * anchorHeight;
+        Vector3 screenPos = Camera.main.WorldToScreenPoint(anchor);
         if (screenPos.z <= 0f)
         {
             return; // Behind the camera.
         }
 
-        BuildStyles();
+        string key = "[" + hintText.ToUpperInvariant() + "]";
+        string action = string.IsNullOrEmpty(actionText) ? "" : " " + actionText.ToUpperInvariant();
+        int width = PixelFont.Measure(key + action);
 
-        // Constant size and constant gap: the prompt moves on screen exactly as
-        // the object does, never rising or falling relative to it.
-        float width = 140f;
-        float height = 24f;
-        Rect promptRect = new Rect(screenPos.x - width * 0.5f, screenPos.y + hintOffsetY, width, height);
-        GUI.Box(promptRect, "", promptBorderStyle);
+        float uiScale = UIScale();
+        int p = Mathf.Max(1, Mathf.RoundToInt(promptPixelSize * uiScale));
+        // WorldToScreenPoint counts y from the bottom; IMGUI counts from the top.
+        float bottom = Screen.height - screenPos.y - hintOffsetY * uiScale;
+        var topLeft = new Vector2(screenPos.x - width * p * 0.5f, bottom - PixelFont.CapHeight * p);
 
-        float inset = 2f;
-        Rect innerRect = new Rect(promptRect.x + inset, promptRect.y + inset, promptRect.width - inset * 2f, promptRect.height - inset * 2f);
-        GUI.Box(innerRect, "", promptBackgroundStyle);
-        GUI.Label(innerRect, hintText, promptTextStyle);
+        float a = promptAlpha * promptAlpha * (3f - 2f * promptAlpha);
+        Color shadow = Fade(PromptShadowColor, a);
+        PixelFont.Draw(topLeft, key, p, Fade(PromptKeyColor, a), shadow);
+        if (action.Length > 0)
+        {
+            // Measure(key) excludes trailing spacing; add it back so the two runs join seamlessly.
+            float offset = (PixelFont.Measure(key) + PixelFont.Spacing) * p;
+            PixelFont.Draw(topLeft + new Vector2(offset, 0f), action, p, Fade(PromptTextColor, a), shadow);
+        }
+    }
+
+    private static Color Fade(Color color, float alpha)
+    {
+        return new Color(color.r, color.g, color.b, color.a * alpha);
     }
 
     private bool IsInRange()
@@ -229,27 +273,9 @@ public class PickupItem : MonoBehaviour
         return nearest;
     }
 
-    private void BuildStyles()
+    // Same reference resolution as the inventory HUD, so the prompt scales with it.
+    private static float UIScale()
     {
-        if (promptBorderStyle != null)
-        {
-            return;
-        }
-
-        whiteTexture = new Texture2D(1, 1, GraphicsFormat.R8G8B8A8_SRGB, TextureCreationFlags.None) { name = "pickup_white" };
-        whiteTexture.SetPixel(0, 0, Color.white);
-        whiteTexture.Apply();
-
-        promptBorderStyle = new GUIStyle(GUI.skin.box);
-        promptBorderStyle.normal.background = whiteTexture;
-        promptBorderStyle.border = new RectOffset(0, 0, 0, 0);
-
-        promptBackgroundStyle = new GUIStyle(GUI.skin.box);
-        promptBackgroundStyle.border = new RectOffset(1, 1, 1, 1);
-
-        promptTextStyle = new GUIStyle(GUI.skin.label);
-        promptTextStyle.normal.textColor = Color.white;
-        promptTextStyle.alignment = TextAnchor.MiddleCenter;
-        promptTextStyle.fontSize = 16;
+        return Mathf.Max(0.5f, Mathf.Min(Screen.width / 1280f, Screen.height / 720f));
     }
 }

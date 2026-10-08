@@ -923,6 +923,9 @@ MonoBehaviour:
   glowHeight: 0.4
   glowPulse: 0.25
   glowPulseSpeed: 1.5
+  bob: 1
+  bobHeight: 0.08
+  bobSpeed: 0.5
 --- !u!331 &900000006
 SpriteMask:
   m_ObjectHideFlags: 0

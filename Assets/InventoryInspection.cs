@@ -11,7 +11,7 @@ public class InventoryInspection : MonoBehaviour
 
     private const float HoldDuration = 0.35f;
     private const float RotationSpeed = 90f;
-    private const string InspectControls = "W A S D  Rotate     /     ESC  Close";
+    private const string InspectControls = "[WASD] ROTATE    [ESC] CLOSE";
     private static readonly Key[] SlotKeys = { Key.Digit1, Key.Digit2, Key.Digit3, Key.Digit4, Key.Digit5 };
 
     private InventorySystem inventory;
@@ -22,8 +22,8 @@ public class InventoryInspection : MonoBehaviour
     private Vector2 rotation;
     private Canvas canvas;
     private Image itemImage;
-    private Text title;
-    private Text controls;
+    private PixelText title;
+    private PixelText controls;
     private ClueMinigame minigame;
     private bool puzzleOpen;
 
@@ -204,20 +204,21 @@ public class InventoryInspection : MonoBehaviour
         itemImage.rectTransform.anchorMin = itemImage.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
         itemImage.rectTransform.anchoredPosition3D = Vector3.zero;
 
-        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        title = CreateLabel("Item name", font, 22, 0.94f);
-        controls = CreateLabel("Controls", font, 14, 0.06f);
-        controls.color = new Color(1f, 1f, 1f, 0.7f);
+        title = CreateLabel("Item name", 15f, 0.94f);
+        title.uppercase = true;
+        title.color = new Color32(233, 214, 168, 255);
+        controls = CreateLabel("Controls", 10f, 0.06f);
+        controls.color = new Color32(200, 168, 114, 255);
+        controls.highlightBrackets = true;
     }
 
-    private Text CreateLabel(string name, Font font, int size, float anchorY)
+private PixelText CreateLabel(string name, float capHeight, float anchorY)
     {
-        var label = new GameObject(name, typeof(RectTransform), typeof(Text)).GetComponent<Text>();
+        var label = new GameObject(name, typeof(RectTransform), typeof(PixelText)).GetComponent<PixelText>();
         label.transform.SetParent(canvas.transform, false);
-        label.font = font;
-        label.fontSize = size;
+        label.fontSize = capHeight;
         label.alignment = TextAnchor.MiddleCenter;
-        label.color = Color.white;
+        label.shadowColor = new Color32(26, 15, 10, 230);
         label.raycastTarget = false;
         label.rectTransform.anchorMin = new Vector2(0.1f, anchorY);
         label.rectTransform.anchorMax = new Vector2(0.9f, anchorY);

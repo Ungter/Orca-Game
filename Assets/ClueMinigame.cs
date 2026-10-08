@@ -11,8 +11,8 @@ using UnityEngine.UI;
 // above the best route the generator could find.
 public class ClueMinigame : MonoBehaviour
 {
-    private const string PlayControls = "W A S D  Step     E  Restart     R  New board     ESC  Close";
-    private const string SolvedControls = "ESC  Close";
+    private const string PlayControls = "[WASD] STEP    [E] RESTART    [R] NEW BOARD    [ESC] CLOSE";
+    private const string SolvedControls = "[ESC] CLOSE";
 
     private const int GridSize = 20;
     private const int BorderSize = GridSize + 2;
@@ -104,13 +104,13 @@ public class ClueMinigame : MonoBehaviour
     private Texture2D texture;
     private Color32[] pixels;
     private GameObject border;
-    private Text endTitle;
-    private Text endSubtitle;
-    private Text stepsLabel;
-    private Text clueLabel;
+    private PixelText endTitle;
+    private PixelText endSubtitle;
+    private PixelText stepsLabel;
+    private PixelText clueLabel;
     private GameObject hint;
-    private Text hintHeading;
-    private Text hintThen;
+    private PixelText hintHeading;
+    private PixelText hintThen;
     private Image nextSwatch;
     private Image afterSwatch;
 
@@ -205,13 +205,14 @@ public class ClueMinigame : MonoBehaviour
         float side = height * BoardSide / LetterSize.y;
         boardRoot.sizeDelta = new Vector2(side, side);
         float scale = side / SketchCanvas;
-        endTitle.fontSize = Mathf.Max(1, Mathf.RoundToInt(42f * scale));
-        endSubtitle.fontSize = Mathf.Max(1, Mathf.RoundToInt(18f * scale));
-        int inkSize = Mathf.Max(1, Mathf.RoundToInt(height * 0.05f));
+        // Sizes are cap heights; PixelText rounds them to whole screen pixels per font pixel.
+        endTitle.fontSize = 30f * scale;
+        endSubtitle.fontSize = 13f * scale;
+        float inkSize = height * 0.035f;
         stepsLabel.fontSize = inkSize;
         hintHeading.fontSize = inkSize;
-        hintThen.fontSize = Mathf.Max(1, Mathf.RoundToInt(height * 0.04f));
-        clueLabel.fontSize = Mathf.Max(1, Mathf.RoundToInt(height * 0.1f));
+        hintThen.fontSize = height * 0.028f;
+        clueLabel.fontSize = height * 0.07f;
     }
 
     private void Restart()
@@ -491,8 +492,8 @@ public class ClueMinigame : MonoBehaviour
         border.SetActive(!ended);
         endTitle.gameObject.SetActive(ended);
         endSubtitle.gameObject.SetActive(ended);
-        endTitle.text = "Out of steps";
-        endSubtitle.text = "Press 'E' to Retry";
+        endTitle.text = "OUT OF STEPS";
+        endSubtitle.text = "PRESS [E] TO RETRY";
         stepsLabel.text = "Steps left\n" + stepsLeft;
 
         // Solving wipes the puzzle off the letter and leaves only the clue written on it.
@@ -664,14 +665,16 @@ public class ClueMinigame : MonoBehaviour
         for (int x = last - 1; x >= 0; x--) AddBorderTile(frame, index++, x, last);
         for (int y = last - 1; y > 0; y--) AddBorderTile(frame, index++, 0, y);
 
-        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        endTitle = CreateLabel("End title", boardRoot, font, Color.white);
+        endTitle = CreateLabel("End title", boardRoot, Color.white);
+        endTitle.shadowColor = new Color(0f, 0f, 0f, 0.6f);
         PlaceOnCentre(endTitle, 25f);
-        endSubtitle = CreateLabel("End subtitle", boardRoot, font, new Color(180f / 255f, 180f / 255f, 180f / 255f));
+        endSubtitle = CreateLabel("End subtitle", boardRoot, new Color(180f / 255f, 180f / 255f, 180f / 255f));
+        endSubtitle.highlightBrackets = true;
+        endSubtitle.keyColor = Color.white;
         PlaceOnCentre(endSubtitle, -35f);
 
         // Written on the paper beside the board.
-        stepsLabel = CreateLabel("Steps left", surface, font, Ink);
+        stepsLabel = CreateLabel("Steps left", surface, Ink);
         RectTransform steps = stepsLabel.rectTransform;
         steps.anchorMin = steps.anchorMax = OnLetter(StepsCentre);
         steps.sizeDelta = Vector2.zero;
@@ -683,18 +686,17 @@ public class ClueMinigame : MonoBehaviour
         hintRect.anchorMin = Vector2.zero;
         hintRect.anchorMax = Vector2.one;
         hintRect.offsetMin = hintRect.offsetMax = Vector2.zero;
-        hintHeading = CreateLabel("Next", hintRect, font, Ink);
+        hintHeading = CreateLabel("Next", hintRect, Ink);
         hintHeading.text = "Next";
         PlaceOnLetter(hintHeading.rectTransform, new Vector2(HintX, 58f), Vector2.zero);
         nextSwatch = CreateSwatch("Next colour", hintRect, new Vector2(HintX, 86f));
-        hintThen = CreateLabel("Then", hintRect, font, Ink);
+        hintThen = CreateLabel("Then", hintRect, Ink);
         hintThen.text = "then";
-        hintThen.fontStyle = FontStyle.Italic;
         PlaceOnLetter(hintThen.rectTransform, new Vector2(HintX, 114f), Vector2.zero);
         afterSwatch = CreateSwatch("Colour after", hintRect, new Vector2(HintX, 142f));
 
         // Revealed on the paper once the puzzle is solved.
-        clueLabel = CreateLabel("Clue", surface, font, Ink);
+        clueLabel = CreateLabel("Clue", surface, Ink);
         clueLabel.text = "Fell, Jerk, Thief";
         PlaceOnLetter(clueLabel.rectTransform, BoardCentre, Vector2.zero);
     }
@@ -751,22 +753,18 @@ public class ClueMinigame : MonoBehaviour
         return image;
     }
 
-    private static Text CreateLabel(string name, Transform parent, Font font, Color color)
+private static PixelText CreateLabel(string name, Transform parent, Color color)
     {
-        Text label = new GameObject(name, typeof(RectTransform), typeof(Text)).GetComponent<Text>();
+        PixelText label = new GameObject(name, typeof(RectTransform), typeof(PixelText)).GetComponent<PixelText>();
         label.transform.SetParent(parent, false);
-        label.font = font;
-        label.fontStyle = FontStyle.Bold;
         label.color = color;
         label.alignment = TextAnchor.MiddleCenter;
-        label.horizontalOverflow = HorizontalWrapMode.Overflow;
-        label.verticalOverflow = VerticalWrapMode.Overflow;
         label.raycastTarget = false;
         return label;
     }
 
     // offsetY is in sketch canvas pixels above the centre, matching its text() calls.
-    private static void PlaceOnCentre(Text label, float offsetY)
+    private static void PlaceOnCentre(PixelText label, float offsetY)
     {
         float anchorY = 0.5f + offsetY / SketchCanvas;
         label.rectTransform.anchorMin = new Vector2(0f, anchorY);
