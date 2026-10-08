@@ -20,11 +20,11 @@ RenderSettings:
   m_FogDensity: 0.01
   m_LinearFogStart: 0
   m_LinearFogEnd: 300
-  m_AmbientSkyColor: {r: 0.212, g: 0.227, b: 0.259, a: 1}
+  m_AmbientSkyColor: {r: 0.012, g: 0.014, b: 0.024, a: 1}
   m_AmbientEquatorColor: {r: 0.114, g: 0.125, b: 0.133, a: 1}
   m_AmbientGroundColor: {r: 0.047, g: 0.043, b: 0.035, a: 1}
   m_AmbientIntensity: 1
-  m_AmbientMode: 0
+  m_AmbientMode: 3
   m_SubtractiveShadowColor: {r: 0.42, g: 0.478, b: 0.627, a: 1}
   m_SkyboxMaterial: {fileID: 2100000, guid: f4768dbe0005421daf833d6b3813ffa3, type: 2}
   m_HaloStrength: 0.5
@@ -35,7 +35,7 @@ RenderSettings:
   m_DefaultReflectionMode: 0
   m_DefaultReflectionResolution: 128
   m_ReflectionBounces: 1
-  m_ReflectionIntensity: 1
+  m_ReflectionIntensity: 0.3
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 0}
   m_UseRadianceAmbientProbe: 0
@@ -309,7 +309,7 @@ Light:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 410087039}
-  m_Enabled: 1
+  m_Enabled: 0
   serializedVersion: 13
   m_Type: 1
   m_Color: {r: 1, g: 1, b: 1, a: 1}
@@ -352,11 +352,11 @@ Light:
     serializedVersion: 2
     m_Bits: 4294967295
   m_RenderingLayerMask: 1
-  m_Lightmapping: 4
+  m_Lightmapping: 2
   m_LightShadowCasterMode: 0
   m_AreaSize: {x: 1, y: 1}
   m_BounceIntensity: 1
-  m_ColorTemperature: 12292
+  m_ColorTemperature: 14329
   m_UseColorTemperature: 1
   m_BoundingSphereOverride: {x: 0, y: 0, z: 0, w: 0}
   m_UseBoundingSphereOverride: 0
@@ -895,11 +895,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 625d816ae0f825d4a94b268d4b1932f3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  slotWidth: 104
-  slotHeight: 52
-  gap: 6
   margin: 24
-  fontSize: 13
+  pixelSize: 3
 --- !u!114 &900000005
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -916,6 +913,8 @@ MonoBehaviour:
   pickupRadius: 2.5
   hintOffsetY: 10
   hintText: E
+  actionText: Pick up
+  promptPixelSize: 3
   glow: 1
   glowColor: {r: 1, g: 0.85, b: 0.55, a: 1}
   glowIntensity: 1.2
@@ -1630,86 +1629,22 @@ PrefabInstance:
       propertyPath: m_ConstrainProportionsScale
       value: 1
       objectReference: {fileID: 0}
-    - target: {fileID: -7036514303769440942, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
-      propertyPath: m_Range
-      value: 26.313862
-      objectReference: {fileID: 0}
-    - target: {fileID: -3659857250053188839, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
-      propertyPath: m_Range
-      value: 26.313862
-      objectReference: {fileID: 0}
-    - target: {fileID: -1017203051936490668, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
-      propertyPath: m_Range
-      value: 26.313862
-      objectReference: {fileID: 0}
-    - target: {fileID: -360650377019986088, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
-      propertyPath: m_Range
-      value: 26.313862
-      objectReference: {fileID: 0}
-    - target: {fileID: 785298845913820549, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
-      propertyPath: m_Range
-      value: 26.313862
-      objectReference: {fileID: 0}
-    - target: {fileID: 867136047765072827, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
-      propertyPath: m_Range
-      value: 26.313862
-      objectReference: {fileID: 0}
     - target: {fileID: 919132149155446097, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
       propertyPath: m_Name
       value: IslanddemoV3
-      objectReference: {fileID: 0}
-    - target: {fileID: 1058087382915393027, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
-      propertyPath: m_Range
-      value: 26.313862
-      objectReference: {fileID: 0}
-    - target: {fileID: 1058087382915393027, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
-      propertyPath: m_Intensity
-      value: 1.5
-      objectReference: {fileID: 0}
-    - target: {fileID: 1772301522018054711, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
-      propertyPath: m_Range
-      value: 26.313862
-      objectReference: {fileID: 0}
-    - target: {fileID: 1772301522018054711, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
-      propertyPath: m_Intensity
-      value: 1.5
-      objectReference: {fileID: 0}
-    - target: {fileID: 1772301522018054711, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
-      propertyPath: m_Shadows.m_Type
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 2402928611857456009, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
-      propertyPath: m_Range
-      value: 26.313862
-      objectReference: {fileID: 0}
-    - target: {fileID: 2493408525249584544, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
-      propertyPath: m_Range
-      value: 26.313862
-      objectReference: {fileID: 0}
-    - target: {fileID: 2839821391701381176, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
-      propertyPath: m_Range
-      value: 26.313862
-      objectReference: {fileID: 0}
-    - target: {fileID: 3764864135238276058, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
-      propertyPath: m_Range
-      value: 26.313862
       objectReference: {fileID: 0}
     - target: {fileID: 4310977687681804522, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
       objectReference: {fileID: 2100000, guid: d1330c92bbb242b58ce93cbae8de3a30, type: 2}
+    - target: {fileID: 4599221416994363431, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
+      propertyPath: m_ProvidesContacts
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 5233514335322755279, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
       objectReference: {fileID: 2100000, guid: d0d1d2d3d4d5d6d7d8d9dadbdcdddedf, type: 2}
-    - target: {fileID: 7356135756836654028, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
-      propertyPath: m_Range
-      value: 26.313862
-      objectReference: {fileID: 0}
-    - target: {fileID: 8858335071775479394, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
-      propertyPath: m_Range
-      value: 26.313862
-      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []

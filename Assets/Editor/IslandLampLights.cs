@@ -12,7 +12,8 @@ public class IslandLampLights : AssetPostprocessor
 
     public override uint GetVersion()
     {
-        return 1;
+        // Bump when the lamp setup or LampGlow defaults change, so the map reimports.
+        return 2;
     }
 
     private void OnPostprocessModel(GameObject root)

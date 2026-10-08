@@ -56,6 +56,8 @@ Shader "Orca/Ocean Water"
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE
             #pragma multi_compile_fragment _ _SHADOWS_SOFT _SHADOWS_SOFT_LOW _SHADOWS_SOFT_MEDIUM _SHADOWS_SOFT_HIGH
             #pragma multi_compile_fog
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile _ _CLUSTER_LIGHT_LOOP
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
@@ -193,12 +195,29 @@ Shader "Orca/Ocean Water"
 
                 float3 reflDir = reflect(-viewDir, normal);
                 half3 envRefl = GlossyEnvironmentReflection(reflDir, 1.0 - _Smoothness, 1.0);
-                envRefl = lerp(_HorizonColor.rgb, envRefl, 0.7);
+                // The horizon tint is scaled by the scene's ambient light so it can't glow on its own in the dark.
+                half envLevel = saturate(Luminance(SampleSH(half3(0, 1, 0))) * 4.0);
+                envRefl = lerp(_HorizonColor.rgb * envLevel, envRefl, 0.7);
                 half3 col = lerp(diffuse, envRefl, saturate(fresnel * _ReflectionStrength + 0.04));
 
                 float3 H = normalize(L + viewDir);
                 half spec = pow(saturate(dot(normal, H)), _SpecularPower) * _SpecularIntensity;
                 col += mainLight.color * spec * atten;
+
+                // Point lights (the lamps): a soft diffuse pool plus a broad glint on the waves.
+                #if defined(_ADDITIONAL_LIGHTS) || USE_CLUSTER_LIGHT_LOOP
+                InputData inputData = (InputData)0;
+                inputData.positionWS = i.positionWS;
+                inputData.normalizedScreenSpaceUV = GetNormalizedScreenSpaceUV(i.positionCS);
+                uint lightCount = GetAdditionalLightsCount();
+                LIGHT_LOOP_BEGIN(lightCount)
+                    Light light = GetAdditionalLight(lightIndex, i.positionWS);
+                    half3 radiance = light.color * light.distanceAttenuation * light.shadowAttenuation;
+                    col += waterCol * radiance * saturate(dot(normal, light.direction)) * 0.5;
+                    half3 halfDir = normalize(light.direction + viewDir);
+                    col += radiance * pow(saturate(dot(normal, halfDir)), _SpecularPower * 0.25) * _SpecularIntensity * 0.25;
+                LIGHT_LOOP_END
+                #endif
 
                 float foamNoise = ValueNoise(i.baseXZ * _FoamScale + _Time.y * 0.3) * 0.6
                                 + ValueNoise(i.baseXZ * _FoamScale * 2.7 - _Time.y * 0.5) * 0.4;

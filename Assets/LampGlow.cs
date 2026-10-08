@@ -1,7 +1,8 @@
 using UnityEngine;
+using UnityEngine.Rendering;
 
-// A faint warm point light inside a lamp head. Sized from the lamp's own mesh, so it
-// reaches the same distance whatever scale the map is placed at.
+// The warm point light inside a lamp head. It owns the Light's settings: edit them
+// here, since they are re-applied whenever the lamp is enabled or changed.
 [ExecuteAlways]
 [RequireComponent(typeof(Light))]
 public class LampGlow : MonoBehaviour
@@ -10,11 +11,13 @@ public class LampGlow : MonoBehaviour
     private Color color = new Color(1f, 0.82f, 0.35f);
 
     [SerializeField]
-    private float intensity = 1.5f;
+    private float intensity = 300f;
 
-    [Tooltip("Light reach in multiples of the lamp head's size.")]
     [SerializeField]
-    private float rangeInLampSizes = 6f;
+    private float range = 70f;
+
+    [SerializeField]
+    private bool castShadows = true;
 
     private void OnEnable()
     {
@@ -32,14 +35,15 @@ public class LampGlow : MonoBehaviour
         lamp.type = LightType.Point;
         lamp.color = color;
         lamp.intensity = intensity;
-        lamp.shadows = LightShadows.None;
+        lamp.range = Mathf.Max(0.1f, range);
+        lamp.shadows = castShadows ? LightShadows.Soft : LightShadows.None;
 
-        float size = 1f;
-        MeshFilter head = transform.parent != null ? transform.parent.GetComponent<MeshFilter>() : null;
-        if (head != null && head.sharedMesh != null)
+        // The light sits inside the lamp head, so the head must not cast shadows
+        // or it would block its own light in every direction.
+        Renderer head = transform.parent != null ? transform.parent.GetComponent<Renderer>() : null;
+        if (head != null)
         {
-            size = Vector3.Scale(head.sharedMesh.bounds.size, head.transform.lossyScale).magnitude;
+            head.shadowCastingMode = ShadowCastingMode.Off;
         }
-        lamp.range = Mathf.Max(0.1f, size * rangeInLampSizes);
     }
 }
