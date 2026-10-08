@@ -114,6 +114,11 @@ public class ClueMinigame : MonoBehaviour
     private Image nextSwatch;
     private Image afterSwatch;
 
+    // Losing burns the letter after this pause; E or R burn it straight away.
+    private const float AutoBurnDelay = 1f;
+    private LetterBurn burn;
+    private float autoBurnIn = -1f;
+
     public bool IsShowing => surface != null && surface.gameObject.activeSelf;
 
     // Once solved, the clue stays revealed for good: no restart, no new board.
@@ -139,8 +144,10 @@ public class ClueMinigame : MonoBehaviour
         Redraw();
     }
 
-    public void Hide()
+public void Hide()
     {
+        // Closing mid-animation finishes the reset at once.
+        burn?.Cancel();
         if (surface != null)
         {
             surface.gameObject.SetActive(false);
@@ -153,40 +160,74 @@ public class ClueMinigame : MonoBehaviour
         Restart();
     }
 
-    private void OnDestroy()
+private void OnDestroy()
     {
         if (texture != null)
         {
             Destroy(texture);
         }
+        burn?.Dispose();
     }
 
-    private void Update()
+private void Update()
     {
+        if (!IsShowing)
+        {
+            return;
+        }
+        if (burn != null && burn.IsPlaying)
+        {
+            burn.Tick(Time.unscaledDeltaTime);
+            return; // Input waits for the letter to rebuild.
+        }
+
         Keyboard keyboard = Keyboard.current;
-        if (!IsShowing || keyboard == null || IsSolved)
+        if (keyboard == null || IsSolved)
         {
             return;
         }
 
-        bool changed = true;
         if (keyboard.rKey.wasPressedThisFrame)
         {
-            NewBoard();
-            Restart();
+            BurnAndReset(true);
         }
         else if (keyboard.eKey.wasPressedThisFrame)
         {
-            Restart();
+            BurnAndReset(false);
         }
-        else
-        {
-            changed = Step(keyboard);
-        }
-        if (changed)
+        else if (Step(keyboard))
         {
             Redraw();
+            if (outcome == Outcome.OutOfSteps)
+            {
+                autoBurnIn = AutoBurnDelay;
+            }
         }
+        else if (autoBurnIn >= 0f)
+        {
+            autoBurnIn -= Time.unscaledDeltaTime;
+            if (autoBurnIn < 0f)
+            {
+                BurnAndReset(false);
+            }
+        }
+    }
+
+    // The letter burns up; while it is ash the board resets (or is replaced), and
+    // the letter rebuilds showing the fresh game.
+    private void BurnAndReset(bool newBoard)
+    {
+        autoBurnIn = -1f;
+        burn ??= new LetterBurn(surface, letterImage);
+        burn.Play(() =>
+        {
+            if (newBoard)
+            {
+                NewBoard();
+            }
+            Restart();
+            Redraw();
+        });
     }
 
     private void LateUpdate()

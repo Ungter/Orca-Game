@@ -224,8 +224,16 @@ public class SpriteLightTint : MonoBehaviour
         bool result;
         if (!castsShadow.TryGetValue(collider, out result))
         {
-            Renderer renderer = collider.GetComponent<Renderer>();
-            result = renderer != null && renderer.enabled && renderer.shadowCastingMode != ShadowCastingMode.Off;
+            // Children count too: lamp poles cast through a shadows-only child mesh.
+            result = false;
+            foreach (Renderer renderer in collider.GetComponentsInChildren<Renderer>())
+            {
+                if (renderer.enabled && renderer.shadowCastingMode != ShadowCastingMode.Off)
+                {
+                    result = true;
+                    break;
+                }
+            }
             castsShadow[collider] = result;
         }
         return result;

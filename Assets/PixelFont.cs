@@ -259,6 +259,13 @@ public static class PixelFont
         return Glyphs.TryGetValue(c, out rows) ? rows[0].Length : Glyphs['?'][0].Length;
     }
 
+    // Glyph rows top-down ('#' = ink), 5-7 rows. Unknown characters map to '?'.
+    public static string[] GetRows(char c)
+    {
+        string[] rows;
+        return Glyphs.TryGetValue(c, out rows) ? rows : Glyphs['?'];
+    }
+
     // Glyph's cell in Atlas, in atlas pixels (full 7-row height). Unknown characters map to '?'.
     public static RectInt GetGlyph(char c)
     {

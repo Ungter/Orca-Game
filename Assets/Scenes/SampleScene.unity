@@ -1035,31 +1035,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1000000110
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1000000100}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 322702d5abf64c43826168999af070ab, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  target: {fileID: 0}
-  minBrightness: 0.12
-  maxBrightness: 1
-  exposure: 1.5
-  lightColorTint: 0.3
-  smoothTime: 0.15
-  sampleHeights:
-  - 0.1
-  - 0.5
-  - 0.9
-  occluders:
-    serializedVersion: 2
-    m_Bits: 4294967295
 --- !u!4 &1000000101
 Transform:
   m_ObjectHideFlags: 0
@@ -1435,6 +1410,31 @@ MonoBehaviour:
     - rid: 1098605872872685645
       type: {class: ShadowShape2DProvider_SpriteRenderer, ns: UnityEngine.Rendering.Universal, asm: Unity.RenderPipelines.Universal.2D.Runtime}
       data: 
+--- !u!114 &1000000110
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1000000100}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 322702d5abf64c43826168999af070ab, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  target: {fileID: 0}
+  minBrightness: 0.12
+  maxBrightness: 1
+  exposure: 1.5
+  lightColorTint: 0.3
+  smoothTime: 0.15
+  sampleHeights:
+  - 0.1
+  - 0.5
+  - 0.9
+  occluders:
+    serializedVersion: 2
+    m_Bits: 4294967295
 --- !u!1 &1000000200
 GameObject:
   m_ObjectHideFlags: 0
@@ -1654,6 +1654,18 @@ PrefabInstance:
     - target: {fileID: -8679921383154817045, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
       propertyPath: m_ConstrainProportionsScale
       value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: -8401353043744118061, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
+      propertyPath: m_LocalScale.y
+      value: 7.44
+      objectReference: {fileID: 0}
+    - target: {fileID: -8401353043744118061, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0.38
+      objectReference: {fileID: 0}
+    - target: {fileID: -3135791918616545120, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
+      propertyPath: m_CastShadows
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 919132149155446097, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
       propertyPath: m_Name
