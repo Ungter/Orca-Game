@@ -111,6 +111,11 @@ public class InventoryInspection : MonoBehaviour
 
     private void LateUpdate()
     {
+        if (IsOpen && puzzleOpen)
+        {
+            // Solving the clue mid-inspection drops the restart controls.
+            controls.text = minigame.Controls;
+        }
         if (!IsOpen || puzzleOpen)
         {
             return;
@@ -150,7 +155,7 @@ public class InventoryInspection : MonoBehaviour
             itemImage.rectTransform.localRotation = Quaternion.identity;
             rotation = Vector2.zero;
         }
-        controls.text = puzzle ? ClueMinigame.Controls : InspectControls;
+        controls.text = puzzle ? minigame.Controls : InspectControls;
         title.text = itemName;
         inspectedSlot = slot;
         IsOpen = true;

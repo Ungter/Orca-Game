@@ -28,6 +28,34 @@ public class PickupItem : MonoBehaviour
     [SerializeField]
     private string hintText = "E to pick up";
 
+    // Optional faint point light that marks the item while it lies on the ground.
+    // It lives on a child object, so it goes out with the item when picked up.
+    [Header("Ground glow")]
+    [SerializeField]
+    private bool glow = false;
+
+    [SerializeField]
+    private Color glowColor = new Color(1f, 0.85f, 0.55f);
+
+    [SerializeField]
+    private float glowIntensity = 1.2f;
+
+    [SerializeField]
+    private float glowRange = 2.5f;
+
+    [SerializeField]
+    private float glowHeight = 0.4f;
+
+    // Fraction of the intensity the glow breathes by; 0 holds it steady.
+    [SerializeField]
+    [Range(0f, 1f)]
+    private float glowPulse = 0.25f;
+
+    [SerializeField]
+    private float glowPulseSpeed = 1.5f;
+
+    private Light glowLight;
+
     private Transform player;
     private bool pickedUp;
 
@@ -54,6 +82,24 @@ public class PickupItem : MonoBehaviour
         {
             player = playerObject.transform;
         }
+
+        if (glow)
+        {
+            CreateGlow();
+        }
+    }
+
+    private void CreateGlow()
+    {
+        var glowObject = new GameObject("Glow");
+        glowObject.transform.SetParent(transform, false);
+        glowObject.transform.position = transform.position + Vector3.up * glowHeight;
+        glowLight = glowObject.AddComponent<Light>();
+        glowLight.type = LightType.Point;
+        glowLight.color = glowColor;
+        glowLight.intensity = glowIntensity;
+        glowLight.range = glowRange;
+        glowLight.shadows = LightShadows.None;
     }
 
     private void OnDestroy()
@@ -72,6 +118,12 @@ public class PickupItem : MonoBehaviour
 
     private void Update()
     {
+        if (glowLight != null && glowPulse > 0f)
+        {
+            float wave = Mathf.Sin(Time.time * glowPulseSpeed * Mathf.PI * 2f) * 0.5f + 0.5f;
+            glowLight.intensity = glowIntensity * (1f - glowPulse * wave);
+        }
+
         if (pickedUp || player == null || InventoryInspection.IsOpen)
         {
             return;

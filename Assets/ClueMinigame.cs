@@ -11,7 +11,8 @@ using UnityEngine.UI;
 // above the best route the generator could find.
 public class ClueMinigame : MonoBehaviour
 {
-    public const string Controls = "W A S D  Step     E  Restart     R  New board     ESC  Close";
+    private const string PlayControls = "W A S D  Step     E  Restart     R  New board     ESC  Close";
+    private const string SolvedControls = "ESC  Close";
 
     private const int GridSize = 20;
     private const int BorderSize = GridSize + 2;
@@ -23,12 +24,15 @@ public class ClueMinigame : MonoBehaviour
     private const float SketchCanvas = 840f;
     private const int Floor = -1;
 
-    // Where the board and step counter sit on Letter_screen.png (384 x 240, measured from
-    // the top-left). Its blank paper spans x 9-332, y 12-185.
-    private const float BoardSide = 156f;
+    // Where the board, step counter and colour hint sit on Letter_screen.png (384 x 240,
+    // measured from the top-left). Its blank paper spans x 6-359, y 12-196; the board is
+    // centred on it, the counter and hint fill the margins either side.
+    private const float BoardSide = 168f;
     private static readonly Vector2 LetterSize = new Vector2(384f, 240f);
-    private static readonly Vector2 BoardCentre = new Vector2(170f, 98f);
-    private static readonly Vector2 StepsCentre = new Vector2(290f, 98f);
+    private static readonly Vector2 BoardCentre = new Vector2(182f, 104f);
+    private static readonly Vector2 StepsCentre = new Vector2(313f, 104f);
+    private const float HintX = 52f;
+    private const float HintSwatch = 30f;
     private static readonly Color32 Ink = new Color32(80, 68, 56, 255);
 
     // Walls take the colour of their nearest target, so each colour gathers in its own
@@ -42,7 +46,7 @@ public class ClueMinigame : MonoBehaviour
     private const float BudgetSlack = 0.1f;
     private const int MinBudgetSlack = 3;
 
-    private enum Outcome { Playing, Won, OutOfSteps, DeadEnd }
+    private enum Outcome { Playing, Won, OutOfSteps }
 
     private static readonly Vector2Int Start = new Vector2Int(GridSize / 2, GridSize / 2);
 
@@ -85,7 +89,7 @@ public class ClueMinigame : MonoBehaviour
     private readonly System.Random random = new System.Random();
     private readonly int[,] layout = new int[GridSize, GridSize];
     private readonly int[,] board = new int[GridSize, GridSize];
-    // Breadth-first scratch shared by the generator and the dead-end check.
+    // Breadth-first scratch for the generator.
     private readonly int[] distance = new int[GridSize * GridSize];
     private readonly int[] queue = new int[GridSize * GridSize];
     private int stepBudget;
@@ -103,8 +107,19 @@ public class ClueMinigame : MonoBehaviour
     private Text endTitle;
     private Text endSubtitle;
     private Text stepsLabel;
+    private Text clueLabel;
+    private GameObject hint;
+    private Text hintHeading;
+    private Text hintThen;
+    private Image nextSwatch;
+    private Image afterSwatch;
 
     public bool IsShowing => surface != null && surface.gameObject.activeSelf;
+
+    // Once solved, the clue stays revealed for good: no restart, no new board.
+    public bool IsSolved => outcome == Outcome.Won;
+
+    public string Controls => IsSolved ? SolvedControls : PlayControls;
 
     public bool Handles(string itemName)
     {
@@ -149,7 +164,7 @@ public class ClueMinigame : MonoBehaviour
     private void Update()
     {
         Keyboard keyboard = Keyboard.current;
-        if (!IsShowing || keyboard == null)
+        if (!IsShowing || keyboard == null || IsSolved)
         {
             return;
         }
@@ -192,7 +207,11 @@ public class ClueMinigame : MonoBehaviour
         float scale = side / SketchCanvas;
         endTitle.fontSize = Mathf.Max(1, Mathf.RoundToInt(42f * scale));
         endSubtitle.fontSize = Mathf.Max(1, Mathf.RoundToInt(18f * scale));
-        stepsLabel.fontSize = Mathf.Max(1, Mathf.RoundToInt(height * 0.05f));
+        int inkSize = Mathf.Max(1, Mathf.RoundToInt(height * 0.05f));
+        stepsLabel.fontSize = inkSize;
+        hintHeading.fontSize = inkSize;
+        hintThen.fontSize = Mathf.Max(1, Mathf.RoundToInt(height * 0.04f));
+        clueLabel.fontSize = Mathf.Max(1, Mathf.RoundToInt(height * 0.1f));
     }
 
     private void Restart()
@@ -244,12 +263,9 @@ public class ClueMinigame : MonoBehaviour
         }
         else if (stepsLeft <= 0)
         {
+            // Walling off the next colour is never announced; the player finds out by
+            // running out of steps.
             outcome = Outcome.OutOfSteps;
-        }
-        else if (FindTiles(player, currentColor, 1, null, null) == 0)
-        {
-            // Clearing the wrong tile can wall off every tile of the next colour.
-            outcome = Outcome.DeadEnd;
         }
         return true;
     }
@@ -475,9 +491,30 @@ public class ClueMinigame : MonoBehaviour
         border.SetActive(!ended);
         endTitle.gameObject.SetActive(ended);
         endSubtitle.gameObject.SetActive(ended);
-        endTitle.text = outcome == Outcome.Won ? "Fell, Jerk, Thief" : outcome == Outcome.OutOfSteps ? "Out of steps" : "Dead end";
-        endSubtitle.text = outcome == Outcome.Won ? "Press 'E' to Restart" : "Press 'E' to Retry";
+        endTitle.text = "Out of steps";
+        endSubtitle.text = "Press 'E' to Retry";
         stepsLabel.text = "Steps left\n" + stepsLeft;
+
+        // Solving wipes the puzzle off the letter and leaves only the clue written on it.
+        boardRoot.gameObject.SetActive(!IsSolved);
+        stepsLabel.gameObject.SetActive(!IsSolved);
+        clueLabel.gameObject.SetActive(IsSolved);
+
+        // The player wears the colour it is on; the hint shows the two that follow it.
+        int next = currentColor + 1;
+        int after = currentColor + 2;
+        hint.SetActive(!ended && next < Colors.Length);
+        if (hint.activeSelf)
+        {
+            nextSwatch.color = Colors[next];
+            bool hasAfter = after < Colors.Length;
+            afterSwatch.transform.parent.gameObject.SetActive(hasAfter);
+            hintThen.gameObject.SetActive(hasAfter);
+            if (hasAfter)
+            {
+                afterSwatch.color = Colors[after];
+            }
+        }
     }
 
     private void DrawBoard()
@@ -638,6 +675,54 @@ public class ClueMinigame : MonoBehaviour
         RectTransform steps = stepsLabel.rectTransform;
         steps.anchorMin = steps.anchorMax = OnLetter(StepsCentre);
         steps.sizeDelta = Vector2.zero;
+
+        // Written on the paper's other margin: the next two colours in the sequence.
+        hint = new GameObject("Colour hint", typeof(RectTransform));
+        RectTransform hintRect = (RectTransform)hint.transform;
+        hintRect.SetParent(surface, false);
+        hintRect.anchorMin = Vector2.zero;
+        hintRect.anchorMax = Vector2.one;
+        hintRect.offsetMin = hintRect.offsetMax = Vector2.zero;
+        hintHeading = CreateLabel("Next", hintRect, font, Ink);
+        hintHeading.text = "Next";
+        PlaceOnLetter(hintHeading.rectTransform, new Vector2(HintX, 58f), Vector2.zero);
+        nextSwatch = CreateSwatch("Next colour", hintRect, new Vector2(HintX, 86f));
+        hintThen = CreateLabel("Then", hintRect, font, Ink);
+        hintThen.text = "then";
+        hintThen.fontStyle = FontStyle.Italic;
+        PlaceOnLetter(hintThen.rectTransform, new Vector2(HintX, 114f), Vector2.zero);
+        afterSwatch = CreateSwatch("Colour after", hintRect, new Vector2(HintX, 142f));
+
+        // Revealed on the paper once the puzzle is solved.
+        clueLabel = CreateLabel("Clue", surface, font, Ink);
+        clueLabel.text = "Fell, Jerk, Thief";
+        PlaceOnLetter(clueLabel.rectTransform, BoardCentre, Vector2.zero);
+    }
+
+    // A tile-style square on the letter: an outline around the colour face. Returns the face.
+    private static Image CreateSwatch(string name, Transform parent, Vector2 centre)
+    {
+        Image outline = new GameObject(name, typeof(RectTransform), typeof(Image)).GetComponent<Image>();
+        outline.transform.SetParent(parent, false);
+        outline.raycastTarget = false;
+        outline.color = Outline;
+        PlaceOnLetter(outline.rectTransform, centre, new Vector2(HintSwatch, HintSwatch));
+
+        Image face = new GameObject("Face", typeof(RectTransform), typeof(Image)).GetComponent<Image>();
+        face.transform.SetParent(outline.transform, false);
+        face.raycastTarget = false;
+        face.rectTransform.anchorMin = new Vector2(0.12f, 0.12f);
+        face.rectTransform.anchorMax = new Vector2(0.88f, 0.88f);
+        face.rectTransform.offsetMin = face.rectTransform.offsetMax = Vector2.zero;
+        return face;
+    }
+
+    // Spans a box measured in Letter_screen pixels, so it scales with the letter.
+    private static void PlaceOnLetter(RectTransform rect, Vector2 centre, Vector2 size)
+    {
+        rect.anchorMin = OnLetter(centre + new Vector2(-size.x, size.y) * 0.5f);
+        rect.anchorMax = OnLetter(centre + new Vector2(size.x, -size.y) * 0.5f);
+        rect.offsetMin = rect.offsetMax = Vector2.zero;
     }
 
     private static Vector2 OnLetter(Vector2 letterPixels)
