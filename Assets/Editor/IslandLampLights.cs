@@ -20,8 +20,22 @@ public class IslandLampLights : AssetPostprocessor
     public override uint GetVersion()
     {
         // Bump when the lamp setup or LampGlow defaults change, so the map reimports.
-        return 9;
+        // Editing the sidewalk pixel art changes the hash, which reimports it too.
+        return 12u ^ (SidewalkGravelArt.ContentHash() << 8);
     }
+
+    // Gravel sidewalk: the slab gets a matte copy of this template with the hand-drawn
+    // SidewalkGravelArt tile as its base map. UVs are laid out in scene metres, so the
+    // template's tiling reads as tiles per metre (0.5 = one 32 px tile every 2 m).
+    private const string SidewalkName = "IslandDemo:pCube2";
+    // The island's ground block, which the spilled gravel slopes down onto.
+    private const string GroundName = "IslandDemo:pCube1";
+    // Bumps on the gravel: normal map strength from the art's height field. The parallax
+    // depth comes from the template's Height Map scale (_Parallax).
+    private const float GravelNormalStrength = 5f;
+    private const string SidewalkMaterialPath = "Assets/Materials/SidewalkGravel.mat";
+    // The map is placed at this scale in SampleScene; converts model units to metres.
+    private const float MapSceneScale = 209.3f;
 
     // Matte template for the foliage: spheres (leaf clumps) get its dark green, cylinders
     // (trunks and branches) get BarkColor. Each tree or hedge picks one of a few slightly
@@ -95,6 +109,11 @@ public class IslandLampLights : AssetPostprocessor
         if (poles == 0)
         {
             Debug.LogWarning("[IslandLampLights] No lampN/pCylinder1 pole found in " + MapPath);
+        }
+        FixInvertedNormals(root);
+        if (!ApplySidewalkGravel(root))
+        {
+            Debug.LogWarning("[IslandLampLights] No " + SidewalkName + " sidewalk found in " + MapPath);
         }
     }
 
@@ -190,7 +209,7 @@ public class IslandLampLights : AssetPostprocessor
         return true;
     }
 
-private int ApplyFoliageMaterial(GameObject root)
+    private int ApplyFoliageMaterial(GameObject root)
     {
         // Reimport the map whenever the foliage material changes.
         context.DependsOnSourceAsset(FoliageMaterialPath);
@@ -247,6 +266,193 @@ private int ApplyFoliageMaterial(GameObject root)
             }
         }
         return count;
+    }
+
+    // Some meshes come out of Maya with every normal pointing the opposite way to its face
+    // (the sidewalk slab, IslandDemo:pCube2). The surface still draws, but lights see its
+    // back, so it only gets ambient light and shadows can't darken it. Flip those back.
+    private static void FixInvertedNormals(GameObject root)
+    {
+        var seen = new HashSet<Mesh>();
+        var fixedNames = new List<string>();
+        foreach (MeshFilter filter in root.GetComponentsInChildren<MeshFilter>(true))
+        {
+            Mesh mesh = filter.sharedMesh;
+            if (mesh == null || !seen.Add(mesh))
+            {
+                continue;
+            }
+            Vector3[] vertices = mesh.vertices;
+            Vector3[] normals = mesh.normals;
+            if (normals == null || normals.Length != vertices.Length)
+            {
+                continue;
+            }
+
+            // Area-weighted vote: does each triangle's winding agree with its vertex normals?
+            float agree = 0f;
+            float disagree = 0f;
+            for (int sub = 0; sub < mesh.subMeshCount; sub++)
+            {
+                int[] triangles = mesh.GetTriangles(sub);
+                for (int t = 0; t + 2 < triangles.Length; t += 3)
+                {
+                    int a = triangles[t], b = triangles[t + 1], c = triangles[t + 2];
+                    Vector3 face = Vector3.Cross(vertices[b] - vertices[a], vertices[c] - vertices[a]);
+                    float vote = Vector3.Dot(face, normals[a] + normals[b] + normals[c]);
+                    if (vote > 0f) agree += face.magnitude;
+                    else if (vote < 0f) disagree += face.magnitude;
+                }
+            }
+            if (disagree <= agree * 3f)
+            {
+                continue;
+            }
+
+            for (int i = 0; i < normals.Length; i++) normals[i] = -normals[i];
+            mesh.normals = normals;
+            Vector4[] tangents = mesh.tangents;
+            if (tangents != null && tangents.Length == normals.Length)
+            {
+                for (int i = 0; i < tangents.Length; i++)
+                {
+                    tangents[i] = new Vector4(-tangents[i].x, -tangents[i].y, -tangents[i].z, tangents[i].w);
+                }
+                mesh.tangents = tangents;
+            }
+            fixedNames.Add(filter.name);
+        }
+        if (fixedNames.Count > 0)
+        {
+            Debug.Log("[IslandLampLights] Flipped inverted normals on: " + string.Join(", ", fixedNames));
+        }
+    }
+
+    private bool ApplySidewalkGravel(GameObject root)
+    {
+        context.DependsOnSourceAsset(SidewalkMaterialPath);
+        Material template = AssetDatabase.LoadAssetAtPath<Material>(SidewalkMaterialPath);
+        if (template == null)
+        {
+            Debug.LogWarning("[IslandLampLights] Missing " + SidewalkMaterialPath);
+            return true;
+        }
+
+        Material material = null;
+        bool found = false;
+        foreach (MeshRenderer renderer in root.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            if (renderer.name != SidewalkName)
+            {
+                continue;
+            }
+            MeshFilter filter = renderer.GetComponent<MeshFilter>();
+            if (filter == null || filter.sharedMesh == null)
+            {
+                continue;
+            }
+            found = true;
+            BoxProjectUVs(root.transform, filter);
+
+            if (material == null)
+            {
+                material = BuildGravelMaterial(template);
+            }
+            var materials = new Material[renderer.sharedMaterials.Length];
+            for (int i = 0; i < materials.Length; i++) materials[i] = material;
+            renderer.sharedMaterials = materials;
+            AddSidewalkSpill(root.transform, filter, material);
+        }
+        return found;
+    }
+
+    // Matte copy of the template with the gravel art as colour, plus a normal map and a
+    // height map built from the same art so each stone catches light like a little dome.
+    private Material BuildGravelMaterial(Material template)
+    {
+        Texture2D gravel = SidewalkGravelArt.Build("Sidewalk Gravel");
+        Texture2D bumps = SidewalkGravelArt.BuildNormalMap("Sidewalk Gravel Normal", GravelNormalStrength);
+        Texture2D heights = SidewalkGravelArt.BuildHeightMap("Sidewalk Gravel Height");
+        context.AddObjectToAsset("sidewalk_gravel_texture", gravel);
+        context.AddObjectToAsset("sidewalk_gravel_normal", bumps);
+        context.AddObjectToAsset("sidewalk_gravel_height", heights);
+
+        var material = new Material(template) { name = "Sidewalk Gravel" };
+        if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", gravel);
+        if (material.HasProperty("_MainTex")) material.SetTexture("_MainTex", gravel);
+        if (material.HasProperty("_BumpMap"))
+        {
+            material.SetTexture("_BumpMap", bumps);
+            material.EnableKeyword("_NORMALMAP");
+        }
+        if (material.HasProperty("_ParallaxMap"))
+        {
+            material.SetTexture("_ParallaxMap", heights);
+            material.EnableKeyword("_PARALLAXMAP");
+        }
+        context.AddObjectToAsset("sidewalk_gravel_material", material);
+        return material;
+    }
+
+    // Gravel slopes from the slab's edges down to the ground, as a sibling object with its
+    // own collider so the player can walk up them instead of meeting a wall.
+    private void AddSidewalkSpill(Transform root, MeshFilter sidewalk, Material material)
+    {
+        MeshFilter groundFilter = null;
+        foreach (MeshFilter candidate in root.GetComponentsInChildren<MeshFilter>(true))
+        {
+            if (candidate.name == GroundName && candidate.sharedMesh != null)
+            {
+                groundFilter = candidate;
+                break;
+            }
+        }
+        if (groundFilter == null)
+        {
+            Debug.LogWarning("[IslandLampLights] No " + GroundName + " ground found for the sidewalk spill in " + MapPath);
+            return;
+        }
+
+        Matrix4x4 toMetres = Matrix4x4.Scale(Vector3.one * MapSceneScale) * root.worldToLocalMatrix;
+        Mesh spill = SidewalkSpill.Build(sidewalk.sharedMesh, toMetres * sidewalk.transform.localToWorldMatrix,
+            groundFilter.sharedMesh, toMetres * groundFilter.transform.localToWorldMatrix, MapSceneScale);
+        if (spill == null)
+        {
+            Debug.LogWarning("[IslandLampLights] Sidewalk spill came out empty in " + MapPath);
+            return;
+        }
+        context.AddObjectToAsset("sidewalk_spill_mesh", spill);
+
+        var holder = new GameObject("Sidewalk Spill");
+        holder.transform.SetParent(root, false);
+        holder.AddComponent<MeshFilter>().sharedMesh = spill;
+        holder.AddComponent<MeshRenderer>().sharedMaterial = material;
+        holder.AddComponent<MeshCollider>().sharedMesh = spill;
+    }
+
+    // World-aligned UVs in scene metres: tops and bottoms take X/Z, walls take whichever
+    // vertical plane they face most, so the pebbles keep one size everywhere and line up
+    // across separate faces.
+    private static void BoxProjectUVs(Transform root, MeshFilter filter)
+    {
+        Mesh mesh = filter.sharedMesh;
+        Matrix4x4 toRoot = root.worldToLocalMatrix * filter.transform.localToWorldMatrix;
+        Vector3[] vertices = mesh.vertices;
+        Vector3[] normals = mesh.normals;
+        bool hasNormals = normals != null && normals.Length == vertices.Length;
+        var uvs = new Vector2[vertices.Length];
+        for (int i = 0; i < vertices.Length; i++)
+        {
+            Vector3 p = toRoot.MultiplyPoint3x4(vertices[i]) * MapSceneScale;
+            Vector3 n = hasNormals ? toRoot.MultiplyVector(normals[i]) : Vector3.up;
+            float ax = Mathf.Abs(n.x), ay = Mathf.Abs(n.y), az = Mathf.Abs(n.z);
+            if (ay >= ax && ay >= az) uvs[i] = new Vector2(p.x, p.z);
+            else if (ax >= az) uvs[i] = new Vector2(p.z, p.y);
+            else uvs[i] = new Vector2(p.x, p.y);
+        }
+        mesh.uv = uvs;
+        // The imported tangents followed the old UVs; the normal map needs them to follow these.
+        mesh.RecalculateTangents();
     }
 
     // ShadeCount matte copies of the template around a base colour, stored inside the model.

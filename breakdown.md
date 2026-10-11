@@ -383,9 +383,10 @@ stroke by stroke in real writing order, with drops of ink flicking off the nib.
 
 ## 6. Night sky
 
-**File:** `Assets/Materials/NightSkySkybox.shader`
+**Files:** `Assets/Materials/NightSkySkybox.shader`, `Assets/Materials/NightSky.hlsl`
 
-Fully procedural skybox - no textures.
+Fully procedural skybox - no textures. The stars and aurora live in `NightSky.hlsl`
+(`NightSkyLights(dir, t)`) so the ocean can reuse them for its reflection (see below).
 
 - **Gradient:** horizon -> zenith with `pow(up, 1 / sharpness)`, a darker colour below the
   horizon.
@@ -406,6 +407,23 @@ Fully procedural skybox - no textures.
 - **Fading in and out:** a slow large-scale noise mask makes patches come and go, times a
   "breathing" envelope (`_AuroraFadePeriod`) that never drops below `_AuroraMinVisibility`.
 - Bright aurora slightly dims stars behind it, like real sky glow.
+
+**Ocean reflecting the sky** (`Assets/Materials/OceanWater.shader`): the water evaluates
+`NightSkyLights` along its reflected view ray, so the same stars and aurora show up mirrored
+and moving on the waves. The normal used for that lookup blends the smooth wave normal with
+the rippled one (`_SkyReflectionDistortion`), so the reflection wobbles instead of turning
+into noise. It's scaled by fresnel (`_SkyReflection`) and uses 8 aurora samples instead of 16
+since the waves blur it anyway. The ocean material carries its own copy of the star/aurora
+settings - keep them equal to `NightSkySkybox.mat` so the reflected stars line up with the
+real ones.
+
+**Ocean waves that don't tile:** four user waves (A-D) plus four weaker "secondary" copies
+turned by odd angles and stretched by irrational factors (0.618, 1.371, ...), so the sum never
+lines up into a repeating square. Each wave is also faded by its own slowly drifting
+large-scale noise (`_WaveVariation`, `_WaveVariationScale`), giving calm and rough patches
+that wander. The fade only ever weakens a wave, so crests can't loop over. The ripple/foam
+noise hash was swapped for a float-safe one - the old `frac(p * 123.34)` repeated every 50
+cells.
 
 ---
 
@@ -463,6 +481,49 @@ Maya and follow the map into any scene.
   - **Stable choice:** FNV-1a hash of the name picks the shade - stable across sessions,
     unlike `string.GetHashCode`. Trees hash the tree's name (one tone per tree); shrubs and
     hedges hash name + index of each sphere (speckled bushes), because sphere names repeat.
+- **Inverted normals (sidewalk not showing shadows):** the sidewalk slab
+  (`IslandDemo:pCube2`) came out of Maya with every normal facing opposite its triangle
+  winding. It still drew (culling uses winding), but lighting uses normals, so lights saw its
+  back: only ambient lit it and shadows had nothing to darken. `FixInvertedNormals` does an
+  area-weighted vote per mesh (triangle `Cross(b-a, c-a)` vs. its vertex normals) and flips
+  normals + tangents when disagreement outweighs agreement 3:1. Only that slab trips it.
+- **Gravel sidewalk:** the slab gets a matte copy of `Assets/Materials/SidewalkGravel.mat`
+  (URP Lit, smoothness 0, specular highlights and environment reflections off - the Arnold
+  import was glossy) with a hand-drawn 32x32 gravel tile from
+  `Assets/Editor/SidewalkGravelArt.cs` as its base map.
+  - **Bitmap as text:** same idea as `InventoryPixelArt` - one string per pixel row, one
+    palette letter per pixel. Styled on Minecraft gravel: grey stones packed edge to edge
+    (mid, pale, dark and a rare faintly warm grey), each lit from the top-left (light rim
+    top/left, dark rim bottom/right) with dark gaps where stones meet. The tile wraps on both
+    axes. Point filtering plus mipmaps: crisp up close, no crawling far away.
+  - **UVs in metres:** the importer box-projects new UVs per vertex (tops use X/Z, walls the
+    vertical plane they face), in model units x `MapSceneScale` (209.3, the map's scale in the
+    scene). So the template's tiling is tiles per metre: 0.5 = one tile per 2 m, 16 px/m,
+    about a 30 px tall player.
+  - **Reimport on edit:** `GetVersion()` mixes in `SidewalkGravelArt.ContentHash()`, so
+    editing the art reimports the map; `DependsOnSourceAsset` does the same for the material.
+  - **Depth without geometry:** a height field is derived from the same bitmap - each
+    stone is a dome rising with distance from the nearest gap pixel (pale stones a bit proud,
+    dark ones sunk, gaps lowest). From it the importer builds a tangent-space normal map
+    (central differences, `GravelNormalStrength`) and a height map for URP's parallax
+    (`_Parallax` on the template). Both point-filtered, so the bumps stay pixel-crisp; tangents
+    are recalculated after the new UVs so the normal map lines up.
+- **Gravel spilling over the edges** (`Assets/Editor/SidewalkSpill.cs`): instead of the slab's
+  90 degree walls, a ragged gravel slope runs from every top edge down to the ground.
+  - **Finding the edges:** weld the slab's vertices by position, keep upward-facing
+    triangles, and the edges only one of them uses are the outline. Outward is the side away
+    from the triangle's third corner; corners use the averaged direction of both edges, so
+    neighbouring strips meet without gaps.
+  - **Finding the ground:** the ground block's upward triangles (`IslandDemo:pCube1`) are
+    queried directly - barycentric point-in-triangle in X/Z, highest surface below the edge.
+    No physics needed at import time.
+  - **Shape:** samples every 0.5 m. Width = 0.35 m + 1.2 x drop (roughly gravel's angle of
+    repose), +-45% value noise so the foot is ragged, capped at 2.5 m; a bend row at 45% gives
+    a slightly convex heap with a little bump noise. Drops over 3 m are skipped.
+  - **Loose heaps:** small seven-sided cones scattered just past the foot, positions and sizes
+    from a position hash so reimports give the same result.
+  - Same metre UVs as the top, so pebbles carry on over the edge. Built as a `Sidewalk Spill`
+    object in the model with a `MeshCollider`, so the player walks up the slope.
 
 ---
 
