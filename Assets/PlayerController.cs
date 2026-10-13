@@ -13,6 +13,8 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private Sprite backIdle;
     [SerializeField] private Sprite[] frontWalk;
     [SerializeField] private Sprite[] backWalk;
+    [SerializeField] private Sprite[] leftWalk;
+    [SerializeField] private Sprite[] rightWalk;
     [SerializeField] private float walkFrameRate = 6f;
     [SerializeField] private Renderer shadowCaster;
     [SerializeField] private Light shadowLight;
@@ -91,8 +93,8 @@ public class PlayerController : MonoBehaviour
         UpdateSprite(input);
     }
 
-    // W (and W diagonals) shows the back walk, S (and S diagonals) the front walk.
-    // Pure A/D keeps the last facing; standing still shows that facing's idle.
+    // W/S (including diagonals) use back/front walks. A/D alone use side walks.
+    // Standing still shows the last front/back facing's idle sprite.
     private void UpdateSprite(Vector2 input)
     {
         if (spriteRenderer == null)
@@ -103,7 +105,9 @@ public class PlayerController : MonoBehaviour
         if (input.y > 0f) facingBack = true;
         else if (input.y < 0f) facingBack = false;
 
-        Sprite[] walk = facingBack ? backWalk : frontWalk;
+        Sprite[] walk = input.y > 0f ? backWalk :
+                        input.y < 0f ? frontWalk :
+                        input.x < 0f ? leftWalk : rightWalk;
         Sprite next;
         if (input != Vector2.zero && walk != null && walk.Length > 0)
         {
