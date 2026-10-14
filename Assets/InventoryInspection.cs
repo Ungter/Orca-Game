@@ -53,6 +53,14 @@ public class InventoryInspection : MonoBehaviour
 
     private void Update()
     {
+        if (IsOpen && shellPuzzleOpen && shellMinigame.ShouldClose)
+        {
+            Close();
+            heldSlot = -1;
+            // A held inventory key must be released before the finished letter can reopen.
+            waitForRelease = true;
+            return;
+        }
         Keyboard keyboard = Keyboard.current;
         if (keyboard == null)
         {
@@ -162,7 +170,7 @@ public class InventoryInspection : MonoBehaviour
         else if (shellPuzzle)
         {
             minigame.Hide();
-            shellMinigame.Show((RectTransform)canvas.transform);
+            shellMinigame.Show((RectTransform)canvas.transform, sprite);
         }
         else
         {

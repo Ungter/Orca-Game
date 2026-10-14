@@ -21,12 +21,12 @@ public class IslandLampLights : AssetPostprocessor
     {
         // Bump when the lamp setup or LampGlow defaults change, so the map reimports.
         // Editing the sidewalk pixel art changes the hash, which reimports it too.
-        return 12u ^ (SidewalkGravelArt.ContentHash() << 8);
+        return 13u ^ (SidewalkGravelArt.ContentHash() << 8);
     }
 
-    // Gravel sidewalk: the slab gets a matte copy of this template with the hand-drawn
-    // SidewalkGravelArt tile as its base map. UVs are laid out in scene metres, so the
-    // template's tiling reads as tiles per metre (0.5 = one 32 px tile every 2 m).
+    // The slab gets a matte copy of this template, using its supplied texture when set.
+    // UVs are laid out in scene metres, so the template's tiling reads as tiles per metre
+    // (0.5 = one tile every 2 m). Hand-drawn gravel is a fallback for untextured templates.
     private const string SidewalkName = "IslandDemo:pCube2";
     // The island's ground block, which the spilled gravel slopes down onto.
     private const string GroundName = "IslandDemo:pCube1";
@@ -366,30 +366,48 @@ public class IslandLampLights : AssetPostprocessor
         return found;
     }
 
-    // Matte copy of the template with the gravel art as colour, plus a normal map and a
-    // height map built from the same art so each stone catches light like a little dome.
+    // Preserve a supplied pavement texture rather than replacing it with generated gravel.
+    // Only the fallback gravel uses its matching generated normal and height maps.
     private Material BuildGravelMaterial(Material template)
     {
-        Texture2D gravel = SidewalkGravelArt.Build("Sidewalk Gravel");
-        Texture2D bumps = SidewalkGravelArt.BuildNormalMap("Sidewalk Gravel Normal", GravelNormalStrength);
-        Texture2D heights = SidewalkGravelArt.BuildHeightMap("Sidewalk Gravel Height");
-        context.AddObjectToAsset("sidewalk_gravel_texture", gravel);
-        context.AddObjectToAsset("sidewalk_gravel_normal", bumps);
-        context.AddObjectToAsset("sidewalk_gravel_height", heights);
-
         var material = new Material(template) { name = "Sidewalk Gravel" };
-        if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", gravel);
-        if (material.HasProperty("_MainTex")) material.SetTexture("_MainTex", gravel);
-        if (material.HasProperty("_BumpMap"))
+        Texture pavement = template.HasProperty("_BaseMap") ? template.GetTexture("_BaseMap") : null;
+        if (pavement == null && template.HasProperty("_MainTex")) pavement = template.GetTexture("_MainTex");
+        if (pavement != null)
         {
-            material.SetTexture("_BumpMap", bumps);
-            material.EnableKeyword("_NORMALMAP");
+            string texturePath = AssetDatabase.GetAssetPath(pavement);
+            if (!string.IsNullOrEmpty(texturePath)) context.DependsOnSourceAsset(texturePath);
+            material.name = "Sidewalk Cobblestone";
+            if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", pavement);
+            if (material.HasProperty("_MainTex")) material.SetTexture("_MainTex", pavement);
+            // Pebble bumps do not match the cobblestone artwork.
+            if (material.HasProperty("_BumpMap")) material.SetTexture("_BumpMap", null);
+            if (material.HasProperty("_ParallaxMap")) material.SetTexture("_ParallaxMap", null);
+            material.DisableKeyword("_NORMALMAP");
+            material.DisableKeyword("_PARALLAXMAP");
         }
-        if (material.HasProperty("_ParallaxMap"))
+        else
         {
-            material.SetTexture("_ParallaxMap", heights);
-            material.EnableKeyword("_PARALLAXMAP");
+            Texture2D gravel = SidewalkGravelArt.Build("Sidewalk Gravel");
+            Texture2D bumps = SidewalkGravelArt.BuildNormalMap("Sidewalk Gravel Normal", GravelNormalStrength);
+            Texture2D heights = SidewalkGravelArt.BuildHeightMap("Sidewalk Gravel Height");
+            context.AddObjectToAsset("sidewalk_gravel_texture", gravel);
+            context.AddObjectToAsset("sidewalk_gravel_normal", bumps);
+            context.AddObjectToAsset("sidewalk_gravel_height", heights);
+            if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", gravel);
+            if (material.HasProperty("_MainTex")) material.SetTexture("_MainTex", gravel);
+            if (material.HasProperty("_BumpMap"))
+            {
+                material.SetTexture("_BumpMap", bumps);
+                material.EnableKeyword("_NORMALMAP");
+            }
+            if (material.HasProperty("_ParallaxMap"))
+            {
+                material.SetTexture("_ParallaxMap", heights);
+                material.EnableKeyword("_PARALLAXMAP");
+            }
         }
+        // Keep this identifier stable so existing model material references still resolve.
         context.AddObjectToAsset("sidewalk_gravel_material", material);
         return material;
     }
