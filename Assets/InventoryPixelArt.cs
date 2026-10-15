@@ -108,12 +108,73 @@ public static class InventoryPixelArt
 
     public static readonly RectOffset BannerBorder = new RectOffset(5, 5, 0, 0);
 
+    // Recessed groove for the pause menu slider. 9-slice: left 3, right 3.
+    public static readonly string[] SliderTrack =
+    {
+        ".KKKKKK.",
+        "KBBBBBBK",
+        "KBbbbbbK",
+        "KBbbbbbK",
+        "KWWWWWWK",
+        ".KKKKKK.",
+    };
+
+    // Gold filling the groove up to the knob. Same 9-slice as the track.
+    public static readonly string[] SliderFill =
+    {
+        ".KKKKKK.",
+        "KyyyyyyK",
+        "KggggggK",
+        "KggggggK",
+        "KGGGGGGK",
+        ".KKKKKK.",
+    };
+
+    public static readonly RectOffset SliderBorder = new RectOffset(3, 3, 0, 0);
+
+    // Iron stud riding the slider; gold while hovered or dragged.
+    public static readonly string[] SliderKnob =
+    {
+        ".KKKKK.",
+        "KssssiK",
+        "KsiiiIK",
+        "KsiiiIK",
+        "KsiiiIK",
+        "KsiiiIK",
+        "KsiiiIK",
+        "KsiiiIK",
+        "KiIIIIK",
+        ".KKKKK.",
+    };
+
+    public static readonly string[] SliderKnobLit =
+    {
+        ".KKKKK.",
+        "KyyyygK",
+        "KygggGK",
+        "KygggGK",
+        "KygggGK",
+        "KygggGK",
+        "KygggGK",
+        "KygggGK",
+        "KgGGGGK",
+        ".KKKKK.",
+    };
+
     private static Texture2D slotTexture;
     private static Texture2D slotFilledTexture;
     private static Texture2D bannerTexture;
+    private static Texture2D sliderTrackTexture;
+    private static Texture2D sliderFillTexture;
+    private static Texture2D sliderKnobTexture;
+    private static Texture2D sliderKnobLitTexture;
     public static Texture2D SlotTexture => slotTexture != null ? slotTexture : slotTexture = Build(Slot, "inv_slot");
     public static Texture2D SlotFilledTexture => slotFilledTexture != null ? slotFilledTexture : slotFilledTexture = Build(SlotFilled, "inv_slot_filled");
     public static Texture2D BannerTexture => bannerTexture != null ? bannerTexture : bannerTexture = Build(Banner, "inv_banner");
+    public static Texture2D SliderTrackTexture => sliderTrackTexture != null ? sliderTrackTexture : sliderTrackTexture = Build(SliderTrack, "slider_track");
+    public static Texture2D SliderFillTexture => sliderFillTexture != null ? sliderFillTexture : sliderFillTexture = Build(SliderFill, "slider_fill");
+    public static Texture2D SliderKnobTexture => sliderKnobTexture != null ? sliderKnobTexture : sliderKnobTexture = Build(SliderKnob, "slider_knob");
+    public static Texture2D SliderKnobLitTexture => sliderKnobLitTexture != null ? sliderKnobLitTexture : sliderKnobLitTexture = Build(SliderKnobLit, "slider_knob_lit");
 
     public static Texture2D Build(string[] rows, string name)
     {

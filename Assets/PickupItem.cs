@@ -161,10 +161,11 @@ public class PickupItem : MonoBehaviour
             transform.position = restPosition + Vector3.up * offset;
         }
 
-        bool showPrompt = !pickedUp && player != null && !InventoryInspection.IsOpen && this == NearestInRange();
+        bool blocked = InventoryInspection.IsOpen || PauseMenu.IsPaused;
+        bool showPrompt = !pickedUp && player != null && !blocked && this == NearestInRange();
         promptAlpha = Mathf.MoveTowards(promptAlpha, showPrompt ? 1f : 0f, Time.unscaledDeltaTime * 8f);
 
-        if (pickedUp || player == null || InventoryInspection.IsOpen)
+        if (pickedUp || player == null || blocked)
         {
             return;
         }

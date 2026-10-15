@@ -53,6 +53,13 @@ public class InventoryInspection : MonoBehaviour
 
     private void Update()
     {
+        if (PauseMenu.IsPaused)
+        {
+            // Slot keys held through the pause must be pressed again to inspect.
+            heldSlot = -1;
+            waitForRelease = true;
+            return;
+        }
         if (IsOpen && shellPuzzleOpen && shellMinigame.ShouldClose)
         {
             Close();

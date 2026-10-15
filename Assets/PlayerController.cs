@@ -60,6 +60,12 @@ public class PlayerController : MonoBehaviour
 
     private void Update()
     {
+        // Freeze in place; a jump pressed while paused must not fire on resume.
+        if (PauseMenu.IsPaused)
+        {
+            return;
+        }
+
         if (InventoryInspection.IsOpen)
         {
             UpdateSprite(Vector2.zero);
