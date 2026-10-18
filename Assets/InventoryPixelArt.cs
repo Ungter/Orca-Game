@@ -271,6 +271,70 @@ public static class InventoryPixelArt
         },
     };
 
+    // Parchment speech bubble with rounded corners and a bright top lip. 9-slice: 3 on every side.
+    public static readonly string[] SpeechBubble =
+    {
+        "..KKKKKKKK..",
+        ".KwwwwwwwwK.",
+        "KwPPPPPPPPpK",
+        "KPPPPPPPPPpK",
+        "KPPPPPPPPPpK",
+        "KPPPPPPPPPpK",
+        "KPPPPPPPPPpK",
+        "KPPPPPPPPPpK",
+        "KPPPPPPPPPpK",
+        "KPPPPPPPPPpK",
+        ".KppppppppK.",
+        "..KKKKKKKK..",
+    };
+
+    public static readonly RectOffset SpeechBubbleBorder = new RectOffset(3, 3, 3, 3);
+
+    // Tail leaning down-right out of the bubble. Its top row overlaps the bubble's
+    // bottom outline, opening it; the tip is column 6-7 of the last row.
+    public static readonly string[] SpeechTail =
+    {
+        "KppppqK.",
+        ".KppppqK",
+        "..KKppqK",
+        "....KpqK",
+        ".....KqK",
+        "......KK",
+    };
+
+    // Wooden frame around the skill check's recessed track.
+    // 9-slice: left 4 (frame plus the well's shadow column), right 3, top 4, bottom 3.
+    public static readonly string[] SkillBar =
+    {
+        ".KKKKKKKKKK.",
+        "KHHHHHHHHHHK",
+        "KLKKKKKKKKLK",
+        "KLKBBBBBBKLK",
+        "KLKBbbbbbKLK",
+        "KLKBbbbbbKLK",
+        "KLKBbbbbbKLK",
+        "KLKBbbbbbKLK",
+        "KWKKKKKKKKWK",
+        "KDDDDDDDDDDK",
+        ".KKKKKKKKKK.",
+    };
+
+    public static readonly RectOffset SkillBarBorder = new RectOffset(4, 3, 4, 3);
+
+    // Wooden Enter keycap with a gold return arrow.
+    public static readonly string[] EnterKey =
+    {
+        ".KKKKKKKKKKK.",
+        "KHHHHHHHHHHHK",
+        "KLLLLLLLLyLLK",
+        "KLLLyLLLLyLLK",
+        "KLLyyyyyyyLLK",
+        "KLLLyLLLLLLLK",
+        "KLLLLLLLLLLLK",
+        "KDDDDDDDDDDDK",
+        ".KKKKKKKKKKK.",
+    };
+
     private static Texture2D slotTexture;
     private static Texture2D slotFilledTexture;
     private static Texture2D bannerTexture;
@@ -295,6 +359,15 @@ public static class InventoryPixelArt
     public static Texture2D ChainLinkTexture => chainLinkTexture != null ? chainLinkTexture : chainLinkTexture = Build(ChainLink, "title_chain");
     public static Texture2D GemTexture => gemTexture != null ? gemTexture : gemTexture = Build(Gem, "title_gem");
     public static Texture2D TorchTexture => torchTexture != null ? torchTexture : torchTexture = Build(Torch, "title_torch");
+
+    private static Texture2D speechBubbleTexture;
+    private static Texture2D speechTailTexture;
+    private static Texture2D enterKeyTexture;
+    private static Texture2D skillBarTexture;
+    public static Texture2D SkillBarTexture => skillBarTexture != null ? skillBarTexture : skillBarTexture = Build(SkillBar, "skill_bar");
+    public static Texture2D SpeechBubbleTexture => speechBubbleTexture != null ? speechBubbleTexture : speechBubbleTexture = Build(SpeechBubble, "speech_bubble");
+    public static Texture2D SpeechTailTexture => speechTailTexture != null ? speechTailTexture : speechTailTexture = Build(SpeechTail, "speech_tail");
+    public static Texture2D EnterKeyTexture => enterKeyTexture != null ? enterKeyTexture : enterKeyTexture = Build(EnterKey, "key_enter");
 
     public static Texture2D TorchFlameTexture(int frame)
     {

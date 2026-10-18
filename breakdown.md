@@ -6,7 +6,7 @@ Each section names the files involved, so you can jump straight to the code.
 - [1. Pixel font](#1-pixel-font) - `PixelFont.cs`
 - [2. Pixel text on a Canvas](#2-pixel-text-on-a-canvas) - `PixelText.cs`
 - [3. Inventory UI pixel art](#3-inventory-ui-pixel-art) - `InventoryPixelArt.cs`, `InventoryHUD.cs`
-- [4. Pickup prompt](#4-pickup-prompt) - `PickupItem.cs`
+- [4. Pickup prompt](#4-pickup-prompt) - `PickupItem.cs`, `InteractPrompt.cs`
 - [5. Letter burn animation](#5-letter-burn-animation) - `LetterBurn.cs`, `ClueMinigame.cs`
 - [5b. Minigame painted onto the letter](#5b-minigame-painted-onto-the-letter) - `ClueMinigame.cs`
 - [5c. Cursive clue writing itself](#5c-cursive-clue-writing-itself) - `CursiveWriter.cs`
@@ -15,6 +15,8 @@ Each section names the files involved, so you can jump straight to the code.
 - [8. Fixing the map on import](#8-fixing-the-map-on-import) - `Editor/IslandLampLights.cs`
 - [9. Fixing the FBX itself](#9-fixing-the-fbx-itself) - one-off scripts
 - [10. Title screen](#10-title-screen) - `TitleScreen.cs`, `PixelButton.cs`
+- [11. Talking to the gravestone](#11-talking-to-the-gravestone) - `TalkInteractable.cs`, `InteractPrompt.cs`
+- [12. Dig site skill checks](#12-dig-site-skill-checks) - `DigSite.cs`, `DigSparkles.cs`, `Interactables.cs`
 - [Shared rules for crisp pixel art](#shared-rules-for-crisp-pixel-art)
 
 ---
@@ -163,7 +165,7 @@ item name wrapped to two lines under the slot. Fading is just `GUI.color.a`.
 
 ## 4. Pickup prompt
 
-**File:** `Assets/PickupItem.cs`
+**Files:** `Assets/PickupItem.cs`, drawing shared with talkable objects in `Assets/InteractPrompt.cs`
 
 - **The drifting bug:** `WorldToScreenPoint` measures y from the *bottom* of the screen,
   IMGUI from the *top*. Mixing them made the prompt climb as you walked closer. Fix:
@@ -612,6 +614,112 @@ Shown once when play starts; no extra scene. PLAY flies the camera down to the p
   - `Gem` on a gold rule between scroll and button.
 - **Shade:** a light dim plus four stepped dark bands along the top and bottom edges (a pixel vignette).
   A black veil fades out over the first 1.2 s to hide the scene popping in.
+
+---
+
+## 11. Talking to the gravestone
+
+**Files:** `Assets/TalkInteractable.cs` (on `graveStone1` in the scene), `Assets/InteractPrompt.cs`,
+bubble/tail/Enter-key maps in `Assets/InventoryPixelArt.cs`, portrait `Assets/Resources/ShellGame/panther.png`
+
+Walk up to the gravestone, press E, and the panther slides into the bottom-right corner and says
+"Something is in the forest". Enter or a click sends it away.
+
+### Prompt and who answers E
+
+- `[E] TALK` uses the same `InteractPrompt.Draw` as pickups (same radius 2.5, gap, fade).
+- `graveStone1` is a group whose meshes live on children, so the anchor is the top-centre of the
+  combined child renderer bounds, measured once in `Awake`.
+- Pickups, talkables and dig sites all register with `Interactables`; only the one nearest the
+  player shows its prompt and answers E, so one press never does two things.
+
+### Conversation phases
+
+`Entering` (0.45 s ease-out slide) -> `Popping` (bubble fades in and rises 3 px) -> `Typing`
+(40 chars/s) -> `Waiting` (Enter keycap hint fades in and bobs) -> `Leaving` (0.4 s ease-in slide out
+while the bubble fades in place) -> `Idle`.
+
+- Presses are ignored while the panther enters. While typing, the first press finishes the line; the
+  next one closes it.
+- `TalkInteractable.IsTalking` is true from the press until the panther is gone. It feeds
+  `Interactables.Busy`: `PlayerController` stands still, `PickupItem` and `InventoryInspection` ignore
+  input while it is set.
+- Runs at execution order -50, before the player and pickups, so the opening E press moves nothing.
+- Pausing freezes it; the click that resumes is swallowed so it cannot dismiss the bubble.
+- `Tick(deltaTime, advance)` holds all the logic, so `Editor/TalkInteractableTests.cs` drives it
+  without a scene.
+
+### Layout and art
+
+- IMGUI under a whole-number `GUI.matrix` scale (3 at 720p): one GUI unit = one art pixel.
+- The panther sheet is 256x512: two square frames stacked, drawn 4 texture px per art pixel at
+  64x64 art px. The frames alternate every 0.5 s as an idle. It is mirrored (negative UV width) so it
+  faces into the screen.
+- The bubble is a 9-sliced 12x12 parchment map (3 px borders, bright top lip). A separate 8x6 tail
+  overlaps the bubble's bottom outline by one row, which opens the outline, and its tip lands on
+  `speechPoint` (the panther's head). A 35% black copy offset by 1 px is the drop shadow.
+- The Enter hint is a 13x9 wooden keycap with a gold return arrow, bottom-right inside the bubble.
+
+---
+
+## 12. Dig site skill checks
+
+**Files:** `Assets/DigSite.cs` (on `digSiteMinigame2`, reward `ClueLetter2`), `Assets/Interactables.cs`,
+bar frame map `SkillBar` in `Assets/InventoryPixelArt.cs`, burying in `Assets/PickupItem.cs`
+
+Walk up to the dig site (radius 1.75, 30% under the other interactables), press E, and hit three
+Dead by Daylight style skill checks with Space. Clearing them raises `ClueLetter2` out of the ground.
+
+### Checks
+
+- A needle rests at the left of the bar for 0.35 s, then crosses it in 1.3 s. The gold zone is open
+  0.5 s, then 0.3 s, then 0.2 s (`windows`), so its width is `window / 1.3` of the track.
+- Timing is judged in needle seconds, not pixels: a press counts when
+  `ZoneStart <= needleTime <= ZoneStart + window`. The zone opens somewhere between 30% of the sweep
+  and 0.08 s before the end.
+- Space early, Space late or letting the needle run past the zone all fail.
+- Phases: `Appearing` -> `Sweep` -> `Hit` (zone flashes, pip turns gold) -> next `Sweep` ...
+  -> `Complete` -> `Dug`. A fail goes `Failed` (red tint, 1 px shake) -> `Shatter` -> `Idle`, and the
+  next dig starts from the first check.
+- Space is also jump. While `Interactables.Busy`, `PlayerController` sets `jumpLocked`, and only a release
+  clears it, so the press that ends a check never jumps.
+- `DigSite.IsDigging` (part of `Interactables.Busy`) locks the player from the E press until a check
+  succeeds or fails. The player is free while the shards fall, but the site only shows its prompt
+  again once they are gone.
+
+### Shattering
+
+- On a fail the bar is cut into columns 9-16 px wide, each split at a random height into a top and a
+  bottom shard, so the break is jagged.
+- Each shard flies outward from the bar's middle (top shards jump higher) and falls under gravity.
+  Positions come from `v*t + g*t*t/2` and are rounded to whole art pixels; alpha fades in quarter steps.
+- A shard is drawn by clipping the whole bar with `GUI.BeginGroup(shardRect)` and drawing the bar offset
+  by the shard's source position. No textures are cut up.
+
+### The reward
+
+- `DigSite.Start` calls `reward.Bury()` (after every `Awake`, so the letter has recorded its rest
+  position): its renderers and glow are switched off and it is not interactable. Place the letter in the
+  scene where it should rise.
+- `Unearth` drops it below its resting bottom edge and eases it up over 1.2 s with a small shudder; the
+  ground hides the part still underground. Its glow brightens with it. The bob phase is reset so the
+  bob starts from zero. After that it is a normal pickup with its own `[E] PICK UP` prompt.
+
+### Sparkles after the gravestone
+
+**File:** `Assets/DigSparkles.cs`
+
+- `TalkInteractable.HasSpoken` turns true when a conversation finishes (the panther has left). The dig
+  site's `revealedBy` points at the gravestone; left empty, `Start` uses the scene's only talkable object.
+  Until then the site looks as it always did.
+- Seven glints, each a `SpriteRenderer` with a 1x1 dot, a 3x3 plus or a 5x5 star built from
+  `InventoryPixelArt.Build` (32 px per unit). Each one plays dot -> plus -> star -> star -> plus -> dot
+  over about a second while it rises 0.35 units, waits a random moment, then reappears at a random
+  spot within half the dig radius. They are turned to the camera's rotation every frame.
+- One shadowless point light (intensity 1.5, range 3) breathes slowly with a little shimmer, so the
+  ground around the site picks up the glow.
+- Everything fades in over 1.2 s and fades out the same way once the last check is cleared.
+- The sparkles live on their own root object, not under the site, whose uneven scale would stretch them.
 
 ---
 

@@ -55,6 +55,12 @@ public class InventoryInspection : MonoBehaviour
             waitForRelease = true;
             return;
         }
+        if (Interactables.Busy)
+        {
+            // No inspecting mid-conversation or mid-dig; keys held through it must be pressed again.
+            waitForRelease = true;
+            return;
+        }
         if (IsOpen && shellPuzzleOpen && shellMinigame.ShouldClose)
         {
             Close();

@@ -36,6 +36,9 @@ public class PlayerController : MonoBehaviour
     private MaterialPropertyBlock shadowBlock;
     private Vector3 shadowBaseScale;
     private Vector3 shadowBasePosition;
+    // Set while something else owns the keyboard; Space must be released before it jumps again,
+    // so the press that ends a skill check or a conversation never also jumps.
+    private bool jumpLocked;
 
     private void Awake()
     {
@@ -66,8 +69,9 @@ public class PlayerController : MonoBehaviour
             return;
         }
 
-        if (InventoryInspection.IsOpen)
+        if (InventoryInspection.IsOpen || Interactables.Busy)
         {
+            jumpLocked = true;
             UpdateSprite(Vector2.zero);
             return;
         }
@@ -84,7 +88,12 @@ public class PlayerController : MonoBehaviour
             verticalVelocity = -1f;
         }
 
-        if (grounded && IsJumpPressed())
+        if (jumpLocked && !IsJumpHeld())
+        {
+            jumpLocked = false;
+        }
+
+        if (grounded && !jumpLocked && IsJumpPressed())
         {
             verticalVelocity = jumpSpeed;
         }
@@ -206,6 +215,12 @@ public class PlayerController : MonoBehaviour
     {
         Keyboard keyboard = Keyboard.current;
         return keyboard != null && keyboard.spaceKey.wasPressedThisFrame;
+    }
+
+    private static bool IsJumpHeld()
+    {
+        Keyboard keyboard = Keyboard.current;
+        return keyboard != null && keyboard.spaceKey.isPressed;
     }
 
     // W always moves the player away from the camera, A/S/D are relative to the
