@@ -601,6 +601,11 @@ Shown once when play starts; no extra scene. PLAY flies the camera down to the p
 - **Hand-made pieces** (string maps in `InventoryPixelArt`, same palette plus four fire colours R/O/Y/w):
   - `Corner` - gilded corner bracket, drawn once and mirrored into all four corners by negative UV width/height.
   - `ChainLink` - tiles vertically from the screen top down behind the scroll's rolled ends.
+    The scroll (and the orca with it) sways +-2 art px every 5 s on a half-sine, half-triangle wave,
+    snapped to whole screen pixels rather than art pixels: art-pixel snapping left only five positions
+    and the sine parked at each end for over a second. Texels stay p x p, just shifted. Each link is
+    offset by `sway * depth`, depth 0 at the screen top to 1 at the scroll, so the chains lean like a
+    pendulum. Translation only - rotating would smear the pixels.
   - `Torch` + three `TorchFlame` frames - wall torches either side, 8 fps flicker, offset per torch.
   - Torch glow - a procedural 25x25 texture of three stepped alpha rings (no soft gradient), alpha
     flickered with Perlin noise. Embers are single art pixels rising and cooling yellow -> orange -> red.

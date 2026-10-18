@@ -55,6 +55,12 @@ public class TitleScreen : MonoBehaviour
     private const int OrcaOverlap = 5;
     private const float OrcaFrameRate = 3f;
 
+    // The scroll sways on its chains: at most this many art pixels either side of centre, once
+    // there and back every SwayPeriod seconds. It moves in whole screen pixels, not art pixels,
+    // so it glides instead of hopping between a handful of positions and resting at the ends.
+    private const float SwayAmplitude = 2f;
+    private const float SwayPeriod = 5f;
+
     // Layout in art pixels below the scroll.
     private const int SectionGap = 6;
     private const int DividerHalfWidth = 40;
@@ -454,14 +460,15 @@ public class TitleScreen : MonoBehaviour
             Matrix4x4 artMatrix = Matrix4x4.TRS(new Vector3(layout.Origin.x, layout.Origin.y, 0f), Quaternion.identity, new Vector3(p, p, 1f));
             GUI.matrix = artMatrix;
             float time = Time.unscaledTime;
+            float sway = Sway(time, p);
 
             DrawShade(layout);
             DrawCorners(layout);
-            DrawChains(layout);
+            DrawChains(layout, sway);
             DrawTorch(layout, layout.BannerX - 6f - InventoryPixelArt.Torch[0].Length * TorchScale, time, 0);
             DrawTorch(layout, layout.BannerX + layout.BannerWidth + 6f, time, 1);
-            DrawOrca(layout, time);
-            DrawBanner(layout, artMatrix);
+            DrawOrca(layout, time, sway);
+            DrawBanner(layout, artMatrix, sway);
             GUI.matrix = artMatrix;
             DrawDivider(layout);
 
@@ -530,8 +537,20 @@ public class TitleScreen : MonoBehaviour
         DrawSprite(corner, right, bottom, CornerScale, new Rect(1f, 1f, -1f, -1f));
     }
 
-    // Iron chains from the top of the screen down behind the scroll's rolled ends.
-    private void DrawChains(Layout layout)
+    // Sideways offset in art pixels, snapped to whole screen pixels. Half sine, half triangle wave:
+    // the sine alone lingers at each end once snapped, the triangle alone turns too sharply.
+    private static float Sway(float time, int pixel)
+    {
+        float phase = time * 2f * Mathf.PI / SwayPeriod;
+        float sine = Mathf.Sin(phase);
+        float triangle = Mathf.Asin(sine) * 2f / Mathf.PI;
+        return Mathf.Round(SwayAmplitude * pixel * (sine + triangle) * 0.5f) / pixel;
+    }
+
+    // Iron chains from the top of the screen down behind the scroll's rolled ends. They hang from
+    // fixed points above the screen, so each link swings in proportion to how far down it hangs:
+    // the bottom link moves with the scroll, links near the top barely move.
+    private void DrawChains(Layout layout, float sway)
     {
         Texture2D link = InventoryPixelArt.ChainLinkTexture;
         float rollCentre = 2.5f * layout.TitleScale;
@@ -543,7 +562,9 @@ public class TitleScreen : MonoBehaviour
             float x = Mathf.Floor(centre - link.width * 0.5f);
             for (int i = 0; i < links; i++)
             {
-                DrawSprite(link, x, bottom - (i + 1) * link.height, 1, full);
+                float top = bottom - (i + 1) * link.height;
+                float reach = Mathf.Clamp01((top + link.height) / bottom);
+                DrawSprite(link, x + Mathf.Round(sway * reach * layout.Pixel) / layout.Pixel, top, 1, full);
             }
         }
     }
@@ -580,7 +601,8 @@ public class TitleScreen : MonoBehaviour
     }
 
     // The orca leaps out from behind the scroll, bobbing a pixel and flicking between its two frames.
-    private void DrawOrca(Layout layout, float time)
+    // It sways with the scroll so its tail stays tucked behind it.
+    private void DrawOrca(Layout layout, float time, float sway)
     {
         if (orca == null)
         {
@@ -593,11 +615,11 @@ public class TitleScreen : MonoBehaviour
         float bob = Mathf.Round(Mathf.Sin(time * 2f));
         float y = layout.BannerTop - OrcaContentBottom + OrcaOverlap + bob;
         GUI.color = new Color(1f, 1f, 1f, uiOpacity);
-        GUI.DrawTextureWithTexCoords(new Rect(-OrcaContentCentre, y, OrcaFrameSize, OrcaFrameSize), orca, uv);
+        GUI.DrawTextureWithTexCoords(new Rect(sway - OrcaContentCentre, y, OrcaFrameSize, OrcaFrameSize), orca, uv);
     }
 
     // The pause menu's parchment banner, blown up to a whole-number multiple for the title.
-    private void DrawBanner(Layout layout, Matrix4x4 artMatrix)
+    private void DrawBanner(Layout layout, Matrix4x4 artMatrix, float sway)
     {
         if (bannerStyle == null || bannerStyle.normal.background == null)
         {
@@ -605,7 +627,7 @@ public class TitleScreen : MonoBehaviour
         }
 
         int scale = layout.TitleScale;
-        GUI.matrix = artMatrix * Matrix4x4.TRS(new Vector3(layout.BannerX, layout.BannerTop, 0f), Quaternion.identity, new Vector3(scale, scale, 1f));
+        GUI.matrix = artMatrix * Matrix4x4.TRS(new Vector3(layout.BannerX + sway, layout.BannerTop, 0f), Quaternion.identity, new Vector3(scale, scale, 1f));
         GUI.color = new Color(1f, 1f, 1f, uiOpacity);
         bannerStyle.Draw(new Rect(0f, 0f, layout.BannerArtWidth, InventoryPixelArt.Banner.Length), false, false, false, false);
         PixelFont.Draw(InventoryPixelArt.BannerBorder.left + 3, 4f, Title, Ink, InkShadow);
