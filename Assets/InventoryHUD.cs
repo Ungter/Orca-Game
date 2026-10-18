@@ -26,7 +26,6 @@ public class InventoryHUD : MonoBehaviour
     private const int NameGap = 2;
     private const int LineHeight = PixelFont.CapHeight + 1;
     private const int PanelHeight = BannerHeight + RowGap + SlotHeight + NameGap + LineHeight * 2;
-    private const string Hint = "[1-5] INSPECT [I] VIEW";
 
     private static readonly Color Ink = new Color32(59, 36, 22, 255);
     private static readonly Color InkShadow = new Color32(200, 168, 114, 140);
@@ -173,9 +172,6 @@ private void OnGUI()
         {
             PixelFont.Draw(bannerWidth + 3, 5f, "FULL", Blood, Outline);
         }
-
-        int hintWidth = PixelFont.Measure(Hint);
-        PixelFont.Draw(PanelWidth() - hintWidth, 5f, Hint, ParchmentDim, Outline);
     }
 
     private static void DrawIcon(Rect well, Sprite sprite)

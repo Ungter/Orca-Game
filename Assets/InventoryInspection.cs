@@ -9,15 +9,12 @@ public class InventoryInspection : MonoBehaviour
 {
     public static bool IsOpen { get; private set; }
 
-    private const float HoldDuration = 0.35f;
     private const float RotationSpeed = 90f;
     private const string InspectControls = "[WASD] ROTATE    [ESC] CLOSE";
     private static readonly Key[] SlotKeys = { Key.Digit1, Key.Digit2, Key.Digit3, Key.Digit4, Key.Digit5 };
 
     private InventorySystem inventory;
-    private int heldSlot = -1;
     private int inspectedSlot = -1;
-    private float holdStartedAt;
     private bool waitForRelease;
     private Vector2 rotation;
     private Canvas canvas;
@@ -48,7 +45,6 @@ public class InventoryInspection : MonoBehaviour
     private void OnDisable()
     {
         Close();
-        heldSlot = -1;
     }
 
     private void Update()
@@ -56,14 +52,12 @@ public class InventoryInspection : MonoBehaviour
         if (PauseMenu.IsPaused)
         {
             // Slot keys held through the pause must be pressed again to inspect.
-            heldSlot = -1;
             waitForRelease = true;
             return;
         }
         if (IsOpen && shellPuzzleOpen && shellMinigame.ShouldClose)
         {
             Close();
-            heldSlot = -1;
             // A held inventory key must be released before the finished letter can reopen.
             waitForRelease = true;
             return;
@@ -71,43 +65,38 @@ public class InventoryInspection : MonoBehaviour
         Keyboard keyboard = Keyboard.current;
         if (keyboard == null)
         {
-            heldSlot = -1;
             return;
         }
 
         if (keyboard.escapeKey.wasPressedThisFrame)
         {
             Close();
-            heldSlot = -1;
             // Esc must not immediately reopen an item whose slot key is still held.
             waitForRelease = true;
             return;
         }
 
+        // A slot key opens its item the moment it goes down; holding it does nothing more.
         int slot = -1;
+        bool anyHeld = false;
         for (int i = 0; i < Mathf.Min(SlotKeys.Length, inventory.SlotCount()); i++)
         {
-            if (keyboard[SlotKeys[i]].isPressed)
+            var key = keyboard[SlotKeys[i]];
+            anyHeld |= key.isPressed;
+            if (slot < 0 && key.wasPressedThisFrame)
             {
                 slot = i;
-                break;
             }
         }
 
-        if (slot < 0)
+        if (!anyHeld)
         {
-            heldSlot = -1;
             waitForRelease = false;
         }
-        else if (!waitForRelease)
+        else if (slot >= 0 && !waitForRelease)
         {
             inventory.NotifyInteraction();
-            if (slot != heldSlot)
-            {
-                heldSlot = slot;
-                holdStartedAt = Time.unscaledTime;
-            }
-            if (Time.unscaledTime - holdStartedAt >= HoldDuration && inspectedSlot != slot)
+            if (inspectedSlot != slot)
             {
                 Open(slot);
             }

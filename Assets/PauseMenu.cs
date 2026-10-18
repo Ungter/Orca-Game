@@ -1,8 +1,10 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.SceneManagement;
 
-// Esc pauses the game: the scene dims behind a parchment "PAUSED" banner, a max FPS
-// slider and a wooden Quit button, drawn with the inventory HUD's pixel art and PixelFont.
+// Esc pauses the game: the scene dims behind a parchment "PAUSED" banner, a max FPS slider and
+// wooden KEYBINDS and HOME buttons, drawn with the inventory HUD's pixel art and PixelFont.
+// KEYBINDS swaps the menu for a list of every control; HOME reloads the scene onto the title screen.
 // Runs before InventoryInspection so Esc closes an open inspection instead of pausing.
 [DefaultExecutionOrder(-200)]
 public class PauseMenu : MonoBehaviour
@@ -16,16 +18,32 @@ public class PauseMenu : MonoBehaviour
     [SerializeField, Range(0f, 1f)]
     private float dimAlpha = 0.65f;
 
+    private enum View { Main, Keybinds }
+
     private const float FadeDuration = 0.15f;
     private const string Title = "PAUSED";
-    private const string Label = "QUIT";
-    private const string Hint = "[ESC] RESUME";
+    private const string KeybindsTitle = "KEYBINDS";
+    private const string KeybindsLabel = "KEYBINDS";
+    private const string HomeLabel = "HOME";
+    private const string BackLabel = "BACK";
     private const string FrameRateTitle = "MAX FPS";
     private const string FrameRateKey = "PauseMenu.MaxFps";
     private const int Unlimited = -1;
 
     // Slider stops, lowest first. Unlimited matches Application.targetFrameRate's "no cap".
     private static readonly int[] FrameRateStops = { 30, 45, 60, 75, 90, 120, 144, 165, 240, Unlimited };
+
+    // Every control in the game: key on the left, what it does on the right.
+    private static readonly string[,] Keybinds =
+    {
+        { "[WASD]", "MOVE" },
+        { "[SPACE]", "JUMP" },
+        { "[J] [L]", "TURN CAMERA" },
+        { "[I]", "SHOW INVENTORY" },
+        { "[E]", "PICK UP" },
+        { "[1-5]", "OPEN ITEM" },
+        { "[ESC]", "PAUSE" },
+    };
 
     // Layout in art pixels, measured down from the menu origin. Track and knob sizes
     // match InventoryPixelArt.SliderTrack and SliderKnob.
@@ -35,33 +53,38 @@ public class PauseMenu : MonoBehaviour
     private const int TrackHeight = 6;
     private const int KnobWidth = 7;
     private const int KnobHeight = 10;
-    private const int ButtonWidth = 52;
-    private const int ButtonHeight = 22;
-    private const int HintGap = 4;
+    private const int ButtonWidth = PixelButton.Width;
+    private const int ButtonHeight = PixelButton.Height;
+    private const int ButtonGap = 3;
     private const int SliderTop = BannerHeight + SectionGap;
     private const int KnobTop = SliderTop + PixelFont.CapHeight + 3;
     private const int TrackTop = KnobTop + (KnobHeight - TrackHeight) / 2;
-    private const int ButtonTop = KnobTop + KnobHeight + SectionGap;
-    private const int HintTop = ButtonTop + ButtonHeight + HintGap;
-    private const int MenuHeight = HintTop + PixelFont.CapHeight + 1;
+    private const int KeybindsButtonTop = KnobTop + KnobHeight + SectionGap;
+    private const int HomeButtonTop = KeybindsButtonTop + ButtonHeight + ButtonGap;
+    private const int MenuHeight = HomeButtonTop + ButtonHeight;
+
+    private const int ListTop = BannerHeight + SectionGap;
+    private const int RowHeight = PixelFont.CapHeight + 4;
+    private const int ColumnGap = 6;
 
     private static readonly Color Ink = new Color32(59, 36, 22, 255);
     private static readonly Color InkShadow = new Color32(200, 168, 114, 140);
     private static readonly Color Parchment = new Color32(233, 214, 168, 255);
-    private static readonly Color ParchmentDim = new Color32(200, 168, 114, 255);
     private static readonly Color Gold = new Color32(242, 211, 107, 255);
     private static readonly Color Outline = new Color32(26, 15, 10, 220);
 
     private float previousTimeScale = 1f;
     private float opacity;
-    private bool hovered;
-    // The mouse went down on the button and has not been released yet.
-    private bool pressed;
+    private View view;
+    // Index into the current view's buttons; arrows/W/S or the mouse move it, Enter presses it.
+    private int selectedButton;
+    // Index into the current view's buttons, or -1.
+    private int hoveredButton = -1;
+    // The button the mouse went down on and has not been released yet, or -1.
+    private int pressedButton = -1;
     private bool sliderHovered;
     private bool dragging;
     private int frameRateStop;
-    private GUIStyle buttonStyle;
-    private GUIStyle buttonHoverStyle;
     private GUIStyle bannerStyle;
     private GUIStyle trackStyle;
     private GUIStyle fillStyle;
@@ -93,11 +116,15 @@ public class PauseMenu : MonoBehaviour
         Keyboard keyboard = Keyboard.current;
         if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
         {
-            if (IsPaused)
+            if (IsPaused && view == View.Keybinds)
+            {
+                ShowView(View.Main);
+            }
+            else if (IsPaused)
             {
                 Resume();
             }
-            else if (!InventoryInspection.IsOpen)
+            else if (!InventoryInspection.IsOpen && !TitleScreen.IsOpen)
             {
                 Pause();
             }
@@ -106,16 +133,16 @@ public class PauseMenu : MonoBehaviour
         opacity = Mathf.MoveTowards(opacity, IsPaused ? 1f : 0f, Time.unscaledDeltaTime / FadeDuration);
 
         Mouse mouse = Mouse.current;
-        if (!IsPaused || mouse == null)
+        if (!IsPaused)
         {
-            hovered = false;
-            pressed = false;
+            hoveredButton = -1;
+            pressedButton = -1;
             sliderHovered = false;
             dragging = false;
             return;
         }
 
-        if (keyboard != null)
+        if (keyboard != null && view == View.Main)
         {
             if (keyboard.leftArrowKey.wasPressedThisFrame || keyboard.aKey.wasPressedThisFrame)
             {
@@ -127,13 +154,50 @@ public class PauseMenu : MonoBehaviour
             }
         }
 
+        if (keyboard != null)
+        {
+            if (keyboard.upArrowKey.wasPressedThisFrame || keyboard.wKey.wasPressedThisFrame)
+            {
+                selectedButton = Mathf.Max(0, selectedButton - 1);
+            }
+            if (keyboard.downArrowKey.wasPressedThisFrame || keyboard.sKey.wasPressedThisFrame)
+            {
+                selectedButton = Mathf.Min(ButtonCount() - 1, selectedButton + 1);
+            }
+            if (keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame)
+            {
+                Click(selectedButton);
+                return;
+            }
+        }
+
+        if (mouse == null)
+        {
+            hoveredButton = -1;
+            pressedButton = -1;
+            return;
+        }
+
         Vector2 position = mouse.position.ReadValue();
         var pointer = new Vector2(position.x, Screen.height - position.y);
-        hovered = ButtonRect().Contains(pointer);
-        sliderHovered = SliderRect().Contains(pointer);
+        hoveredButton = -1;
+        int buttons = ButtonCount();
+        for (int i = 0; i < buttons; i++)
+        {
+            if (ArtToScreen(new Rect(ButtonX(), ButtonTop(i), ButtonWidth, ButtonHeight)).Contains(pointer))
+            {
+                hoveredButton = i;
+            }
+        }
+        // Only a moving or clicking mouse takes the selection, so a parked cursor never fights the keys.
+        if (hoveredButton >= 0 && (mouse.delta.ReadValue().sqrMagnitude > 0f || mouse.leftButton.wasPressedThisFrame))
+        {
+            selectedButton = hoveredButton;
+        }
+        sliderHovered = view == View.Main && SliderRect().Contains(pointer);
         if (mouse.leftButton.wasPressedThisFrame)
         {
-            pressed = hovered;
+            pressedButton = hoveredButton;
             dragging = sliderHovered;
         }
 
@@ -147,18 +211,45 @@ public class PauseMenu : MonoBehaviour
         if (mouse.leftButton.wasReleasedThisFrame)
         {
             // Like any button, it fires on release and only if the press started on it.
-            bool clicked = pressed && hovered;
-            pressed = false;
-            if (clicked)
+            int clicked = pressedButton >= 0 && pressedButton == hoveredButton ? pressedButton : -1;
+            pressedButton = -1;
+            if (clicked >= 0)
             {
-                Quit();
+                Click(clicked);
             }
         }
+    }
+
+    private void Click(int button)
+    {
+        if (view == View.Keybinds)
+        {
+            ShowView(View.Main);
+        }
+        else if (button == 0)
+        {
+            ShowView(View.Keybinds);
+        }
+        else
+        {
+            GoHome();
+        }
+    }
+
+    private void ShowView(View next)
+    {
+        view = next;
+        selectedButton = 0;
+        hoveredButton = -1;
+        pressedButton = -1;
+        sliderHovered = false;
+        dragging = false;
     }
 
     private void Pause()
     {
         IsPaused = true;
+        ShowView(View.Main);
         previousTimeScale = Time.timeScale;
         Time.timeScale = 0f;
         AudioListener.pause = true;
@@ -176,13 +267,12 @@ public class PauseMenu : MonoBehaviour
         PlayerPrefs.Save();
     }
 
-    private static void Quit()
+    // Reloading the scene drops all progress; the title screen opens on the fresh scene.
+    private void GoHome()
     {
-#if UNITY_EDITOR
-        UnityEditor.EditorApplication.isPlaying = false;
-#else
-        Application.Quit();
-#endif
+        Resume();
+        opacity = 0f;
+        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
 
     private void SetFrameRateStop(int stop)
@@ -239,13 +329,46 @@ public class PauseMenu : MonoBehaviour
         return Mathf.Max(1, Mathf.RoundToInt(pixelSize * UIScale()));
     }
 
+    private static int BackButtonTop()
+    {
+        return ListTop + Keybinds.GetLength(0) * RowHeight - 4 + SectionGap;
+    }
+
+    private int ViewHeight()
+    {
+        return view == View.Main ? MenuHeight : BackButtonTop() + ButtonHeight;
+    }
+
+    private int ButtonCount()
+    {
+        return view == View.Main ? 2 : 1;
+    }
+
+    private float ButtonTop(int button)
+    {
+        if (view == View.Keybinds)
+        {
+            return BackButtonTop();
+        }
+        return button == 0 ? KeybindsButtonTop : HomeButtonTop;
+    }
+
+    private string ButtonLabel(int button)
+    {
+        if (view == View.Keybinds)
+        {
+            return BackLabel;
+        }
+        return button == 0 ? KeybindsLabel : HomeLabel;
+    }
+
     // Top-centre of the menu in screen pixels (IMGUI top-left origin), snapped to whole pixels.
     private Vector2 MenuOrigin()
     {
         Rect safeArea = Screen.safeArea;
         // Screen.safeArea uses a bottom-left origin.
         float centreY = Screen.height - safeArea.center.y;
-        return new Vector2(Mathf.Round(safeArea.center.x), Mathf.Round(centreY - MenuHeight * PixelScale() * 0.5f));
+        return new Vector2(Mathf.Round(safeArea.center.x), Mathf.Round(centreY - ViewHeight() * PixelScale() * 0.5f));
     }
 
     private static float ButtonX()
@@ -273,11 +396,6 @@ public class PauseMenu : MonoBehaviour
     }
 
     // Hit areas in screen pixels, matching where OnGUI draws them.
-    private Rect ButtonRect()
-    {
-        return ArtToScreen(new Rect(ButtonX(), ButtonTop, ButtonWidth, ButtonHeight));
-    }
-
     private Rect SliderRect()
     {
         return ArtToScreen(new Rect(SliderX(), KnobTop, SliderWidth, KnobHeight));
@@ -312,24 +430,35 @@ public class PauseMenu : MonoBehaviour
         GUI.matrix = Matrix4x4.TRS(new Vector3(origin.x, origin.y, 0f), Quaternion.identity, new Vector3(p, p, 1f));
         GUI.color = new Color(1f, 1f, 1f, previousColor.a * opacity);
 
-        DrawBanner();
-        DrawSlider();
-        DrawButton();
+        if (view == View.Main)
+        {
+            DrawBanner(Title);
+            DrawSlider();
+        }
+        else
+        {
+            DrawBanner(KeybindsTitle);
+            DrawKeybinds();
+        }
 
-        int hintWidth = PixelFont.Measure(Hint);
-        PixelFont.Draw(Mathf.Floor(-hintWidth * 0.5f), HintTop, Hint, ParchmentDim, Outline);
+        for (int i = 0; i < ButtonCount(); i++)
+        {
+            bool held = pressedButton == i && hoveredButton == i;
+            PixelButton.Draw(ButtonX(), ButtonTop(i), ButtonLabel(i), selectedButton == i, held);
+        }
+        PixelButton.DrawSelection(ButtonX(), ButtonTop(selectedButton));
 
         GUI.color = previousColor;
         GUI.matrix = previousMatrix;
     }
 
-    private void DrawBanner()
+    private void DrawBanner(string title)
     {
-        int titleWidth = PixelFont.Measure(Title);
+        int titleWidth = PixelFont.Measure(title);
         int bannerWidth = InventoryPixelArt.BannerBorder.horizontal + titleWidth + 6;
         float x = Mathf.Floor(-bannerWidth * 0.5f);
         bannerStyle.Draw(new Rect(x, 0f, bannerWidth, BannerHeight), false, false, false, false);
-        PixelFont.Draw(x + InventoryPixelArt.BannerBorder.left + 3, 4f, Title, Ink, InkShadow);
+        PixelFont.Draw(x + InventoryPixelArt.BannerBorder.left + 3, 4f, title, Ink, InkShadow);
     }
 
     // "MAX FPS" and the current cap over a groove; gold fills it up to the knob.
@@ -353,39 +482,38 @@ public class PauseMenu : MonoBehaviour
         GUI.DrawTexture(new Rect(knobX, KnobTop, KnobWidth, KnobHeight), knob);
     }
 
-    // An inventory slot frame stretched into a button; hover swaps in the gold-studded frame.
-    private void DrawButton()
+    // Two columns centred as a block: gold keys right-aligned against parchment actions.
+    private static void DrawKeybinds()
     {
-        float x = ButtonX();
-        (hovered ? buttonHoverStyle : buttonStyle).Draw(new Rect(x, ButtonTop, ButtonWidth, ButtonHeight), false, false, false, false);
+        int rows = Keybinds.GetLength(0);
+        int keyWidth = 0;
+        int actionWidth = 0;
+        for (int i = 0; i < rows; i++)
+        {
+            keyWidth = Mathf.Max(keyWidth, PixelFont.Measure(Keybinds[i, 0]));
+            actionWidth = Mathf.Max(actionWidth, PixelFont.Measure(Keybinds[i, 1]));
+        }
 
-        RectOffset border = InventoryPixelArt.SlotBorder;
-        float wellWidth = ButtonWidth - border.horizontal;
-        float wellHeight = ButtonHeight - border.vertical;
-        float labelX = x + border.left + Mathf.Floor((wellWidth - PixelFont.Measure(Label)) * 0.5f);
-        // The label sinks a pixel while the button is held down.
-        float labelY = ButtonTop + border.top + Mathf.Floor((wellHeight - PixelFont.CapHeight) * 0.5f) + (pressed && hovered ? 1f : 0f);
-        PixelFont.Draw(labelX, labelY, Label, hovered ? Gold : Parchment, Outline);
+        float left = Mathf.Floor(-(keyWidth + ColumnGap + actionWidth) * 0.5f);
+        float actionX = left + keyWidth + ColumnGap;
+        for (int i = 0; i < rows; i++)
+        {
+            float y = ListTop + i * RowHeight;
+            string key = Keybinds[i, 0];
+            PixelFont.Draw(left + keyWidth - PixelFont.Measure(key), y, key, Gold, Outline);
+            PixelFont.Draw(actionX, y, Keybinds[i, 1], Parchment, Outline);
+        }
     }
 
     private void BuildStyles()
     {
-        if (buttonStyle != null && buttonStyle.normal.background != null)
+        if (bannerStyle != null && bannerStyle.normal.background != null)
         {
             return;
         }
 
-        buttonStyle = NineSlice(InventoryPixelArt.SlotTexture, InventoryPixelArt.SlotBorder);
-        buttonHoverStyle = NineSlice(InventoryPixelArt.SlotFilledTexture, InventoryPixelArt.SlotBorder);
-        bannerStyle = NineSlice(InventoryPixelArt.BannerTexture, InventoryPixelArt.BannerBorder);
-        trackStyle = NineSlice(InventoryPixelArt.SliderTrackTexture, InventoryPixelArt.SliderBorder);
-        fillStyle = NineSlice(InventoryPixelArt.SliderFillTexture, InventoryPixelArt.SliderBorder);
-    }
-
-    private static GUIStyle NineSlice(Texture2D texture, RectOffset border)
-    {
-        var style = new GUIStyle { border = new RectOffset(border.left, border.right, border.top, border.bottom) };
-        style.normal.background = texture;
-        return style;
+        bannerStyle = InventoryPixelArt.NineSlice(InventoryPixelArt.BannerTexture, InventoryPixelArt.BannerBorder);
+        trackStyle = InventoryPixelArt.NineSlice(InventoryPixelArt.SliderTrackTexture, InventoryPixelArt.SliderBorder);
+        fillStyle = InventoryPixelArt.NineSlice(InventoryPixelArt.SliderFillTexture, InventoryPixelArt.SliderBorder);
     }
 }

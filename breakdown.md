@@ -14,6 +14,7 @@ Each section names the files involved, so you can jump straight to the code.
 - [7. Lighting the sprite player](#7-lighting-the-sprite-player) - `SpriteLightTint.cs`
 - [8. Fixing the map on import](#8-fixing-the-map-on-import) - `Editor/IslandLampLights.cs`
 - [9. Fixing the FBX itself](#9-fixing-the-fbx-itself) - one-off scripts
+- [10. Title screen](#10-title-screen) - `TitleScreen.cs`, `PixelButton.cs`
 - [Shared rules for crisp pixel art](#shared-rules-for-crisp-pixel-art)
 
 ---
@@ -551,6 +552,61 @@ One-off Python scripts (not in the repo) read and rewrote the binary FBX directl
   The fix reverses each polygon's corner order and permutes every per-corner layer
   (normals, UV indices) to match, negates normals, and rebuilds the edge list.
 - Originals are kept in `Backups/`.
+
+---
+
+## 10. Title screen
+
+**Files:** `Assets/TitleScreen.cs`, `Assets/PixelButton.cs`, art maps in `Assets/InventoryPixelArt.cs`,
+orca sheet in `Assets/Resources/TitleScreen/Orca Sprite.png`
+
+Shown once when play starts; no extra scene. PLAY flies the camera down to the player.
+
+### Bootstrapping into the gameplay scene
+
+- `RuntimeInitializeOnLoadMethod(AfterSceneLoad)` creates it in any scene with a `CameraFollow`,
+  the same trick the pause menu uses - nothing to place by hand.
+- **Freezing gameplay:** it disables every enabled `CameraFollow`, `PlayerController`, `InventoryHUD`,
+  `InventoryInspection` and `PickupItem`, remembers them, and re-enables exactly those afterwards.
+  `TitleScreen.IsOpen` stops Esc from opening the pause menu.
+
+### Camera
+
+- **Framing:** bounds of every renderer under `IslanddemoV3` except the `ocean` child. Distance is
+  `radius / tan(fov / 2)`, so the land fills the view whatever the map's scale.
+- **Orbit:** `Quaternion.Euler(pitch, yaw, 0)`; position is the island centre pushed back along that
+  rotation. Pitch 35, yaw creeps 3 deg/s, starting from the gameplay camera's heading.
+- **Fly-in:** PLAY re-enables `CameraFollow` first. `TitleScreen` runs at execution order 100, so in
+  `LateUpdate` the follow camera has already placed itself; the title lerps/slerps from the frozen title
+  pose to that live pose with a smoothstep. The target keeps moving correctly because it is re-read
+  every frame. Player control and the HUD come back when the flight lands.
+
+### Layout and art
+
+- Same rules as the pause menu: IMGUI under a `GUI.matrix` of whole-number scale, one GUI unit = one
+  art pixel, positions in art pixels from the top-centre of the screen.
+- **Title:** the pause menu's parchment banner and `PixelFont`, drawn under a second whole-number
+  scale (up to 3x) so it stays crisp. The scale is the largest that fits 80% of the screen width.
+- **Block centring:** orca + scroll + divider + button + hint are centred as one block; the scroll lands
+  mid-screen.
+- **PLAY / EXIT buttons:** `PixelButton`, shared with the pause menu's KEYBINDS / HOME / BACK buttons. EXIT quits.
+- **Selection:** both menus keep a selected button (arrows/W/S or a moving mouse change it; Enter presses it).
+  `PixelButton.DrawSelection` flanks it with gold `>` `<` glyphs whose gap steps 0,0,1,2,3,3,2,1 px every
+  0.12 s - whole-pixel moves, no sub-pixel easing. No on-screen key hints.
+- **Back to the title:** the pause menu's HOME reloads the active scene. `TitleScreen` subscribes to
+  `SceneManager.sceneLoaded` (registered `BeforeSceneLoad`), so it opens on every load, not just the first.
+- **Orca:** the sheet is two 64x64 frames (each texel block is 4x4, so one frame = 64 art pixels). Drawn
+  1:1 in art pixels with `DrawTextureWithTexCoords`, alternating halves at 3 fps, bobbing one pixel.
+  Drawn before the scroll so the tail tucks behind it. Imported with point filter, no mips, no compression.
+- **Hand-made pieces** (string maps in `InventoryPixelArt`, same palette plus four fire colours R/O/Y/w):
+  - `Corner` - gilded corner bracket, drawn once and mirrored into all four corners by negative UV width/height.
+  - `ChainLink` - tiles vertically from the screen top down behind the scroll's rolled ends.
+  - `Torch` + three `TorchFlame` frames - wall torches either side, 8 fps flicker, offset per torch.
+  - Torch glow - a procedural 25x25 texture of three stepped alpha rings (no soft gradient), alpha
+    flickered with Perlin noise. Embers are single art pixels rising and cooling yellow -> orange -> red.
+  - `Gem` on a gold rule between scroll and button.
+- **Shade:** a light dim plus four stepped dark bands along the top and bottom edges (a pixel vignette).
+  A black veil fades out over the first 1.2 s to hide the scene popping in.
 
 ---
 

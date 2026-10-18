@@ -33,6 +33,11 @@ public static class InventoryPixelArt
         { 'P', new Color32(233, 214, 168, 255) },
         { 'p', new Color32(200, 168, 114, 255) },
         { 'q', new Color32(154, 122, 72, 255) },
+        // Torch fire, darkest to hottest.
+        { 'R', new Color32(168, 44, 22, 255) },
+        { 'O', new Color32(234, 118, 36, 255) },
+        { 'Y', new Color32(255, 206, 84, 255) },
+        { 'w', new Color32(255, 244, 200, 255) },
     };
 
     // Wooden slot frame with iron corner studs. 9-slice: left 6, right 5, top 6, bottom 5.
@@ -161,6 +166,111 @@ public static class InventoryPixelArt
         ".KKKKK.",
     };
 
+    // Gilded frame for the title screen's top-left corner; mirrored into the other three.
+    public static readonly string[] Corner =
+    {
+        "KKKKKKKKKKKKK.",
+        "KyyyggggggGGKK",
+        "KygKKKKKKKKGgK",
+        "KyK........KGK",
+        "KgK.........K.",
+        "KgK..KKK......",
+        "KgK..KyK......",
+        "KgK..KKK......",
+        "KgK...........",
+        "KgK...........",
+        "KGK...........",
+        "KGGK..........",
+        "KKgGK.........",
+        ".KKK..........",
+    };
+
+    // Iron chain link with the next link seen edge-on above it; tiles vertically.
+    public static readonly string[] ChainLink =
+    {
+        ".KsK.",
+        ".KiK.",
+        "KKKKK",
+        "KsiIK",
+        "Ks.IK",
+        "Ki.IK",
+        "KiIIK",
+        "KKKKK",
+    };
+
+    // Gold diamond at the centre of the title screen's divider rule.
+    public static readonly string[] Gem =
+    {
+        "...K...",
+        "..KyK..",
+        ".KygGK.",
+        "KygGGGK",
+        ".KgGGK.",
+        "..KGK..",
+        "...K...",
+    };
+
+    // Wall torch: iron cresset on a wooden haft with a bracket ring. The flame sits on the rim.
+    public static readonly string[] Torch =
+    {
+        "KKKKKKKKK",
+        "KsiiiiiIK",
+        ".KiiIIIK.",
+        "..KKKKK..",
+        "..KHLWK..",
+        "..KHLWK..",
+        ".KKKKKKK.",
+        ".KsiiiIK.",
+        ".KKKKKKK.",
+        "..KHLWK..",
+        "..KHLWK..",
+        "..KHLDK..",
+        "...KWK...",
+        "...KDK...",
+        "....K....",
+    };
+
+    // Three flicker frames, played in a loop. Same 9x9 size so they swap in place.
+    public static readonly string[][] TorchFlame =
+    {
+        new[]
+        {
+            "....R....",
+            "...RO....",
+            "...ROR...",
+            "..ROYOR..",
+            "..RYwYOR.",
+            ".ROYwwYR.",
+            ".RYwwwYR.",
+            "..RYwYR..",
+            "...RRR...",
+        },
+        new[]
+        {
+            ".....R...",
+            "....ROR..",
+            "...ROR...",
+            "..ROYOR..",
+            ".ROYwYOR.",
+            ".RYwwYOR.",
+            ".RYwwwYR.",
+            "..RYwYR..",
+            "...RRR...",
+        },
+        new[]
+        {
+            "....R....",
+            "....R....",
+            "...ROR...",
+            "...RYOR..",
+            "..RYwYR..",
+            ".ROYwwOR.",
+            ".RYwwwYR.",
+            "..RYwYR..",
+            "...RRR...",
+        },
+    };
+
     private static Texture2D slotTexture;
     private static Texture2D slotFilledTexture;
     private static Texture2D bannerTexture;
@@ -175,6 +285,38 @@ public static class InventoryPixelArt
     public static Texture2D SliderFillTexture => sliderFillTexture != null ? sliderFillTexture : sliderFillTexture = Build(SliderFill, "slider_fill");
     public static Texture2D SliderKnobTexture => sliderKnobTexture != null ? sliderKnobTexture : sliderKnobTexture = Build(SliderKnob, "slider_knob");
     public static Texture2D SliderKnobLitTexture => sliderKnobLitTexture != null ? sliderKnobLitTexture : sliderKnobLitTexture = Build(SliderKnobLit, "slider_knob_lit");
+
+    private static Texture2D cornerTexture;
+    private static Texture2D chainLinkTexture;
+    private static Texture2D gemTexture;
+    private static Texture2D torchTexture;
+    private static Texture2D[] torchFlameTextures;
+    public static Texture2D CornerTexture => cornerTexture != null ? cornerTexture : cornerTexture = Build(Corner, "title_corner");
+    public static Texture2D ChainLinkTexture => chainLinkTexture != null ? chainLinkTexture : chainLinkTexture = Build(ChainLink, "title_chain");
+    public static Texture2D GemTexture => gemTexture != null ? gemTexture : gemTexture = Build(Gem, "title_gem");
+    public static Texture2D TorchTexture => torchTexture != null ? torchTexture : torchTexture = Build(Torch, "title_torch");
+
+    public static Texture2D TorchFlameTexture(int frame)
+    {
+        if (torchFlameTextures == null || torchFlameTextures.Length != TorchFlame.Length)
+        {
+            torchFlameTextures = new Texture2D[TorchFlame.Length];
+        }
+        frame %= TorchFlame.Length;
+        if (torchFlameTextures[frame] == null)
+        {
+            torchFlameTextures[frame] = Build(TorchFlame[frame], "title_flame_" + frame);
+        }
+        return torchFlameTextures[frame];
+    }
+
+    // A GUIStyle that 9-slices the texture, for stretching frames to any size.
+    public static GUIStyle NineSlice(Texture2D texture, RectOffset border)
+    {
+        var style = new GUIStyle { border = new RectOffset(border.left, border.right, border.top, border.bottom) };
+        style.normal.background = texture;
+        return style;
+    }
 
     public static Texture2D Build(string[] rows, string name)
     {
