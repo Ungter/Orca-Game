@@ -723,6 +723,19 @@ Dead by Daylight style skill checks with Space. Clearing them raises `ClueLetter
 
 ---
 
+## 13. Debug fly / noclip
+
+**File:** `Assets/PlayerController.cs` (`SetDebugFly`, `UpdateDebugFly`)
+
+- The backquote key toggles it. Toggling is skipped while paused, while the inventory is open,
+  or while `Interactables.Busy` is set.
+- On: the `CharacterController` is disabled, so nothing collides, and the transform moves
+  directly at 5x `moveSpeed`. WASD moves relative to the camera, Shift flies up and Ctrl flies down.
+- Off: the controller comes back with zero vertical velocity, so normal gravity drops the player
+  to the ground. `jumpLocked` is set, so Space has to be released before the player can jump.
+
+---
+
 ## Shared rules for crisp pixel art
 
 These apply to the font, inventory, prompt and burn:

@@ -39,6 +39,9 @@ public class PlayerController : MonoBehaviour
     // Set while something else owns the keyboard; Space must be released before it jumps again,
     // so the press that ends a skill check or a conversation never also jumps.
     private bool jumpLocked;
+    // Debug fly/noclip, toggled with the backquote key.
+    private bool debugFly;
+    private const float DebugSpeedMultiplier = 5f;
 
     private void Awake()
     {
@@ -82,6 +85,17 @@ public class PlayerController : MonoBehaviour
             transform.LookAt(Camera.main.transform);
             transform.rotation = Quaternion.Euler(0, Camera.main.transform.eulerAngles.y, 0);
         }
+        if (IsDebugTogglePressed())
+        {
+            SetDebugFly(!debugFly);
+        }
+
+        if (debugFly)
+        {
+            UpdateDebugFly();
+            return;
+        }
+
         bool grounded = characterController.isGrounded;
         if (grounded && verticalVelocity < 0f)
         {
@@ -106,6 +120,38 @@ public class PlayerController : MonoBehaviour
 
         characterController.Move(motion * Time.deltaTime);
         UpdateSprite(input);
+    }
+
+    // Noclip flight: WASD follows the camera, Shift rises, Ctrl descends.
+    private void UpdateDebugFly()
+    {
+        Vector2 input = GetMovementInput();
+        Vector3 motion = CameraRight() * input.x + CameraForward() * input.y;
+        Keyboard keyboard = Keyboard.current;
+        if (keyboard != null)
+        {
+            if (keyboard.shiftKey.isPressed) motion.y += 1f;
+            if (keyboard.ctrlKey.isPressed) motion.y -= 1f;
+        }
+
+        transform.position += motion * (moveSpeed * DebugSpeedMultiplier * Time.deltaTime);
+        UpdateSprite(input);
+    }
+
+    // The CharacterController is disabled while flying so nothing collides; turning it
+    // back on with zero vertical velocity lets gravity drop the player to the ground.
+    private void SetDebugFly(bool on)
+    {
+        debugFly = on;
+        characterController.enabled = !on;
+        verticalVelocity = 0f;
+        jumpLocked = true;
+    }
+
+    private static bool IsDebugTogglePressed()
+    {
+        Keyboard keyboard = Keyboard.current;
+        return keyboard != null && keyboard.backquoteKey.wasPressedThisFrame;
     }
 
     // W/S (including diagonals) use back/front walks. A/D alone use side walks.
