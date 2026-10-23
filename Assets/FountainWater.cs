@@ -27,6 +27,10 @@ public class FountainWater : MonoBehaviour
     private const float SplashChance = 0.15f;
     private const float SplashLifetime = 0.4f;
     private const float PoolFramesPerSecond = 10f;
+    // No new droplets once one art pixel would cover less than this much of a screen pixel:
+    // they'd be invisible specks. Farther out than the title screen's view of the island
+    // (about 330 m), even at 720p.
+    private const float MinScreenPixelsPerArtPixel = 0.1f;
     private const int PoolSegments = 96;
 
     private static readonly int BaseMapId = Shader.PropertyToID("_BaseMap");
@@ -245,7 +249,7 @@ public class FountainWater : MonoBehaviour
 
     private void Update()
     {
-        if (spray != null)
+        if (spray != null && InSight())
         {
             owed += dropletsPerSecond * Time.deltaTime;
             int count = (int)owed;
@@ -262,6 +266,18 @@ public class FountainWater : MonoBehaviour
             poolBlock.SetTexture(BaseMapId, poolFrames[frame]);
             pool.SetPropertyBlock(poolBlock);
         }
+    }
+
+    private bool InSight()
+    {
+        Camera view = Camera.main;
+        if (view == null)
+        {
+            return true;
+        }
+        float distance = Mathf.Max(0.01f, Vector3.Distance(view.transform.position, transform.position));
+        float screenPixelsPerMetre = Screen.height / (2f * distance * Mathf.Tan(view.fieldOfView * 0.5f * Mathf.Deg2Rad));
+        return screenPixelsPerMetre / FountainWaterArt.PixelsPerMetre >= MinScreenPixelsPerArtPixel;
     }
 
     // One droplet, in a random direction round the spout. It picks where to come down and

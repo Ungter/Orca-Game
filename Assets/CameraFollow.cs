@@ -16,6 +16,7 @@ public class CameraFollow : MonoBehaviour
     // Current horizontal angle in degrees around the player. 0 = +Z, 90 = +X.
     private float cameraAngle;
     private float currentDistance;
+    private readonly RaycastHit[] hits = new RaycastHit[32];
 
     private void Awake()
     {
@@ -67,10 +68,12 @@ public class CameraFollow : MonoBehaviour
 
         Vector3 direction = toCamera / desiredDistance;
         float clearDistance = desiredDistance;
-        foreach (RaycastHit hit in Physics.SphereCastAll(
-                     focus, collisionRadius, direction, desiredDistance,
-                     Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+        int count = Physics.SphereCastNonAlloc(
+            focus, collisionRadius, direction, hits, desiredDistance,
+            Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+        for (int i = 0; i < count; i++)
         {
+            RaycastHit hit = hits[i];
             if (hit.collider.transform.IsChildOf(target))
             {
                 continue;

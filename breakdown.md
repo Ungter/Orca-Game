@@ -803,6 +803,55 @@ Dead by Daylight style skill checks with Space. Clearing them raises `ClueLetter
 
 ---
 
+## 14. Running on weaker GPUs
+
+Goal: smooth on integrated graphics (e.g. Intel Arc in a Core Ultra 7 155H) without
+removing anything. Where the time went: the map is 5058 separate meshes, ~3.2M triangles
+(~2.8M of them leaf spheres in shrubs, hedges and trees), and every shadowed point light
+renders it six more times - with 15 lamps that was ~90 extra passes, plus four moon
+cascades, plus a full re-render for SSAO's depth-normals prepass.
+
+- **Lamp shadows by distance** (`LampGlow`): in play mode only the 6 lamps nearest the
+  camera keep shadows (all four round the fountain plaza, plus the next nearest). The rest
+  fade `shadowStrength` to 0 over 0.6 s and switch shadows off; coming closer fades them back
+  in, so nothing pops. Every lamp keeps its light. Ranked 4x a second; in the editor every
+  lamp keeps its shadow. With fewer lamps sharing the 4096 shadow atlas, each one also gets
+  a sharper shadow map than before. `SpriteLightTint` follows automatically (it only casts
+  rays for lights with shadows on).
+- **Mesh LOD on the map** (`generateMeshLods` in the FBX import settings): Unity builds
+  simplified versions of each mesh and picks one by screen size, in the main view and in
+  shadow maps. Close up nothing changes.
+- **Hidden things aren't drawn:** GPU occlusion culling is on in the GPU Resident Drawer
+  (already enabled), so objects behind buildings and terrain are skipped. Depth priming
+  (Auto) reuses the depth prepass so overlapping leaf spheres are shaded once per pixel.
+- **Cheaper, same effects:** SSAO at half resolution from depth only (no depth-normals
+  prepass), Gaussian blur; moon shadows 2 cascades instead of 4 (same 50 m distance);
+  soft shadows Medium instead of High. The opaque-texture copy is off - nothing samples
+  `_CameraOpaqueTexture` (the ocean only reads depth).
+- **Aurora early-out** (`NightSky.hlsl`): visibility (patches x breathing x horizon fade) is
+  worked out first and the 16-layer loop (8 in the ocean reflection) is skipped where it's
+  zero. Identical output.
+- **Adaptive resolution** (`AdaptiveResolution`, installs itself): reads GPU frame time from
+  `FrameTimingManager` (Frame Timing Stats is on in Player Settings). Over 14.5 ms it lowers
+  the pipeline's render scale in 0.05 steps (never below 720 rows); under 11 ms it raises it
+  back. UI stays at full resolution; the 3D image is upscaled with FSR. A GPU that keeps up
+  never changes. Without GPU timings it only lowers, on frames clearly missing vSync. The
+  asset's original render scale is restored when play stops.
+- **Frozen backdrop** (`FrozenBackdrop`, installs itself): while the pause menu or the
+  inspection view is open, the world is rendered once (`RenderPipeline.SubmitRenderRequest`)
+  into a texture shown on a canvas beneath all other UI, and the camera draws nothing
+  (culling mask 0, no shadows, post-processing or skybox) until it closes.
+- **Small things:** vSync on (laptops share power between CPU and GPU; uncapped frames only
+  cost heat); the fountain stops launching droplets beyond the distance where an art pixel
+  is under 0.1 screen pixel (farther than the title view); `CameraFollow` uses a
+  non-allocating sphere cast.
+- **FPS counter** (`FpsCounter`, installs itself): `]` toggles a pixel-font readout in the
+  top-right corner, averaged over half a second on unscaled time so it keeps counting while
+  paused. `GUI.depth` -2000 draws it over the pause menu and title screen. The label string is
+  only rebuilt when the number changes.
+
+---
+
 ## Shared rules for crisp pixel art
 
 These apply to the font, inventory, prompt and burn:
