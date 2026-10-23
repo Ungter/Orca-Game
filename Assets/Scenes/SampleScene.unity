@@ -4223,7 +4223,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalLightData
   m_UsePipelineSettings: 1
   m_AdditionalLightsShadowResolutionTier: 2
-  m_CustomShadowLayers: 0
+  m_CustomShadowLayers: 1
   m_LightCookieSize: {x: 1, y: 1}
   m_LightCookieOffset: {x: 0, y: 0}
   m_SoftShadowQuality: 0
@@ -11147,6 +11147,10 @@ MonoBehaviour:
   - 0.2
   uiPixelSize: 3
   reward: {fileID: 882973582}
+  revealedBy: {fileID: 0}
+  sparkleColor: {r: 1, g: 0.86, b: 0.5, a: 1}
+  sparkleLightIntensity: 1.5
+  sparkleLightRange: 3
 --- !u!1 &915886802
 GameObject:
   m_ObjectHideFlags: 0
@@ -19906,6 +19910,10 @@ PrefabInstance:
     - target: {fileID: 4599221416994363431, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
       propertyPath: m_ProvidesContacts
       value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4621679411288659264, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
+      propertyPath: dropletsPerSecond
+      value: 800
       objectReference: {fileID: 0}
     - target: {fileID: 5233514335322755279, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
