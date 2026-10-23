@@ -444,7 +444,9 @@ the light reaching it and tints the sprite.
 - **Shadows:** for lights that cast shadows, a ray from each sample to the light. Only
   colliders whose renderers actually cast shadows count (cached per collider), so lamp heads,
   invisible walls and triggers don't make fake shade. Children are checked too, which is
-  how the lamp poles' shadows-only copies count.
+  how the lamp poles' shadows-only copies count. Like URP, a renderer only blocks a light
+  when its rendering layers overlap the light's `renderingLayerMask` (URP keeps that equal to
+  the light's shadow layers), so lamp lights ignore the poles and the moon doesn't.
 - **Soft edges:** each light contributes the *fraction* of samples that see it, so stepping
   half into a shadow gives half the light.
 - **Exposure curve:** `1 - exp(-energy * exposure)` maps any amount of light into a brightness
@@ -470,12 +472,22 @@ Maya and follow the map into any scene.
   the mesh's bounds centre. `LampGlow` owns the Light's settings (intensity 300, range 70,
   soft shadows) and turns off shadows on the lamp head, otherwise the head would block its
   own light.
-- **Lamp poles - shadow from only part of a mesh:** Unity can only turn shadows on/off per
-  renderer. So the pole's renderer stops casting, and a hidden child is added with a copy of
-  the pole mesh **clipped** below a height (Sutherland-Hodgman clip of each triangle against
-  a horizontal plane) with `ShadowCastingMode.ShadowsOnly`. The top 35% casts nothing (no
-  disc of shade under the lamp); the rest still casts from every light. The clipped mesh is
-  stored in the model with `context.AddObjectToAsset`.
+- **Glowing lamp heads:** the light sits inside the head, so the head's outer faces never
+  catch it and stayed dark. Each head's own material slots (the panels; slots sharing a
+  material with the pole/caps are the frame and stay) get `Materials/LampHeadGlow.mat`, a
+  URP Lit material with HDR emission (warm, ~10x in linear) that the scene's bloom
+  (threshold 1) turns into a halo. It's a project asset assigned directly, so tune the glow
+  there with no reimport. The hand-placed `lamp5 (1)` copy in `SampleScene` points at it too.
+- **Lamp poles - no shadow from their own lamp:** the light sits just above the pole's top,
+  so the pole threw a disc of shade round its foot. Unity can't turn one caster off for one
+  light, but URP filters shadow casters per light by **rendering layer**. So the pole's
+  renderer stops casting and a hidden `ShadowsOnly` child with the same mesh casts instead,
+  on rendering layer 8, "Lamp Pole Shadows" (`LampGlow.PoleShadowLayer`). `LampGlow` turns on
+  Custom Shadow Layers for every lamp light with that layer left out; the scene's
+  Directional Light (moon) has Custom Shadow Layers = Default + Lamp Pole Shadows, so poles
+  still cast full-length moon shadows. The visible pole stays on Default so every light
+  lights it. A light added later that should get pole shadows needs that layer in its shadow
+  layers too.
 - **Foliage materials:** every `pSphere` in `bigtrees`, `mediumtrees`, `shrubs`, `hedges`
   gets a leaf shade; every `pCylinder` in the tree groups gets a bark shade.
   - **Shades:** 8 copies of the matte template per colour, each shifted in HSV (hue,
@@ -527,6 +539,61 @@ Maya and follow the map into any scene.
     from a position hash so reimports give the same result.
   - Same metre UVs as the top, so pebbles carry on over the edge. Built as a `Sidewalk Spill`
     object in the model with a `MeshCollider`, so the player walks up the slope.
+- **Fountain water** (`IslandDemo:pCylinder3`, a single mesh: basin, tapered column, spout
+  pipe): measured from its own surface, the same barycentric query as the spill. Walking in
+  from the outer edge, the top stays at rim height across the rim, drops at the inner wall
+  (lowest point inside = floor), and climbs again at the column. Water line = 75% of the way
+  from floor to rim. The column sits a little off the basin's centre, so the column radius
+  is the widest of eight directions and the spout tip is the average of the pipe's top
+  vertices. A `Fountain Water` object with `FountainWater` goes on the tip; see section 8b.
+
+---
+
+## 8b. Fountain water
+
+**Files:** `Assets/FountainWater.cs` (spray, pool), `Assets/FountainWaterArt.cs` (the art),
+`Assets/Materials/FountainSpray.mat` and `FountainPool.mat` (templates)
+
+- **A spray of single droplets, not streams:** a firework-like burst of ~3500 pixel-art
+  droplets a second (`dropletsPerSecond`, ~10k in the air), as a world-space particle
+  system. Every droplet is a real particle with a depth-tested, alpha-clipped material, so
+  the column hides the ones behind it from every side. (The first version drew streams on
+  camera-facing sheets; a flat sheet can't go round the column, so they cut through it.)
+- **Firework shape from drag:** linear drag (1.8/s) makes droplets burst out fast, slow
+  into a dome over the spout (tops out ~3.5 m above it), then drift down at `g / drag`
+  (~5.5 m/s) in a curtain round the column. The long hang time is what keeps so many in
+  the air.
+- **Drag in a particle job, not the Limit Velocity module:** Unity's built-in drag (with
+  "multiply by velocity" off) takes a fixed amount off every particle's speed, whatever
+  its speed, so fast droplets carried on 9-21 m and the spray covered the whole plaza. With
+  "multiply by velocity" on it's quadratic instead. Neither matches the launch maths, so
+  `OnParticleUpdateJobScheduled` schedules an `IJobParticleSystemParallelFor` that scales
+  every velocity by `e^(-drag * dt)` after each step. Simulated with Unity's step order, landing
+  is within 0.07 m of the aim at 60 fps and 0.15 m at 30 fps. The callback only reaches
+  components on the particle system's own object, so the spray lives on `Fountain Water`.
+- **Aimed to land in the basin:** droplets are emitted from `Update` with chosen velocities
+  (`Emit` with `EmitParams`). Each picks an upward speed (-2 to 13 m/s) and where to come
+  down (column + 0.25 m to wall - 0.4 m, packed towards the column so it's covered). With
+  linear drag, height is `y(t) = (v + g/k)(1 - e^-kt)/k - g t/k`: Newton's method gives the
+  flight time to the water, and sideways distance levels off at `speed / k`, so
+  `speed = k * landing / (1 - e^-kT)`. Sideways travel happens early and the fall is near
+  vertical, so a droplet that lands clear of the column's foot clears its narrower top too.
+- **Pixel art:** 7x7 hand-drawn cells at 16 px/m. Droplets: 4 variants (rows, picked at
+  random) x 4 stages over the flight (sparkle bursting from the spout, round drop, small drop,
+  falling streak). A plane at the water line kills droplets and 15% spawn a splash (4 frames,
+  drawn in the top half of the cell, since it's centred on the landing point and the bottom
+  half is under the water). Sheets have no mipmaps: neighbouring cells would bleed and
+  alpha-clipped droplets would fade out in the distance.
+- **Lit like the world:** both materials are URP Lit, so the plaza lamps light the droplets
+  and the pool. The particle system is scaled `Shape` only, so sizes and speeds stay in metres
+  under the map's 209x scale.
+- **Pool:** a flat ring at the water line, from well inside the column to just inside the
+  wall, with a texture laid flat over the basin at 16 px/m (UVs map the basin's square to
+  0-1). Deeper colour against the walls, broken ripple rings running out from where most
+  droplets land, churned water and foam clumps there, and blinking glints on a jittered
+  grid. 12 frames at 10 fps swapped through a `MaterialPropertyBlock`; every cycle divides 12
+  so the loop has no seam.
+- Built in `Start`, so it only shows in Play mode.
 
 ---
 

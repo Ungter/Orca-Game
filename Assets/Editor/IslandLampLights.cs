@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
 // Puts a LampGlow light in the head (pCube1) of every lamp, lamp1, lamp2... in the island
 // map when it imports, so the lights live in the model and follow it into any scene.
@@ -12,16 +13,16 @@ public class IslandLampLights : AssetPostprocessor
     private const string MapPath = "Assets/IslanddemoV3.fbx";
     private static readonly Regex LampName = new Regex(@"^lamp\d*$");
 
-    // Fraction of each pole, measured down from its top, that casts no shadow. The
-    // part right under the lamp would throw a huge disc of shade on the ground; the
-    // rest of the pole still casts normal shadows from every light.
-    private const float PoleShadowlessTop = 0.35f;
+    // Emissive material for the lamp heads. The light sits inside the head, so its outer
+    // faces never catch that light and would stay dark; the emission (HDR, picked up by
+    // bloom) makes the head itself read as the bright source. Tune the glow in the asset.
+    private const string LampHeadMaterialPath = "Assets/Materials/LampHeadGlow.mat";
 
     public override uint GetVersion()
     {
         // Bump when the lamp setup or LampGlow defaults change, so the map reimports.
         // Editing the sidewalk pixel art changes the hash, which reimports it too.
-        return 13u ^ (SidewalkGravelArt.ContentHash() << 8);
+        return 17u ^ (SidewalkGravelArt.ContentHash() << 8);
     }
 
     // The slab gets a matte copy of this template, using its supplied texture when set.
@@ -36,6 +37,13 @@ public class IslandLampLights : AssetPostprocessor
     private const string SidewalkMaterialPath = "Assets/Materials/SidewalkGravel.mat";
     // The map is placed at this scale in SampleScene; converts model units to metres.
     private const float MapSceneScale = 209.3f;
+
+    // The plaza fountain: one mesh holding the basin, the column and the spout pipe on top.
+    private const string FountainName = "IslandDemo:pCylinder3";
+    // Lit templates for the fountain's droplets (alpha-clipped) and pool; FountainWater
+    // lays its pixel art over them.
+    private const string FountainSprayMaterialPath = "Assets/Materials/FountainSpray.mat";
+    private const string FountainPoolMaterialPath = "Assets/Materials/FountainPool.mat";
 
     // Matte template for the foliage: spheres (leaf clumps) get its dark green, cylinders
     // (trunks and branches) get BarkColor. Each tree or hedge picks one of a few slightly
@@ -56,6 +64,13 @@ public class IslandLampLights : AssetPostprocessor
             return;
         }
 
+        context.DependsOnSourceAsset(LampHeadMaterialPath);
+        Material headGlow = AssetDatabase.LoadAssetAtPath<Material>(LampHeadMaterialPath);
+        if (headGlow == null)
+        {
+            Debug.LogWarning("[IslandLampLights] Missing " + LampHeadMaterialPath);
+        }
+
         int added = 0;
         int poles = 0;
         foreach (Transform lamp in root.GetComponentsInChildren<Transform>(true))
@@ -66,13 +81,13 @@ public class IslandLampLights : AssetPostprocessor
             }
             foreach (Transform head in lamp)
             {
-                // The pole sits right under the light and would throw a huge
-                // circular shadow on the ground around every lamp.
+                // The pole sits right under the light and would throw a disc of
+                // shadow on the ground around every lamp.
                 if (head.name.EndsWith("pCylinder1", StringComparison.Ordinal))
                 {
                     foreach (MeshRenderer pole in head.GetComponentsInChildren<MeshRenderer>(true))
                     {
-                        if (AddTrimmedShadow(root.transform, pole))
+                        if (AddPoleShadow(pole))
                         {
                             poles++;
                         }
@@ -93,7 +108,14 @@ public class IslandLampLights : AssetPostprocessor
                     glow.transform.localPosition = mesh.sharedMesh.bounds.center;
                 }
                 glow.AddComponent<Light>();
+                // LampGlow sets the light's shadow layers on this.
+                glow.AddComponent<UniversalAdditionalLightData>();
                 glow.AddComponent<LampGlow>();
+                MeshRenderer shell = head.GetComponent<MeshRenderer>();
+                if (headGlow != null && shell != null)
+                {
+                    GlowLampHead(lamp, shell, headGlow);
+                }
                 added++;
             }
         }
@@ -111,15 +133,47 @@ public class IslandLampLights : AssetPostprocessor
             Debug.LogWarning("[IslandLampLights] No lampN/pCylinder1 pole found in " + MapPath);
         }
         FixInvertedNormals(root);
+        if (!AddFountainWater(root))
+        {
+            Debug.LogWarning("[IslandLampLights] No " + FountainName + " fountain found in " + MapPath);
+        }
         if (!ApplySidewalkGravel(root))
         {
             Debug.LogWarning("[IslandLampLights] No " + SidewalkName + " sidewalk found in " + MapPath);
         }
     }
 
-    // Stops the pole's own renderer casting shadows and adds a shadows-only copy of
-    // the pole with its top cut off, so only the lower part of the pole casts shade.
-    private bool AddTrimmedShadow(Transform root, MeshRenderer pole)
+    // The head's own material slots (the lit panels) become the glow; slots sharing a
+    // material with the lamp's other parts (the frame, same as the pole) stay as they are.
+    // A head with no slot of its own glows whole.
+    private static void GlowLampHead(Transform lamp, MeshRenderer head, Material glow)
+    {
+        var frame = new HashSet<Material>();
+        foreach (MeshRenderer part in lamp.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            if (part != head)
+            {
+                frame.UnionWith(part.sharedMaterials);
+            }
+        }
+        Material[] materials = head.sharedMaterials;
+        bool own = false;
+        for (int i = 0; i < materials.Length; i++) own |= !frame.Contains(materials[i]);
+        for (int i = 0; i < materials.Length; i++)
+        {
+            if (!own || !frame.Contains(materials[i]))
+            {
+                materials[i] = glow;
+            }
+        }
+        head.sharedMaterials = materials;
+    }
+
+    // Stops the pole's own renderer casting shadows and adds a shadows-only copy of it on
+    // LampGlow.PoleShadowLayer. Lamp lights leave that layer out of their shadows, so no
+    // pole shades the ground under its own lamp; the moon includes it, so poles still cast
+    // full shadows there. The visible pole stays on the default layer so every light lights it.
+    private static bool AddPoleShadow(MeshRenderer pole)
     {
         MeshFilter filter = pole.GetComponent<MeshFilter>();
         if (filter == null || filter.sharedMesh == null)
@@ -127,86 +181,154 @@ public class IslandLampLights : AssetPostprocessor
             return false;
         }
 
-        Mesh source = filter.sharedMesh;
-        Matrix4x4 toRoot = root.worldToLocalMatrix * pole.transform.localToWorldMatrix;
-        Vector3[] vertices = source.vertices;
-        var heights = new float[vertices.Length];
-        float bottom = float.MaxValue;
-        float top = float.MinValue;
-        for (int i = 0; i < vertices.Length; i++)
-        {
-            heights[i] = toRoot.MultiplyPoint3x4(vertices[i]).y;
-            bottom = Mathf.Min(bottom, heights[i]);
-            top = Mathf.Max(top, heights[i]);
-        }
-        float cut = top - (top - bottom) * PoleShadowlessTop;
+        pole.shadowCastingMode = ShadowCastingMode.Off;
+        var caster = new GameObject("Pole Shadow");
+        caster.transform.SetParent(pole.transform, false);
+        caster.AddComponent<MeshFilter>().sharedMesh = filter.sharedMesh;
+        MeshRenderer renderer = caster.AddComponent<MeshRenderer>();
+        renderer.sharedMaterials = pole.sharedMaterials;
+        renderer.shadowCastingMode = ShadowCastingMode.ShadowsOnly;
+        renderer.receiveShadows = false;
+        renderer.renderingLayerMask = 1u << LampGlow.PoleShadowLayer;
+        return true;
+    }
 
-        var positions = new List<Vector3>();
-        var normals = new List<Vector3>();
-        Vector3[] sourceNormals = source.normals;
-        bool hasNormals = sourceNormals != null && sourceNormals.Length == vertices.Length;
-        var polygon = new List<int>(3);
-        var clipped = new List<(Vector3 p, Vector3 n)>(4);
-        for (int sub = 0; sub < source.subMeshCount; sub++)
+    // The fountain is a single mesh, so it's measured from its surface: walking in from the
+    // outer edge, the top stays at rim height across the rim, drops to the floor at the
+    // inner wall and climbs again at the column. A FountainWater goes on the spout tip (the
+    // highest point), sized to the basin.
+    private bool AddFountainWater(GameObject root)
+    {
+        MeshFilter fountain = null;
+        foreach (MeshFilter candidate in root.GetComponentsInChildren<MeshFilter>(true))
         {
-            int[] triangles = source.GetTriangles(sub);
+            if (candidate.name == FountainName && candidate.sharedMesh != null)
+            {
+                fountain = candidate;
+                break;
+            }
+        }
+        if (fountain == null)
+        {
+            return false;
+        }
+
+        Material sprayMaterial = LoadDependency(FountainSprayMaterialPath);
+        Material poolMaterial = LoadDependency(FountainPoolMaterialPath);
+
+        Mesh mesh = fountain.sharedMesh;
+        Vector3[] vertices = mesh.vertices;
+        int[] triangles = mesh.triangles;
+        Vector3 centre = mesh.bounds.center;
+        float outer = 0f;
+        foreach (Vector3 v in vertices)
+        {
+            outer = Mathf.Max(outer, new Vector2(v.x - centre.x, v.z - centre.z).magnitude);
+        }
+
+        // Surface height at Steps + 1 radii from the axis out to the edge.
+        const int Steps = 400;
+        var heights = new float[Steps + 1];
+        for (int i = 0; i <= Steps; i++)
+        {
+            heights[i] = SurfaceHeight(vertices, triangles, centre, outer * i / Steps);
+        }
+        int edge = Steps * 99 / 100;
+        float rim = heights[edge];
+        float rimDip = (rim - mesh.bounds.min.y) * 0.1f;
+        int wall = edge;
+        while (wall > 0 && heights[wall] > rim - rimDip)
+        {
+            wall--;
+        }
+        float floor = float.MaxValue;
+        for (int i = 0; i < wall; i++)
+        {
+            if (heights[i] > float.MinValue)
+            {
+                floor = Mathf.Min(floor, heights[i]);
+            }
+        }
+        // Most of the way up to the rim, like a full basin.
+        float water = Mathf.Lerp(floor, rim, 0.75f);
+        int column = wall;
+        while (column > 0 && heights[column] <= water)
+        {
+            column--;
+        }
+        if (column == 0 || column == wall)
+        {
+            Debug.LogWarning("[IslandLampLights] Couldn't find the basin and column of " + FountainName);
+            return true;
+        }
+        float wallRadius = outer * wall / Steps;
+        float columnRadius = outer * column / Steps;
+
+        // The spout tip: middle of the pipe's top. The column sits a little off the basin's centre.
+        float top = mesh.bounds.max.y;
+        Vector3 tip = Vector3.zero;
+        int tipCount = 0;
+        foreach (Vector3 v in vertices)
+        {
+            if (v.y > top - mesh.bounds.size.y * 0.02f)
+            {
+                tip += v;
+                tipCount++;
+            }
+        }
+        tip /= tipCount;
+        tip.y = top;
+
+        var holder = new GameObject("Fountain Water");
+        holder.transform.SetParent(fountain.transform, false);
+        holder.transform.localPosition = tip;
+        holder.AddComponent<FountainWater>().Configure(top - water, columnRadius, wallRadius, sprayMaterial, poolMaterial);
+        return true;
+    }
+
+    // A project asset the map uses; editing or adding it reimports the map.
+    private Material LoadDependency(string path)
+    {
+        context.DependsOnSourceAsset(path);
+        Material material = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (material == null)
+        {
+            Debug.LogWarning("[IslandLampLights] Missing " + path);
+        }
+        return material;
+    }
+
+    // Height of the mesh's top surface straight above a point r from the centre: the highest
+    // of eight directions round it, or float.MinValue where there's no surface.
+    private static float SurfaceHeight(Vector3[] vertices, int[] triangles, Vector3 centre, float r)
+    {
+        float best = float.MinValue;
+        for (int a = 0; a < 8; a++)
+        {
+            float angle = a * Mathf.PI / 4f;
+            float x = centre.x + Mathf.Cos(angle) * r;
+            float z = centre.z + Mathf.Sin(angle) * r;
             for (int t = 0; t + 2 < triangles.Length; t += 3)
             {
-                // Sutherland-Hodgman clip of one triangle against "height <= cut".
-                clipped.Clear();
-                for (int k = 0; k < 3; k++)
+                Vector3 p0 = vertices[triangles[t]];
+                Vector3 p1 = vertices[triangles[t + 1]];
+                Vector3 p2 = vertices[triangles[t + 2]];
+                // Barycentric weights of (x, z) in the triangle seen from above.
+                float area = (p1.z - p2.z) * (p0.x - p2.x) + (p2.x - p1.x) * (p0.z - p2.z);
+                if (Mathf.Abs(area) < 1e-12f)
                 {
-                    int a = triangles[t + k];
-                    int b = triangles[t + (k + 1) % 3];
-                    bool aIn = heights[a] <= cut;
-                    bool bIn = heights[b] <= cut;
-                    Vector3 na = hasNormals ? sourceNormals[a] : Vector3.up;
-                    Vector3 nb = hasNormals ? sourceNormals[b] : Vector3.up;
-                    if (aIn)
-                    {
-                        clipped.Add((vertices[a], na));
-                    }
-                    if (aIn != bIn)
-                    {
-                        float s = (cut - heights[a]) / (heights[b] - heights[a]);
-                        clipped.Add((Vector3.Lerp(vertices[a], vertices[b], s), Vector3.Lerp(na, nb, s).normalized));
-                    }
+                    continue;
                 }
-                for (int k = 1; k + 1 < clipped.Count; k++)
+                float w0 = ((p1.z - p2.z) * (x - p2.x) + (p2.x - p1.x) * (z - p2.z)) / area;
+                float w1 = ((p2.z - p0.z) * (x - p2.x) + (p0.x - p2.x) * (z - p2.z)) / area;
+                float w2 = 1f - w0 - w1;
+                if (w0 >= 0f && w1 >= 0f && w2 >= 0f)
                 {
-                    foreach (var corner in new[] { clipped[0], clipped[k], clipped[k + 1] })
-                    {
-                        positions.Add(corner.p);
-                        normals.Add(corner.n);
-                    }
+                    best = Mathf.Max(best, w0 * p0.y + w1 * p1.y + w2 * p2.y);
                 }
             }
         }
-
-        pole.shadowCastingMode = ShadowCastingMode.Off;
-        if (positions.Count == 0)
-        {
-            return true;
-        }
-
-        var trimmed = new Mesh { name = source.name + "_shadow" };
-        trimmed.indexFormat = positions.Count > 65535 ? IndexFormat.UInt32 : IndexFormat.UInt16;
-        trimmed.SetVertices(positions);
-        trimmed.SetNormals(normals);
-        var indices = new int[positions.Count];
-        for (int i = 0; i < indices.Length; i++) indices[i] = i;
-        trimmed.SetTriangles(indices, 0);
-        trimmed.RecalculateBounds();
-        context.AddObjectToAsset(pole.transform.parent.name + "/" + pole.name + "/shadow", trimmed);
-
-        var caster = new GameObject("Pole Shadow");
-        caster.transform.SetParent(pole.transform, false);
-        caster.AddComponent<MeshFilter>().sharedMesh = trimmed;
-        MeshRenderer renderer = caster.AddComponent<MeshRenderer>();
-        renderer.sharedMaterial = pole.sharedMaterial;
-        renderer.shadowCastingMode = ShadowCastingMode.ShadowsOnly;
-        renderer.receiveShadows = false;
-        return true;
+        return best;
     }
 
     private int ApplyFoliageMaterial(GameObject root)

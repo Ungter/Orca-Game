@@ -8,7 +8,7 @@ using UnityEngine.Rendering;
 // Every frame it adds up each light's contribution at a few points on the body
 // (feet, middle, head), the same way URP attenuates point and spot lights. For
 // lights that cast shadows it casts a ray from each point to the light; anything
-// in between that renders with shadows blocks it. The fraction of points that see
+// in between that casts shadows from that light blocks it. The fraction of points that see
 // a light gives soft shadow edges. The total is mapped to a brightness and eased.
 [DisallowMultipleComponent]
 public class SpriteLightTint : MonoBehaviour
@@ -47,7 +47,7 @@ public class SpriteLightTint : MonoBehaviour
     private const float DirectionalRayLength = 500f;
 
     private readonly List<Light> lights = new List<Light>();
-    private readonly Dictionary<Collider, bool> castsShadow = new Dictionary<Collider, bool>();
+    private readonly Dictionary<Collider, uint> shadowLayers = new Dictionary<Collider, uint>();
     private readonly RaycastHit[] hits = new RaycastHit[16];
     private Vector3[] samples;
     private CharacterController body;
@@ -191,15 +191,15 @@ public class SpriteLightTint : MonoBehaviour
         {
             return 0f;
         }
-        if (light.shadows != LightShadows.None && Blocked(point, toLight, distance))
+        if (light.shadows != LightShadows.None && Blocked(point, toLight, distance, (uint)light.renderingLayerMask))
         {
             return 0f;
         }
         return attenuation;
     }
 
-    // True when something that renders with shadows sits between the point and the light.
-    private bool Blocked(Vector3 point, Vector3 direction, float distance)
+    // True when something that casts shadows from this light sits between the point and it.
+    private bool Blocked(Vector3 point, Vector3 direction, float distance, uint lightLayers)
     {
         int count = Physics.RaycastNonAlloc(point, direction, hits, distance - 0.05f, occluders, QueryTriggerInteraction.Ignore);
         for (int i = 0; i < count; i++)
@@ -209,7 +209,7 @@ public class SpriteLightTint : MonoBehaviour
             {
                 continue;
             }
-            if (CastsShadow(hit))
+            if ((ShadowLayers(hit) & lightLayers) != 0)
             {
                 return true;
             }
@@ -217,24 +217,26 @@ public class SpriteLightTint : MonoBehaviour
         return false;
     }
 
-    // Matches what the renderer does: only geometry that casts shadows makes shade
-    // (lamp heads, invisible walls and triggers don't).
-    private bool CastsShadow(Collider collider)
+    // Rendering layers of the collider's shadow-casting renderers, 0 if none. Matches what
+    // the renderer does: only geometry that casts shadows makes shade (lamp heads, invisible
+    // walls and triggers don't), and a light only takes shadows from renderers sharing a
+    // layer with its renderingLayerMask, which URP keeps equal to the light's shadow layers.
+    // That is how lamp lights skip the lamp poles while the moon still sees them.
+    private uint ShadowLayers(Collider collider)
     {
-        bool result;
-        if (!castsShadow.TryGetValue(collider, out result))
+        uint result;
+        if (!shadowLayers.TryGetValue(collider, out result))
         {
             // Children count too: lamp poles cast through a shadows-only child mesh.
-            result = false;
+            result = 0;
             foreach (Renderer renderer in collider.GetComponentsInChildren<Renderer>())
             {
                 if (renderer.enabled && renderer.shadowCastingMode != ShadowCastingMode.Off)
                 {
-                    result = true;
-                    break;
+                    result |= renderer.renderingLayerMask;
                 }
             }
-            castsShadow[collider] = result;
+            shadowLayers[collider] = result;
         }
         return result;
     }

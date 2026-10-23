@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
 // The warm point light inside a lamp head. It owns the Light's settings: edit them
 // here, since they are re-applied whenever the lamp is enabled or changed.
@@ -7,6 +8,10 @@ using UnityEngine.Rendering;
 [RequireComponent(typeof(Light))]
 public class LampGlow : MonoBehaviour
 {
+    // Rendering layer of the lamp poles' shadows-only copies ("Lamp Pole Shadows" in Tags
+    // and Layers). Lamp lights leave it out of their shadows; the moon includes it.
+    public const int PoleShadowLayer = 8;
+
     [SerializeField]
     private Color color = new Color(1f, 0.82f, 0.35f);
 
@@ -44,6 +49,14 @@ public class LampGlow : MonoBehaviour
         if (head != null)
         {
             head.shadowCastingMode = ShadowCastingMode.Off;
+        }
+
+        // Likewise the pole under it, which would shade a disc of ground round its foot.
+        // Only lights whose shadow layers include PoleShadowLayer see the pole's shadow.
+        if (TryGetComponent(out UniversalAdditionalLightData urp))
+        {
+            urp.customShadowLayers = true;
+            urp.shadowRenderingLayers = urp.renderingLayers.value & ~(1u << PoleShadowLayer);
         }
     }
 }
