@@ -22,7 +22,7 @@ public class IslandLampLights : AssetPostprocessor
     {
         // Bump when the lamp setup or LampGlow defaults change, so the map reimports.
         // Editing the sidewalk pixel art changes the hash, which reimports it too.
-        return 17u ^ (SidewalkGravelArt.ContentHash() << 8);
+        return 18u ^ (SidewalkGravelArt.ContentHash() << 8);
     }
 
     // The slab gets a matte copy of this template, using its supplied texture when set.
@@ -133,6 +133,10 @@ public class IslandLampLights : AssetPostprocessor
             Debug.LogWarning("[IslandLampLights] No lampN/pCylinder1 pole found in " + MapPath);
         }
         FixInvertedNormals(root);
+        if (!ApplyGroundUVs(root))
+        {
+            Debug.LogWarning("[IslandLampLights] No " + GroundName + " ground found in " + MapPath);
+        }
         if (!AddFountainWater(root))
         {
             Debug.LogWarning("[IslandLampLights] No " + FountainName + " fountain found in " + MapPath);
@@ -448,6 +452,20 @@ public class IslandLampLights : AssetPostprocessor
         {
             Debug.Log("[IslandLampLights] Flipped inverted normals on: " + string.Join(", ", fixedNames));
         }
+    }
+
+    // The scene overrides this mesh's material with GroundMat. Give it metre-based UVs
+    // so the grass pattern tiles consistently across the island instead of stretching.
+    private static bool ApplyGroundUVs(GameObject root)
+    {
+        bool found = false;
+        foreach (MeshFilter filter in root.GetComponentsInChildren<MeshFilter>(true))
+        {
+            if (filter.name != GroundName || filter.sharedMesh == null) continue;
+            BoxProjectUVs(root.transform, filter);
+            found = true;
+        }
+        return found;
     }
 
     private bool ApplySidewalkGravel(GameObject root)

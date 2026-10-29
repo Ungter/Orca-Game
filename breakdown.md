@@ -523,6 +523,11 @@ Maya and follow the map into any scene.
     (central differences, `GravelNormalStrength`) and a height map for URP's parallax
     (`_Parallax` on the template). Both point-filtered, so the bumps stay pixel-crisp; tangents
     are recalculated after the new UVs so the normal map lines up.
+- **Grass ground:** `Assets/Materials/Grass Texture.png` is a repeating, point-filtered
+  256x256 tile on `GroundMat.mat` (one tile per 8 m, with mipmaps for distance).
+  `IslandLampLights` gives the ground block (`IslandDemo:pCube1`) metre-based box UVs at
+  import time, so the texture covers the island at a consistent scale. The scene overrides
+  that mesh's material with `GroundMat`; the grass stays matte and uses its original colours.
 - **Gravel spilling over the edges** (`Assets/Editor/SidewalkSpill.cs`): instead of the slab's
   90 degree walls, a ragged gravel slope runs from every top edge down to the ground.
   - **Finding the edges:** weld the slab's vertices by position, keep upward-facing
