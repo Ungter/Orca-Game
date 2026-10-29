@@ -15,7 +15,7 @@ public static class Interactables
     private static readonly List<IInteractable> All = new List<IInteractable>();
 
     // Something has taken over the player's input: a conversation or a dig.
-    public static bool Busy => TalkInteractable.IsTalking || DigSite.IsDigging;
+    public static bool Busy => TalkInteractable.IsTalking || DigSite.IsDigging || DolphinWordPuzzle.IsOpen;
 
     public static void Add(IInteractable interactable)
     {

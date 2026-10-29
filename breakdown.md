@@ -17,6 +17,7 @@ Each section names the files involved, so you can jump straight to the code.
 - [10. Title screen](#10-title-screen) - `TitleScreen.cs`, `PixelButton.cs`
 - [11. Talking to the gravestone](#11-talking-to-the-gravestone) - `TalkInteractable.cs`, `InteractPrompt.cs`
 - [12. Dig site skill checks](#12-dig-site-skill-checks) - `DigSite.cs`, `DigSparkles.cs`, `Interactables.cs`
+- [15. Dolphin statue letter puzzle](#15-dolphin-statue-letter-puzzle) - `DolphinWordPuzzle.cs`
 - [Shared rules for crisp pixel art](#shared-rules-for-crisp-pixel-art)
 
 ---
@@ -854,6 +855,22 @@ cascades, plus a full re-render for SSAO's depth-normals prepass.
   top-right corner, averaged over half a second on unscaled time so it keeps counting while
   paused. `GUI.depth` -2000 draws it over the pause menu and title screen. The label string is
   only rebuilt when the number changes.
+
+---
+
+## 15. Dolphin statue letter puzzle
+
+**Files:** `Assets/DolphinWordPuzzle.cs`, `Assets/Scenes/SampleScene.unity`
+
+- Walk within 2.5 m of the `DolphinStatue` and press E to open a pixel-art menu.
+  Its prompt sits near the closest side of the base, not above the 13 m-tall model.
+  While it is open, player movement and other interactions are locked; Esc closes it.
+- The clue line shows **Fell, Jerk, Thief** all at once for now. Later progression can
+  gate these words. The letter bank uses exactly these letters, without spaces.
+- The thirteen movable letter tiles start in clue order. Click a tile, then an empty slot or
+  another tile to move or swap it. The answer slots have gaps after JEFF and THE.
+  When they exactly spell **JEFF THE KILLER**, the menu says **YOU WIN** and keeps
+  the completed arrangement on reopening.
 
 ---
 
