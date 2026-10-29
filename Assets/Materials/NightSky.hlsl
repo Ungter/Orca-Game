@@ -104,6 +104,21 @@ float3 NightSkyAurora(float3 dir, float t)
 {
     if (dir.y < 0.01) return 0;
 
+    // Patches drift in and out across the sky, and the whole display breathes slowly.
+    float2 patchPos = dir.xz / (dir.y + 0.15);
+    float patches = smoothstep(0.35, 0.75, ns_fbm2(patchPos * 0.6 + t * 0.015));
+    float w = 6.2831 / max(_AuroraFadePeriod, 0.01);
+    float breathe = 0.5 + 0.5 * sin(t * w) * (0.7 + 0.3 * sin(t * w * 2.71 + 1.3));
+    breathe = smoothstep(0.0, 1.0, breathe);
+    float visibility = lerp(_AuroraMinVisibility, 1.0, breathe) * patches;
+
+    float horizonFade = smoothstep(0.01, 0.18, dir.y) * (1.0 - smoothstep(0.75, 1.0, dir.y) * 0.6);
+    float strength = visibility * horizonFade * _AuroraIntensity;
+    // Most of the sky is outside a patch at any moment: skip the costly layers there.
+    // Neighbouring pixels agree, so the GPU really does skip the work.
+    UNITY_BRANCH
+    if (strength <= 0.0) return 0;
+
     float3 acc = 0;
     float drift = t * _AuroraSpeed;
     for (int i = 0; i < NIGHT_SKY_AURORA_STEPS; i++)
@@ -116,17 +131,7 @@ float3 NightSkyAurora(float3 dir, float t)
         acc += col * field * (1.0 - k) * (1.0 - k);
     }
     acc *= 3.0 / NIGHT_SKY_AURORA_STEPS;
-
-    // Patches drift in and out across the sky, and the whole display breathes slowly.
-    float2 patchPos = dir.xz / (dir.y + 0.15);
-    float patches = smoothstep(0.35, 0.75, ns_fbm2(patchPos * 0.6 + t * 0.015));
-    float w = 6.2831 / max(_AuroraFadePeriod, 0.01);
-    float breathe = 0.5 + 0.5 * sin(t * w) * (0.7 + 0.3 * sin(t * w * 2.71 + 1.3));
-    breathe = smoothstep(0.0, 1.0, breathe);
-    float visibility = lerp(_AuroraMinVisibility, 1.0, breathe) * patches;
-
-    float horizonFade = smoothstep(0.01, 0.18, dir.y) * (1.0 - smoothstep(0.75, 1.0, dir.y) * 0.6);
-    return acc * visibility * horizonFade * _AuroraIntensity;
+    return acc * strength;
 }
 
 // Stars plus aurora along an already-rotated, normalized sky direction.

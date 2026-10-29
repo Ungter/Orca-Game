@@ -6,7 +6,7 @@ Each section names the files involved, so you can jump straight to the code.
 - [1. Pixel font](#1-pixel-font) - `PixelFont.cs`
 - [2. Pixel text on a Canvas](#2-pixel-text-on-a-canvas) - `PixelText.cs`
 - [3. Inventory UI pixel art](#3-inventory-ui-pixel-art) - `InventoryPixelArt.cs`, `InventoryHUD.cs`
-- [4. Pickup prompt](#4-pickup-prompt) - `PickupItem.cs`
+- [4. Pickup prompt](#4-pickup-prompt) - `PickupItem.cs`, `InteractPrompt.cs`
 - [5. Letter burn animation](#5-letter-burn-animation) - `LetterBurn.cs`, `ClueMinigame.cs`
 - [5b. Minigame painted onto the letter](#5b-minigame-painted-onto-the-letter) - `ClueMinigame.cs`
 - [5c. Cursive clue writing itself](#5c-cursive-clue-writing-itself) - `CursiveWriter.cs`
@@ -14,6 +14,9 @@ Each section names the files involved, so you can jump straight to the code.
 - [7. Lighting the sprite player](#7-lighting-the-sprite-player) - `SpriteLightTint.cs`
 - [8. Fixing the map on import](#8-fixing-the-map-on-import) - `Editor/IslandLampLights.cs`
 - [9. Fixing the FBX itself](#9-fixing-the-fbx-itself) - one-off scripts
+- [10. Title screen](#10-title-screen) - `TitleScreen.cs`, `PixelButton.cs`
+- [11. Talking to the gravestone](#11-talking-to-the-gravestone) - `TalkInteractable.cs`, `InteractPrompt.cs`
+- [12. Dig site skill checks](#12-dig-site-skill-checks) - `DigSite.cs`, `DigSparkles.cs`, `Interactables.cs`
 - [Shared rules for crisp pixel art](#shared-rules-for-crisp-pixel-art)
 
 ---
@@ -162,7 +165,7 @@ item name wrapped to two lines under the slot. Fading is just `GUI.color.a`.
 
 ## 4. Pickup prompt
 
-**File:** `Assets/PickupItem.cs`
+**Files:** `Assets/PickupItem.cs`, drawing shared with talkable objects in `Assets/InteractPrompt.cs`
 
 - **The drifting bug:** `WorldToScreenPoint` measures y from the *bottom* of the screen,
   IMGUI from the *top*. Mixing them made the prompt climb as you walked closer. Fix:
@@ -441,7 +444,9 @@ the light reaching it and tints the sprite.
 - **Shadows:** for lights that cast shadows, a ray from each sample to the light. Only
   colliders whose renderers actually cast shadows count (cached per collider), so lamp heads,
   invisible walls and triggers don't make fake shade. Children are checked too, which is
-  how the lamp poles' shadows-only copies count.
+  how the lamp poles' shadows-only copies count. Like URP, a renderer only blocks a light
+  when its rendering layers overlap the light's `renderingLayerMask` (URP keeps that equal to
+  the light's shadow layers), so lamp lights ignore the poles and the moon doesn't.
 - **Soft edges:** each light contributes the *fraction* of samples that see it, so stepping
   half into a shadow gives half the light.
 - **Exposure curve:** `1 - exp(-energy * exposure)` maps any amount of light into a brightness
@@ -467,12 +472,22 @@ Maya and follow the map into any scene.
   the mesh's bounds centre. `LampGlow` owns the Light's settings (intensity 300, range 70,
   soft shadows) and turns off shadows on the lamp head, otherwise the head would block its
   own light.
-- **Lamp poles - shadow from only part of a mesh:** Unity can only turn shadows on/off per
-  renderer. So the pole's renderer stops casting, and a hidden child is added with a copy of
-  the pole mesh **clipped** below a height (Sutherland-Hodgman clip of each triangle against
-  a horizontal plane) with `ShadowCastingMode.ShadowsOnly`. The top 35% casts nothing (no
-  disc of shade under the lamp); the rest still casts from every light. The clipped mesh is
-  stored in the model with `context.AddObjectToAsset`.
+- **Glowing lamp heads:** the light sits inside the head, so the head's outer faces never
+  catch it and stayed dark. Each head's own material slots (the panels; slots sharing a
+  material with the pole/caps are the frame and stay) get `Materials/LampHeadGlow.mat`, a
+  URP Lit material with HDR emission (warm, ~10x in linear) that the scene's bloom
+  (threshold 1) turns into a halo. It's a project asset assigned directly, so tune the glow
+  there with no reimport. The hand-placed `lamp5 (1)` copy in `SampleScene` points at it too.
+- **Lamp poles - no shadow from their own lamp:** the light sits just above the pole's top,
+  so the pole threw a disc of shade round its foot. Unity can't turn one caster off for one
+  light, but URP filters shadow casters per light by **rendering layer**. So the pole's
+  renderer stops casting and a hidden `ShadowsOnly` child with the same mesh casts instead,
+  on rendering layer 8, "Lamp Pole Shadows" (`LampGlow.PoleShadowLayer`). `LampGlow` turns on
+  Custom Shadow Layers for every lamp light with that layer left out; the scene's
+  Directional Light (moon) has Custom Shadow Layers = Default + Lamp Pole Shadows, so poles
+  still cast full-length moon shadows. The visible pole stays on Default so every light
+  lights it. A light added later that should get pole shadows needs that layer in its shadow
+  layers too.
 - **Foliage materials:** every `pSphere` in `bigtrees`, `mediumtrees`, `shrubs`, `hedges`
   gets a leaf shade; every `pCylinder` in the tree groups gets a bark shade.
   - **Shades:** 8 copies of the matte template per colour, each shifted in HSV (hue,
@@ -524,6 +539,61 @@ Maya and follow the map into any scene.
     from a position hash so reimports give the same result.
   - Same metre UVs as the top, so pebbles carry on over the edge. Built as a `Sidewalk Spill`
     object in the model with a `MeshCollider`, so the player walks up the slope.
+- **Fountain water** (`IslandDemo:pCylinder3`, a single mesh: basin, tapered column, spout
+  pipe): measured from its own surface, the same barycentric query as the spill. Walking in
+  from the outer edge, the top stays at rim height across the rim, drops at the inner wall
+  (lowest point inside = floor), and climbs again at the column. Water line = 75% of the way
+  from floor to rim. The column sits a little off the basin's centre, so the column radius
+  is the widest of eight directions and the spout tip is the average of the pipe's top
+  vertices. A `Fountain Water` object with `FountainWater` goes on the tip; see section 8b.
+
+---
+
+## 8b. Fountain water
+
+**Files:** `Assets/FountainWater.cs` (spray, pool), `Assets/FountainWaterArt.cs` (the art),
+`Assets/Materials/FountainSpray.mat` and `FountainPool.mat` (templates)
+
+- **A spray of single droplets, not streams:** a firework-like burst of ~3500 pixel-art
+  droplets a second (`dropletsPerSecond`, ~10k in the air), as a world-space particle
+  system. Every droplet is a real particle with a depth-tested, alpha-clipped material, so
+  the column hides the ones behind it from every side. (The first version drew streams on
+  camera-facing sheets; a flat sheet can't go round the column, so they cut through it.)
+- **Firework shape from drag:** linear drag (1.8/s) makes droplets burst out fast, slow
+  into a dome over the spout (tops out ~3.5 m above it), then drift down at `g / drag`
+  (~5.5 m/s) in a curtain round the column. The long hang time is what keeps so many in
+  the air.
+- **Drag in a particle job, not the Limit Velocity module:** Unity's built-in drag (with
+  "multiply by velocity" off) takes a fixed amount off every particle's speed, whatever
+  its speed, so fast droplets carried on 9-21 m and the spray covered the whole plaza. With
+  "multiply by velocity" on it's quadratic instead. Neither matches the launch maths, so
+  `OnParticleUpdateJobScheduled` schedules an `IJobParticleSystemParallelFor` that scales
+  every velocity by `e^(-drag * dt)` after each step. Simulated with Unity's step order, landing
+  is within 0.07 m of the aim at 60 fps and 0.15 m at 30 fps. The callback only reaches
+  components on the particle system's own object, so the spray lives on `Fountain Water`.
+- **Aimed to land in the basin:** droplets are emitted from `Update` with chosen velocities
+  (`Emit` with `EmitParams`). Each picks an upward speed (-2 to 13 m/s) and where to come
+  down (column + 0.25 m to wall - 0.4 m, packed towards the column so it's covered). With
+  linear drag, height is `y(t) = (v + g/k)(1 - e^-kt)/k - g t/k`: Newton's method gives the
+  flight time to the water, and sideways distance levels off at `speed / k`, so
+  `speed = k * landing / (1 - e^-kT)`. Sideways travel happens early and the fall is near
+  vertical, so a droplet that lands clear of the column's foot clears its narrower top too.
+- **Pixel art:** 7x7 hand-drawn cells at 16 px/m. Droplets: 4 variants (rows, picked at
+  random) x 4 stages over the flight (sparkle bursting from the spout, round drop, small drop,
+  falling streak). A plane at the water line kills droplets and 15% spawn a splash (4 frames,
+  drawn in the top half of the cell, since it's centred on the landing point and the bottom
+  half is under the water). Sheets have no mipmaps: neighbouring cells would bleed and
+  alpha-clipped droplets would fade out in the distance.
+- **Lit like the world:** both materials are URP Lit, so the plaza lamps light the droplets
+  and the pool. The particle system is scaled `Shape` only, so sizes and speeds stay in metres
+  under the map's 209x scale.
+- **Pool:** a flat ring at the water line, from well inside the column to just inside the
+  wall, with a texture laid flat over the basin at 16 px/m (UVs map the basin's square to
+  0-1). Deeper colour against the walls, broken ripple rings running out from where most
+  droplets land, churned water and foam clumps there, and blinking glints on a jittered
+  grid. 12 frames at 10 fps swapped through a `MaterialPropertyBlock`; every cycle divides 12
+  so the loop has no seam.
+- Built in `Start`, so it only shows in Play mode.
 
 ---
 
@@ -551,6 +621,234 @@ One-off Python scripts (not in the repo) read and rewrote the binary FBX directl
   The fix reverses each polygon's corner order and permutes every per-corner layer
   (normals, UV indices) to match, negates normals, and rebuilds the edge list.
 - Originals are kept in `Backups/`.
+
+---
+
+## 10. Title screen
+
+**Files:** `Assets/TitleScreen.cs`, `Assets/PixelButton.cs`, art maps in `Assets/InventoryPixelArt.cs`,
+orca sheet in `Assets/Resources/TitleScreen/Orca Sprite.png`
+
+Shown once when play starts; no extra scene. PLAY flies the camera down to the player.
+
+### Bootstrapping into the gameplay scene
+
+- `RuntimeInitializeOnLoadMethod(AfterSceneLoad)` creates it in any scene with a `CameraFollow`,
+  the same trick the pause menu uses - nothing to place by hand.
+- **Freezing gameplay:** it disables every enabled `CameraFollow`, `PlayerController`, `InventoryHUD`,
+  `InventoryInspection` and `PickupItem`, remembers them, and re-enables exactly those afterwards.
+  `TitleScreen.IsOpen` stops Esc from opening the pause menu.
+
+### Camera
+
+- **Framing:** bounds of every renderer under `IslanddemoV3` except the `ocean` child. Distance is
+  `radius / tan(fov / 2)`, so the land fills the view whatever the map's scale.
+- **Orbit:** `Quaternion.Euler(pitch, yaw, 0)`; position is the island centre pushed back along that
+  rotation. Pitch 35, yaw creeps 3 deg/s, starting from the gameplay camera's heading.
+- **Fly-in:** PLAY re-enables `CameraFollow` first. `TitleScreen` runs at execution order 100, so in
+  `LateUpdate` the follow camera has already placed itself; the title lerps/slerps from the frozen title
+  pose to that live pose with a smoothstep. The target keeps moving correctly because it is re-read
+  every frame. Player control and the HUD come back when the flight lands.
+
+### Layout and art
+
+- Same rules as the pause menu: IMGUI under a `GUI.matrix` of whole-number scale, one GUI unit = one
+  art pixel, positions in art pixels from the top-centre of the screen.
+- **Title:** the pause menu's parchment banner and `PixelFont`, drawn under a second whole-number
+  scale (up to 3x) so it stays crisp. The scale is the largest that fits 80% of the screen width.
+- **Block centring:** orca + scroll + divider + button + hint are centred as one block; the scroll lands
+  mid-screen.
+- **PLAY / EXIT buttons:** `PixelButton`, shared with the pause menu's KEYBINDS / HOME / BACK buttons. EXIT quits.
+- **Selection:** both menus keep a selected button (arrows/W/S or a moving mouse change it; Enter presses it).
+  `PixelButton.DrawSelection` flanks it with gold `>` `<` glyphs whose gap steps 0,0,1,2,3,3,2,1 px every
+  0.12 s - whole-pixel moves, no sub-pixel easing. No on-screen key hints.
+- **Back to the title:** the pause menu's HOME reloads the active scene. `TitleScreen` subscribes to
+  `SceneManager.sceneLoaded` (registered `BeforeSceneLoad`), so it opens on every load, not just the first.
+- **Orca:** the sheet is two 64x64 frames (each texel block is 4x4, so one frame = 64 art pixels). Drawn
+  1:1 in art pixels with `DrawTextureWithTexCoords`, alternating halves at 3 fps, bobbing one pixel.
+  Drawn before the scroll so the tail tucks behind it. Imported with point filter, no mips, no compression.
+- **Hand-made pieces** (string maps in `InventoryPixelArt`, same palette plus four fire colours R/O/Y/w):
+  - `Corner` - gilded corner bracket, drawn once and mirrored into all four corners by negative UV width/height.
+  - `ChainLink` - tiles vertically from the screen top down behind the scroll's rolled ends.
+    The scroll (and the orca with it) sways +-2 art px every 5 s on a half-sine, half-triangle wave,
+    snapped to whole screen pixels rather than art pixels: art-pixel snapping left only five positions
+    and the sine parked at each end for over a second. Texels stay p x p, just shifted. Each link is
+    offset by `sway * depth`, depth 0 at the screen top to 1 at the scroll, so the chains lean like a
+    pendulum. Translation only - rotating would smear the pixels.
+  - `Torch` + three `TorchFlame` frames - wall torches either side, 8 fps flicker, offset per torch.
+  - Torch glow - a procedural 25x25 texture of three stepped alpha rings (no soft gradient), alpha
+    flickered with Perlin noise. Embers are single art pixels rising and cooling yellow -> orange -> red.
+  - `Gem` on a gold rule between scroll and button.
+- **Shade:** a light dim plus four stepped dark bands along the top and bottom edges (a pixel vignette).
+  A black veil fades out over the first 1.2 s to hide the scene popping in.
+
+---
+
+## 11. Talking to the gravestone
+
+**Files:** `Assets/TalkInteractable.cs` (on `graveStone1` in the scene), `Assets/InteractPrompt.cs`,
+bubble/tail/Enter-key maps in `Assets/InventoryPixelArt.cs`, portrait `Assets/Resources/ShellGame/panther.png`
+
+Walk up to the gravestone, press E, and the panther slides into the bottom-right corner and says
+"Something is in the forest". Enter or a click sends it away.
+
+### Prompt and who answers E
+
+- `[E] TALK` uses the same `InteractPrompt.Draw` as pickups (same radius 2.5, gap, fade).
+- `graveStone1` is a group whose meshes live on children, so the anchor is the top-centre of the
+  combined child renderer bounds, measured once in `Awake`.
+- Pickups, talkables and dig sites all register with `Interactables`; only the one nearest the
+  player shows its prompt and answers E, so one press never does two things.
+
+### Conversation phases
+
+`Entering` (0.45 s ease-out slide) -> `Popping` (bubble fades in and rises 3 px) -> `Typing`
+(40 chars/s) -> `Waiting` (Enter keycap hint fades in and bobs) -> `Leaving` (0.4 s ease-in slide out
+while the bubble fades in place) -> `Idle`.
+
+- Presses are ignored while the panther enters. While typing, the first press finishes the line; the
+  next one closes it.
+- `TalkInteractable.IsTalking` is true from the press until the panther is gone. It feeds
+  `Interactables.Busy`: `PlayerController` stands still, `PickupItem` and `InventoryInspection` ignore
+  input while it is set.
+- Runs at execution order -50, before the player and pickups, so the opening E press moves nothing.
+- Pausing freezes it; the click that resumes is swallowed so it cannot dismiss the bubble.
+- `Tick(deltaTime, advance)` holds all the logic, so `Editor/TalkInteractableTests.cs` drives it
+  without a scene.
+
+### Layout and art
+
+- IMGUI under a whole-number `GUI.matrix` scale (3 at 720p): one GUI unit = one art pixel.
+- The panther sheet is 256x512: two square frames stacked, drawn 4 texture px per art pixel at
+  64x64 art px. The frames alternate every 0.5 s as an idle. It is mirrored (negative UV width) so it
+  faces into the screen.
+- The bubble is a 9-sliced 12x12 parchment map (3 px borders, bright top lip). A separate 8x6 tail
+  overlaps the bubble's bottom outline by one row, which opens the outline, and its tip lands on
+  `speechPoint` (the panther's head). A 35% black copy offset by 1 px is the drop shadow.
+- The Enter hint is a 13x9 wooden keycap with a gold return arrow, bottom-right inside the bubble.
+
+---
+
+## 12. Dig site skill checks
+
+**Files:** `Assets/DigSite.cs` (on `digSiteMinigame2`, reward `ClueLetter2`), `Assets/Interactables.cs`,
+bar frame map `SkillBar` in `Assets/InventoryPixelArt.cs`, burying in `Assets/PickupItem.cs`
+
+Walk up to the dig site (radius 1.75, 30% under the other interactables), press E, and hit three
+Dead by Daylight style skill checks with Space. Clearing them raises `ClueLetter2` out of the ground.
+
+### Checks
+
+- A needle rests at the left of the bar for 0.35 s, then crosses it in 1.3 s. The gold zone is open
+  0.5 s, then 0.3 s, then 0.2 s (`windows`), so its width is `window / 1.3` of the track.
+- Timing is judged in needle seconds, not pixels: a press counts when
+  `ZoneStart <= needleTime <= ZoneStart + window`. The zone opens somewhere between 30% of the sweep
+  and 0.08 s before the end.
+- Space early, Space late or letting the needle run past the zone all fail.
+- Phases: `Appearing` -> `Sweep` -> `Hit` (zone flashes, pip turns gold) -> next `Sweep` ...
+  -> `Complete` -> `Dug`. A fail goes `Failed` (red tint, 1 px shake) -> `Shatter` -> `Idle`, and the
+  next dig starts from the first check.
+- Space is also jump. While `Interactables.Busy`, `PlayerController` sets `jumpLocked`, and only a release
+  clears it, so the press that ends a check never jumps.
+- `DigSite.IsDigging` (part of `Interactables.Busy`) locks the player from the E press until a check
+  succeeds or fails. The player is free while the shards fall, but the site only shows its prompt
+  again once they are gone.
+
+### Shattering
+
+- On a fail the bar is cut into columns 9-16 px wide, each split at a random height into a top and a
+  bottom shard, so the break is jagged.
+- Each shard flies outward from the bar's middle (top shards jump higher) and falls under gravity.
+  Positions come from `v*t + g*t*t/2` and are rounded to whole art pixels; alpha fades in quarter steps.
+- A shard is drawn by clipping the whole bar with `GUI.BeginGroup(shardRect)` and drawing the bar offset
+  by the shard's source position. No textures are cut up.
+
+### The reward
+
+- `DigSite.Start` calls `reward.Bury()` (after every `Awake`, so the letter has recorded its rest
+  position): its renderers and glow are switched off and it is not interactable. Place the letter in the
+  scene where it should rise.
+- `Unearth` drops it below its resting bottom edge and eases it up over 1.2 s with a small shudder; the
+  ground hides the part still underground. Its glow brightens with it. The bob phase is reset so the
+  bob starts from zero. After that it is a normal pickup with its own `[E] PICK UP` prompt.
+
+### Sparkles after the gravestone
+
+**File:** `Assets/DigSparkles.cs`
+
+- `TalkInteractable.HasSpoken` turns true when a conversation finishes (the panther has left). The dig
+  site's `revealedBy` points at the gravestone; left empty, `Start` uses the scene's only talkable object.
+  Until then the site looks as it always did.
+- Seven glints, each a `SpriteRenderer` with a 1x1 dot, a 3x3 plus or a 5x5 star built from
+  `InventoryPixelArt.Build` (32 px per unit). Each one plays dot -> plus -> star -> star -> plus -> dot
+  over about a second while it rises 0.35 units, waits a random moment, then reappears at a random
+  spot within half the dig radius. They are turned to the camera's rotation every frame.
+- One shadowless point light (intensity 1.5, range 3) breathes slowly with a little shimmer, so the
+  ground around the site picks up the glow.
+- Everything fades in over 1.2 s and fades out the same way once the last check is cleared.
+- The sparkles live on their own root object, not under the site, whose uneven scale would stretch them.
+
+---
+
+## 13. Debug fly / noclip
+
+**File:** `Assets/PlayerController.cs` (`SetDebugFly`, `UpdateDebugFly`)
+
+- The backquote key toggles it. Toggling is skipped while paused, while the inventory is open,
+  or while `Interactables.Busy` is set.
+- On: the `CharacterController` is disabled, so nothing collides, and the transform moves
+  directly at 5x `moveSpeed`. WASD moves relative to the camera, Shift flies up and Ctrl flies down.
+- Off: the controller comes back with zero vertical velocity, so normal gravity drops the player
+  to the ground. `jumpLocked` is set, so Space has to be released before the player can jump.
+
+---
+
+## 14. Running on weaker GPUs
+
+Goal: smooth on integrated graphics (e.g. Intel Arc in a Core Ultra 7 155H) without
+removing anything. Where the time went: the map is 5058 separate meshes, ~3.2M triangles
+(~2.8M of them leaf spheres in shrubs, hedges and trees), and every shadowed point light
+renders it six more times - with 15 lamps that was ~90 extra passes, plus four moon
+cascades, plus a full re-render for SSAO's depth-normals prepass.
+
+- **Lamp shadows by distance** (`LampGlow`): in play mode only the 6 lamps nearest the
+  camera keep shadows (all four round the fountain plaza, plus the next nearest). The rest
+  fade `shadowStrength` to 0 over 0.6 s and switch shadows off; coming closer fades them back
+  in, so nothing pops. Every lamp keeps its light. Ranked 4x a second; in the editor every
+  lamp keeps its shadow. With fewer lamps sharing the 4096 shadow atlas, each one also gets
+  a sharper shadow map than before. `SpriteLightTint` follows automatically (it only casts
+  rays for lights with shadows on).
+- **Mesh LOD on the map** (`generateMeshLods` in the FBX import settings): Unity builds
+  simplified versions of each mesh and picks one by screen size, in the main view and in
+  shadow maps. Close up nothing changes.
+- **Hidden things aren't drawn:** GPU occlusion culling is on in the GPU Resident Drawer
+  (already enabled), so objects behind buildings and terrain are skipped. Depth priming
+  (Auto) reuses the depth prepass so overlapping leaf spheres are shaded once per pixel.
+- **Cheaper, same effects:** SSAO at half resolution from depth only (no depth-normals
+  prepass), Gaussian blur; moon shadows 2 cascades instead of 4 (same 50 m distance);
+  soft shadows Medium instead of High. The opaque-texture copy is off - nothing samples
+  `_CameraOpaqueTexture` (the ocean only reads depth).
+- **Aurora early-out** (`NightSky.hlsl`): visibility (patches x breathing x horizon fade) is
+  worked out first and the 16-layer loop (8 in the ocean reflection) is skipped where it's
+  zero. Identical output.
+- **Adaptive resolution** (`AdaptiveResolution`, installs itself): reads GPU frame time from
+  `FrameTimingManager` (Frame Timing Stats is on in Player Settings). Over 14.5 ms it lowers
+  the pipeline's render scale in 0.05 steps (never below 720 rows); under 11 ms it raises it
+  back. UI stays at full resolution; the 3D image is upscaled with FSR. A GPU that keeps up
+  never changes. Without GPU timings it only lowers, on frames clearly missing vSync. The
+  asset's original render scale is restored when play stops.
+- **Frozen backdrop** (`FrozenBackdrop`, installs itself): while the pause menu or the
+  inspection view is open, the world is rendered once (`RenderPipeline.SubmitRenderRequest`)
+  into a texture shown on a canvas beneath all other UI, and the camera draws nothing
+  (culling mask 0, no shadows, post-processing or skybox) until it closes.
+- **Small things:** vSync on (laptops share power between CPU and GPU; uncapped frames only
+  cost heat); the fountain stops launching droplets beyond the distance where an art pixel
+  is under 0.1 screen pixel (farther than the title view); `CameraFollow` uses a
+  non-allocating sphere cast.
+- **FPS counter** (`FpsCounter`, installs itself): `]` toggles a pixel-font readout in the
+  top-right corner, averaged over half a second on unscaled time so it keeps counting while
+  paused. `GUI.depth` -2000 draws it over the pause menu and title screen. The label string is
+  only rebuilt when the number changes.
 
 ---
 
