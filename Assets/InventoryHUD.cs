@@ -120,7 +120,8 @@ private int PixelScale()
 
 private void OnGUI()
     {
-        if (inventory == null || opacity <= 0f || InventoryInspection.IsOpen || Event.current.type != EventType.Repaint)
+        if (inventory == null || opacity <= 0f || InventoryInspection.IsOpen ||
+            MagicianEncounter.IsOpen || Event.current.type != EventType.Repaint)
         {
             return;
         }

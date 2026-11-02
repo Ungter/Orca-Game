@@ -64,6 +64,18 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    public void PlaceOnGround(Vector3 groundPosition)
+    {
+        if (characterController == null) characterController = GetComponent<CharacterController>();
+        bool wasEnabled = characterController.enabled;
+        characterController.enabled = false;
+        float footOffset = (characterController.height * 0.5f - characterController.center.y) * transform.lossyScale.y;
+        transform.position = groundPosition + Vector3.up * (footOffset + 0.02f);
+        characterController.enabled = wasEnabled;
+        verticalVelocity = 0f;
+        jumpLocked = true;
+    }
+
     private void Update()
     {
         // Freeze in place; a jump pressed while paused must not fire on resume.
@@ -72,7 +84,7 @@ public class PlayerController : MonoBehaviour
             return;
         }
 
-        if (InventoryInspection.IsOpen || Interactables.Busy)
+        if (InventoryInspection.IsOpen || Interactables.BlocksMovement)
         {
             jumpLocked = true;
             UpdateSprite(Vector2.zero);

@@ -14,8 +14,12 @@ public static class Interactables
 {
     private static readonly List<IInteractable> All = new List<IInteractable>();
 
-    // Something has taken over the player's input: a conversation or a dig.
-    public static bool Busy => TalkInteractable.IsTalking || DigSite.IsDigging || DolphinWordPuzzle.IsOpen;
+    // Reserve interactions even when the outdoor trick allows movement.
+    public static bool Busy => TalkInteractable.IsTalking || DigSite.IsDigging ||
+        DolphinWordPuzzle.IsOpen || MagicianEncounter.IsOpen;
+
+    public static bool BlocksMovement => TalkInteractable.IsTalking || DigSite.IsDigging ||
+        DolphinWordPuzzle.IsOpen || MagicianEncounter.BlocksMovement;
 
     public static void Add(IInteractable interactable)
     {

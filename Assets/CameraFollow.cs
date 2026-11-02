@@ -16,6 +16,7 @@ public class CameraFollow : MonoBehaviour
     // Current horizontal angle in degrees around the player. 0 = +Z, 90 = +X.
     private float cameraAngle;
     private float currentDistance;
+    private bool framingTrick;
     private readonly RaycastHit[] hits = new RaycastHit[32];
 
     private void Awake()
@@ -39,9 +40,19 @@ public class CameraFollow : MonoBehaviour
         currentDistance = (offset - lookAtHeight).magnitude;
     }
 
+    public void LookTowards(Vector3 point)
+    {
+        if (target == null) return;
+        Vector3 outward = target.position - point;
+        if (new Vector2(outward.x, outward.z).sqrMagnitude < 0.001f) return;
+        cameraAngle = Mathf.Atan2(outward.x, outward.z) * Mathf.Rad2Deg;
+        framingTrick = false;
+    }
+
     private void LateUpdate()
     {
-        if (target == null || InventoryInspection.IsOpen)
+        bool hasTrick = MagicianEncounter.TryGetGameBounds(out Bounds trickBounds);
+        if (target == null || InventoryInspection.IsOpen || (MagicianEncounter.IsOpen && !hasTrick))
         {
             return;
         }
@@ -67,6 +78,26 @@ public class CameraFollow : MonoBehaviour
         }
 
         Vector3 direction = toCamera / desiredDistance;
+        if (hasTrick)
+        {
+            // Keep both the moving player and the hats in view, without owning the camera's orbit.
+            Vector3 playerFocus = focus;
+            focus = (playerFocus + trickBounds.center) * 0.5f;
+            Vector3 delta = trickBounds.center - focus;
+            Vector3 farCorner = trickBounds.extents +
+                new Vector3(Mathf.Abs(delta.x), Mathf.Abs(delta.y), Mathf.Abs(delta.z));
+            float framingRadius = Mathf.Max(farCorner.magnitude, Vector3.Distance(focus, playerFocus) + 1f);
+            Camera view = GetComponent<Camera>();
+            if (view != null && !view.orthographic)
+            {
+                float halfAngle = view.fieldOfView * 0.5f * Mathf.Deg2Rad;
+                halfAngle = Mathf.Min(halfAngle, Mathf.Atan(Mathf.Tan(halfAngle) * view.aspect));
+                desiredDistance = Mathf.Max(desiredDistance, framingRadius / Mathf.Sin(halfAngle) * 1.08f);
+            }
+            // Frame behind the entrance fade, rather than crop the first reveal while zooming out.
+            if (!framingTrick) currentDistance = desiredDistance;
+        }
+        framingTrick = hasTrick;
         float clearDistance = desiredDistance;
         int count = Physics.SphereCastNonAlloc(
             focus, collisionRadius, direction, hits, desiredDistance,

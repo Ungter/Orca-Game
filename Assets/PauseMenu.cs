@@ -41,7 +41,7 @@ public class PauseMenu : MonoBehaviour
         { "[J] [L]", "TURN CAMERA" },
         { "[I]", "SHOW INVENTORY" },
         { "[E]", "INTERACT" },
-        { "[CLICK]", "ARRANGE DOLPHIN LETTERS" },
+        { "[DRAG]", "ARRANGE DOLPHIN LETTERS" },
         { "[1-5]", "OPEN ITEM" },
         { "[ESC]", "PAUSE" },
     };
@@ -125,7 +125,8 @@ public class PauseMenu : MonoBehaviour
             {
                 Resume();
             }
-            else if (!InventoryInspection.IsOpen && !TitleScreen.IsOpen && !DolphinWordPuzzle.IsOpen)
+            else if (!InventoryInspection.IsOpen && !TitleScreen.IsOpen &&
+                     !DolphinWordPuzzle.IsOpen && !MagicianEncounter.IsOpen)
             {
                 Pause();
             }

@@ -117,9 +117,10 @@ public class ClueMinigame : MonoBehaviour
     private PixelText hintThen;
     private RawImage nextSwatch;
     private RawImage afterSwatch;
-    // One painted tile per colour (the board's own PaintTile) for the colour hints.
+    // One small circle per colour, matching the pieces on the board.
     [System.NonSerialized]
     private Texture2D[] swatchTextures;
+    private bool clueRecorded;
 
 
     public bool IsShowing => surface != null && surface.gameObject.activeSelf;
@@ -159,6 +160,7 @@ public void Hide()
         {
             clueWriter.Complete();
         }
+        RememberClue();
         if (surface != null)
         {
             surface.gameObject.SetActive(false);
@@ -171,25 +173,36 @@ public void Hide()
         Restart();
     }
 
-private void OnDestroy()
+    private void OnDestroy()
     {
         if (texture != null)
         {
-            Destroy(texture);
+            ReleaseTexture(texture);
         }
         if (paperLinesTexture != null)
         {
-            Destroy(paperLinesTexture);
+            ReleaseTexture(paperLinesTexture);
         }
         if (swatchTextures != null)
         {
             foreach (Texture2D swatch in swatchTextures)
             {
-                if (swatch != null) Destroy(swatch);
+                ReleaseTexture(swatch);
             }
         }
         burn?.Dispose();
-        clueWriter?.Dispose();
+        if (clueWriter != null)
+        {
+            if (Application.isPlaying) clueWriter.Dispose();
+            else ReleaseTexture(clueWriter.Texture);
+        }
+    }
+
+    private static void ReleaseTexture(Texture2D owned)
+    {
+        if (owned == null) return;
+        if (Application.isPlaying) Destroy(owned);
+        else DestroyImmediate(owned);
     }
 
     // Lays the cursive clue out once and points the clue image at its texture.
@@ -221,6 +234,7 @@ private void Update()
         {
             clueWriter.Tick(Time.unscaledDeltaTime);
         }
+        RememberClue();
 
         Keyboard keyboard = Keyboard.current;
         if (keyboard == null || IsSolved)
@@ -251,6 +265,14 @@ private void Update()
                 BurnAndReset(false, true);
             }
         }
+    }
+
+    private void RememberClue()
+    {
+        if (clueRecorded || !IsSolved || clueWriter == null || !clueWriter.HasStarted ||
+            clueWriter.IsPlaying || InventorySystem.instance == null) return;
+        InventorySystem.instance.RevealClueWords(ClueText);
+        clueRecorded = true;
     }
 
     // The letter burns up; while it is ash the board resets (or is replaced), and
@@ -581,6 +603,7 @@ private void Update()
             {
                 clueWriter.Complete(); // Solved earlier: show it already written.
             }
+            RememberClue();
         }
 
         // The player wears the colour it is on; the hint shows the two that follow it.
@@ -611,7 +634,7 @@ private void DrawBoard()
                 int tile = board[y, x];
                 if (tile != Floor)
                 {
-                    PaintTile((x + 1) * TileSize + inset, (y + 1) * TileSize + inset, face, Colors[tile]);
+                    PaintCircle((x + 1) * TileSize + inset, (y + 1) * TileSize + inset, face, Colors[tile]);
                 }
             }
         }
@@ -628,51 +651,43 @@ private void DrawBoard()
         }
     }
 
-    // A square of pigment: soft cast shadow, ragged brush edges, granulated paint,
-    // light from the top-left (bright upper/left rims, dark lower/right rims), inked outline.
-    private void PaintTile(int x0, int y0, int size, Color32 color)
+    // Small coloured circles with a shaded edge and a soft shadow.
+    private void PaintCircle(int x0, int y0, int size, Color32 color)
     {
         int shadow = TilePx(1.2f);
+        float centre = size * 0.5f;
+        float radius = size * 0.44f;
         for (int v = 0; v < size; v++)
         {
             for (int u = 0; u < size; u++)
             {
-                int x = x0 + u + shadow;
-                int y = y0 + v + shadow;
-                Blend(x, y, Outline, 0.22f * (0.7f + 0.6f * Grain(x, y)));
+                float dx = u + 0.5f - centre;
+                float dy = v + 0.5f - centre;
+                float distance = Mathf.Sqrt(dx * dx + dy * dy);
+                float cover = Mathf.Clamp01(radius + 0.5f - distance);
+                if (cover <= 0f) continue;
+                Blend(x0 + u + shadow, y0 + v + shadow, Outline, cover * 0.28f);
             }
         }
 
-        int rim = Mathf.Max(2, TilePx(0.9f));
         for (int v = 0; v < size; v++)
         {
             for (int u = 0; u < size; u++)
             {
-                int x = x0 + u;
-                int y = y0 + v;
-                int edge = Mathf.Min(Mathf.Min(u, v), Mathf.Min(size - 1 - u, size - 1 - v));
-                if (edge < 2 && Hash01(x, y, 11) < 0.4f * (2 - edge) / 2f)
-                {
-                    continue; // Ragged brush edge.
-                }
-
-                float diagonal = (u + v) / (2f * size);
-                float light = 1.08f - 0.2f * diagonal;
-                if (u < rim || v < rim) light *= 1.14f;
-                if (u >= size - rim || v >= size - rim) light *= 0.76f;
-                light *= 0.9f + 0.2f * Grain(x, y);
-
-                var paint = new Color32(
+                float dx = u + 0.5f - centre;
+                float dy = v + 0.5f - centre;
+                float distance = Mathf.Sqrt(dx * dx + dy * dy);
+                float cover = Mathf.Clamp01(radius + 0.5f - distance);
+                if (cover <= 0f) continue;
+                float light = (1f - 0.25f * (dx + dy) / radius) *
+                    (0.94f + 0.12f * Grain(x0 + u, y0 + v));
+                var body = new Color32(
                     (byte)Mathf.Clamp(color.r * light, 0f, 255f),
                     (byte)Mathf.Clamp(color.g * light, 0f, 255f),
-                    (byte)Mathf.Clamp(color.b * light, 0f, 255f),
-                    255);
-                Blend(x, y, paint, 0.96f);
-
-                if (edge == 0 || edge == 1 && Hash01(x, y, 13) < 0.3f)
-                {
-                    Blend(x, y, Outline, 0.55f * (0.6f + 0.4f * Grain(x, y)));
-                }
+                    (byte)Mathf.Clamp(color.b * light, 0f, 255f), 255);
+                Blend(x0 + u, y0 + v, body, cover);
+                float edge = Mathf.Clamp01(1.4f - Mathf.Abs(distance - radius));
+                Blend(x0 + u, y0 + v, Outline, edge * cover * 0.7f);
             }
         }
     }
@@ -694,7 +709,7 @@ private void DrawBoard()
         }
     }
 
-// The player is a wax seal in the colour it carries: drop shadow, darker pressed rim,
+    // The player is a wax seal in the colour it carries: drop shadow, darker pressed rim,
     // a stamped inner ring, shading from the top-left and a small glint.
     private void DrawPlayer()
     {
@@ -995,7 +1010,7 @@ private void Fill(int x, int y, int width, int height, Color32 color)
         return swatch;
     }
 
-    // Paints each colour's tile with PaintTile into the board buffer and copies it out into
+    // Paints each colour's circle into the board buffer and copies it out into
     // its own texture. Runs at the start of Redraw, which repaints the buffer right after.
     // Rebuilt whenever the textures are missing (first use, or a script reload while playing).
     private void EnsureSwatches()
@@ -1012,7 +1027,7 @@ private void Fill(int x, int y, int width, int height, Color32 color)
         for (int colour = 0; colour < Colors.Length; colour++)
         {
             System.Array.Clear(pixels, 0, pixels.Length);
-            PaintTile(1, 1, face, Colors[colour]);
+            PaintCircle(1, 1, face, Colors[colour]);
             var swatch = new Color32[size * size];
             for (int y = 0; y < size; y++)
             {
@@ -1136,7 +1151,7 @@ private void Fill(int x, int y, int width, int height, Color32 color)
 
         if (paperLinesTexture == null || paperLinesTexture.width != w || paperLinesTexture.height != h)
         {
-            if (paperLinesTexture != null) Destroy(paperLinesTexture);
+            ReleaseTexture(paperLinesTexture);
             paperLinesTexture = new Texture2D(w, h, TextureFormat.RGBA32, true)
             {
                 name = "Clue paper lines",
@@ -1164,7 +1179,7 @@ private void Fill(int x, int y, int width, int height, Color32 color)
         Color32[] pixels = readback.GetPixels32();
         RenderTexture.active = previous;
         RenderTexture.ReleaseTemporary(target);
-        Destroy(readback);
+        ReleaseTexture(readback);
         return pixels;
     }
 

@@ -2,7 +2,8 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
-// A three-round hat-tracking challenge, shown while inspecting Clue Letter 2.
+// Four rounds of identity tracking, shared by the outdoor trick and legacy clue inspections.
+[DefaultExecutionOrder(20)]
 public class ShellMinigame : MonoBehaviour
 {
     private const int CanvasWidth = 800;
@@ -10,7 +11,7 @@ public class ShellMinigame : MonoBehaviour
     private const float HatY = 265f;
     private const float HatWidth = 130f;
     private const float HatHeight = 145f;
-    private const int RoundCount = 3;
+    private const int RoundCount = 4;
     private const float ResultSeconds = 0.8f;
     private const float KeywordHoldSeconds = 3f;
     private const float KeywordFadeSeconds = 0.65f;
@@ -23,7 +24,19 @@ public class ShellMinigame : MonoBehaviour
     private static readonly Color Green = new Color32(65, 190, 112, 255);
     private static readonly Color Red = new Color32(210, 65, 55, 255);
 
-    private enum Phase { Reveal, Shuffle, Guess, RoundWon, Won, Lost }
+    private enum Phase { Reveal, Shuffle, Guess, Found, RoundWon, Won, Lost }
+
+    private static readonly int[] RoundHats = { 2, 3, 5, 6 };
+    private static readonly int[] RoundPanthers = { 1, 1, 2, 6 };
+    private static readonly float[] RevealTimes = { 2.4f, 2.2f, 3.8f, 6f };
+    private static readonly string[] PantherNames = { "Azure", "Amber", "Jade", "Rose", "Violet", "Pearl" };
+
+    public struct HatPose
+    {
+        public float x, y, lift, tilt, scaleX, scaleY;
+        public int panther;
+        public bool revealed, showPanther, hovered;
+    }
 
     private class Hat
     {
@@ -32,14 +45,16 @@ public class ShellMinigame : MonoBehaviour
         public float targetX;
         public float arc;
         public float tilt;
-        public bool hasPanther;
+        public int pantherType = -1;
         public bool revealed;
+        public float revealedAt;
         public RawImage image;
         public RawImage panther;
         public RawImage marker;
+        public PixelText name;
     }
 
-    private readonly Hat[] hats = new Hat[4];
+    private readonly Hat[] hats = { new Hat(), new Hat(), new Hat(), new Hat(), new Hat(), new Hat() };
     private RectTransform surface;
     private RectTransform gameRoot;
     private PixelText roundLabel;
@@ -65,11 +80,42 @@ public class ShellMinigame : MonoBehaviour
     private int previousB = -1;
     private int hoveredHat = -1;
     private float keywordHoldElapsed;
+    private int targetPanther;
+    private bool started;
+    private bool worldMode;
+    private bool worldPlayback;
+    private bool keywordRecorded;
+    private WorldHatStage worldStage;
 
-    private int ActiveHatCount => roundIndex + 2;
+    private int ActiveHatCount => RoundHats[roundIndex];
     private int ShuffleMoves => 6 + roundIndex * 6;
-    private float SwapSeconds => 0.78f - roundIndex * 0.18f;
-    private float RevealSeconds => 2.4f - roundIndex * 0.25f;
+    private float SwapSeconds => 0.78f - roundIndex * 0.13f;
+    private float RevealSeconds => RevealTimes[roundIndex];
+
+    public int HatCount => ActiveHatCount;
+    public int PantherCount => RoundPanthers[roundIndex];
+    public int RequestedPanther => targetPanther;
+    public bool IsWorldGame => worldMode;
+    public bool AcceptsGuess => phase == Phase.Guess && (!worldMode || worldPlayback);
+    public bool CanContinue => (phase == Phase.RoundWon || phase == Phase.Lost) && phaseElapsed >= ResultSeconds;
+    public string RoundTitle => $"ROUND {roundIndex + 1}/{RoundCount}  -  {ActiveHatCount} HATS  -  {PantherCount} " +
+        (PantherCount == 1 ? "PANTHER" : "PANTHERS");
+    public string Message => phase == Phase.Reveal ? PantherCount == 1 ? "Remember the panther's hat" : "Remember every numbered panther" :
+        phase == Phase.Shuffle ? "Keep your eyes on the hats..." :
+        phase == Phase.Guess ? $"Find {PantherName(targetPanther)} (#{targetPanther + 1})" :
+        phase == Phase.Found ? $"{PantherName(targetPanther)} FOUND!" :
+        phase == Phase.RoundWon ? "FOUND THEM! Ready for the next round?" :
+        phase == Phase.Won ? "ALL FOUR ROUNDS CLEARED!" : "Wrong hat! Watch each panther's identity.";
+    public string Instructions => phase == Phase.Reveal ? PantherCount == 1 ? "Follow this hat through every swap." : "Match each name and number to its hat." :
+        phase == Phase.Shuffle ? $"{ShuffleMoves - movesLeft}/{ShuffleMoves} swaps" :
+        phase == Phase.Guess ? $"{targetPanther}/{PantherCount} found. Click the requested panther's hat." :
+        phase == Phase.Lost ? "Try this round again." :
+        phase == Phase.RoundWon ? "More hats. More panthers. Faster swaps." : "";
+    public string ActionLabel => phase == Phase.RoundWon ? "NEXT ROUND" : "RETRY ROUND";
+
+    public static string PantherName(int type) => PantherNames[Mathf.Clamp(type, 0, PantherNames.Length - 1)].ToUpperInvariant();
+    public static Texture2D PantherTexture(int type) =>
+        Resources.Load<Texture2D>("ShellGame/Panthers/" + PantherNames[Mathf.Clamp(type, 0, PantherNames.Length - 1)]);
 
     public bool Handles(string itemName) => itemName == ItemName;
 
@@ -83,15 +129,66 @@ public class ShellMinigame : MonoBehaviour
         phase == Phase.Won ? "[ESC] CLOSE" :
         "[MOUSE] WATCH THE HATS    [ESC] CLOSE";
 
-    public bool IsShowing => surface != null && surface.gameObject.activeSelf;
+    public bool IsShowing => worldMode ? worldStage != null && worldStage.IsShowing :
+        surface != null && surface.gameObject.activeSelf;
+
+    // Visits resume an unfinished trick, but a completed trick can be played again.
+    public void Play(RectTransform parent, Sprite letter = null)
+    {
+        ResetSolvedGame();
+        Show(parent, letter);
+    }
+
+    public void PlayInWorld(Transform house, Vector3 entrance, Sprite letter = null)
+    {
+        if (surface != null) surface.gameObject.SetActive(false);
+        worldMode = true;
+        worldPlayback = false;
+        if (worldStage == null) worldStage = gameObject.AddComponent<WorldHatStage>();
+        worldStage.Open(this, house, entrance);
+        BuildVictory(worldStage.Hud);
+        ResetSolvedGame();
+        if (!started) ResetGame();
+        victoryPaper.sprite = letter;
+        victoryPaper.color = letter != null ? Color.white : new Color32(233, 214, 168, 255);
+        ShouldClose = false;
+        keywordHoldElapsed = 0f;
+        UpdateVisuals();
+    }
+
+    public void StartWorldPlayback() => worldPlayback = true;
+    public void PauseWorldPlayback() => worldPlayback = false;
+    public void GuessHat(int index) { if (AcceptsGuess) ChooseHat(index); }
+    public void HoverHat(int index) => hoveredHat = AcceptsGuess && index >= 0 && index < HatCount && !hats[index].revealed ? index : -1;
+
+    public void ContinueRound()
+    {
+        if (CanContinue) BeginRound(phase == Phase.RoundWon ? roundIndex + 1 : roundIndex);
+    }
+
+    private void ResetSolvedGame()
+    {
+        if (!IsSolved) return;
+        if (keywordWriter != null)
+        {
+            if (Application.isPlaying) keywordWriter.Dispose();
+            else DestroyImmediate(keywordWriter.Texture);
+            keywordWriter = null;
+            keywordInk.texture = null;
+        }
+        ResetGame();
+    }
 
     public void Show(RectTransform parent, Sprite letter = null)
     {
+        if (worldStage != null) worldStage.Hide();
+        worldMode = false;
         if (surface == null)
         {
             BuildView(parent);
-            ResetGame();
         }
+        BuildVictory(surface);
+        if (!started) ResetGame();
         victoryPaper.sprite = letter;
         victoryPaper.color = letter != null ? Color.white : new Color32(233, 214, 168, 255);
         ShouldClose = false;
@@ -102,6 +199,7 @@ public class ShellMinigame : MonoBehaviour
             EnsureKeywordWriter();
             keywordWriter.Complete();
             phaseElapsed = ResultSeconds;
+            RememberKeyword();
         }
         surface.gameObject.SetActive(true);
         UpdateVisuals();
@@ -110,7 +208,9 @@ public class ShellMinigame : MonoBehaviour
     public void Hide()
     {
         if (keywordWriter != null && keywordWriter.IsPlaying) keywordWriter.Complete();
+        RememberKeyword();
         if (surface != null) surface.gameObject.SetActive(false);
+        if (worldStage != null) worldStage.Hide();
     }
 
     private void OnDestroy()
@@ -130,8 +230,15 @@ public class ShellMinigame : MonoBehaviour
     private void Update()
     {
         if (!IsShowing) return;
+        if (worldMode && !worldPlayback) return;
 
         Tick(Time.unscaledDeltaTime);
+        if (worldMode)
+        {
+            worldStage.HandleInput();
+            UpdateVisuals();
+            return;
+        }
         hoveredHat = -1;
         if (Mouse.current != null &&
             RectTransformUtility.ScreenPointToLocalPointInRectangle(
@@ -178,6 +285,11 @@ public class ShellMinigame : MonoBehaviour
                 else SetPhase(Phase.Guess);
             }
         }
+        else if (phase == Phase.Found && phaseElapsed >= ResultSeconds)
+        {
+            targetPanther++;
+            SetPhase(Phase.Guess);
+        }
         else if (phase == Phase.Won && phaseElapsed >= ResultSeconds && !ShouldClose)
         {
             EnsureKeywordWriter();
@@ -191,6 +303,7 @@ public class ShellMinigame : MonoBehaviour
                 keywordHoldElapsed += deltaTime;
                 ShouldClose = keywordHoldElapsed >= KeywordHoldSeconds + KeywordFadeSeconds;
             }
+            RememberKeyword();
         }
     }
 
@@ -212,7 +325,7 @@ public class ShellMinigame : MonoBehaviour
         else if ((phase == Phase.RoundWon || phase == Phase.Lost) && phaseElapsed >= ResultSeconds &&
                  Contains(roundAction.rectTransform, point))
         {
-            BeginRound(phase == Phase.RoundWon ? roundIndex + 1 : roundIndex);
+            ContinueRound();
         }
     }
 
@@ -224,18 +337,23 @@ public class ShellMinigame : MonoBehaviour
 
     private void ChooseHat(int index)
     {
-        if (phase != Phase.Guess || index < 0 || index >= ActiveHatCount) return;
+        if (phase != Phase.Guess || index < 0 || index >= ActiveHatCount || hats[index].revealed) return;
         hats[index].revealed = true;
-        if (hats[index].hasPanther)
+        hats[index].revealedAt = animationElapsed;
+        if (hats[index].pantherType == targetPanther)
         {
-            // Let the final hat lift before the game gives way to the clue letter.
-            SetPhase(roundIndex == RoundCount - 1 ? Phase.Won : Phase.RoundWon);
+            SetPhase(targetPanther + 1 < PantherCount ? Phase.Found :
+                roundIndex == RoundCount - 1 ? Phase.Won : Phase.RoundWon);
             if (phase == Phase.Won) EnsureKeywordWriter();
         }
         else
         {
             for (int i = 0; i < ActiveHatCount; i++)
-                if (hats[i].hasPanther) hats[i].revealed = true;
+            {
+                if (hats[i].pantherType < 0 || hats[i].revealed) continue;
+                hats[i].revealed = true;
+                hats[i].revealedAt = animationElapsed;
+            }
             SetPhase(Phase.Lost);
         }
     }
@@ -255,9 +373,22 @@ public class ShellMinigame : MonoBehaviour
         keywordInk.rectTransform.sizeDelta = keywordWriter.SizeInLetterPixels;
     }
 
+    private void RememberKeyword()
+    {
+        if (keywordRecorded || !IsSolved || keywordWriter == null || !keywordWriter.HasStarted ||
+            keywordWriter.IsPlaying || InventorySystem.instance == null) return;
+        InventorySystem.instance.RevealClueWords(victoryKeyword);
+        keywordRecorded = true;
+    }
+
     private void LateUpdate()
     {
         if (!IsShowing) return;
+        if (worldMode)
+        {
+            worldStage.Frame();
+            return;
+        }
         Rect bounds = ((RectTransform)surface.parent).rect;
         float scale = Mathf.Min(bounds.width * 0.84f / CanvasWidth, bounds.height * 0.76f / CanvasHeight);
         surface.localScale = Vector3.one * scale;
@@ -271,16 +402,28 @@ public class ShellMinigame : MonoBehaviour
     private void BeginRound(int index)
     {
         roundIndex = index;
-        int winner = Random.Range(0, ActiveHatCount);
+        started = true;
+        targetPanther = 0;
+        float spacing = Mathf.Min(175f, 660f / (ActiveHatCount - 1));
         for (int i = 0; i < hats.Length; i++)
         {
-            hats[i].x = CanvasWidth * 0.5f + (i - (ActiveHatCount - 1) * 0.5f) * 175f;
+            hats[i].x = CanvasWidth * 0.5f + (i - (ActiveHatCount - 1) * 0.5f) * spacing;
             hats[i].startX = hats[i].x;
             hats[i].targetX = hats[i].x;
             hats[i].arc = 0f;
             hats[i].tilt = 0f;
-            hats[i].hasPanther = i == winner;
+            hats[i].pantherType = -1;
             hats[i].revealed = false;
+        }
+        int[] slots = new int[ActiveHatCount];
+        for (int i = 0; i < slots.Length; i++) slots[i] = i;
+        for (int i = 0; i < PantherCount; i++)
+        {
+            int chosen = Random.Range(i, slots.Length);
+            int temp = slots[i];
+            slots[i] = slots[chosen];
+            slots[chosen] = temp;
+            hats[slots[i]].pantherType = i;
         }
         previousA = previousB = -1;
         movesLeft = 0;
@@ -298,10 +441,10 @@ public class ShellMinigame : MonoBehaviour
             hats[i].arc = hats[i].tilt = 0f;
         }
         swapA = Random.Range(0, ActiveHatCount);
-        // Move the panther at least every third swap; it cannot sit out a hard round.
+        // Cycle through the identities so no panther can sit out the hard rounds.
         if ((ShuffleMoves - movesLeft) % 3 == 0)
             for (int i = 0; i < ActiveHatCount; i++)
-                if (hats[i].hasPanther) swapA = i;
+                if (hats[i].pantherType == (ShuffleMoves - movesLeft) / 3 % PantherCount) swapA = i;
         swapB = Random.Range(0, ActiveHatCount - 1);
         if (swapB >= swapA) swapB++;
         if (ActiveHatCount > 2 &&
@@ -322,21 +465,18 @@ public class ShellMinigame : MonoBehaviour
 
     private void UpdateVisuals()
     {
+        if (worldMode)
+        {
+            worldStage.Refresh();
+            UpdateVictory();
+            return;
+        }
         if (surface == null) return;
-        roundLabel.text = $"ROUND {roundIndex + 1}/{RoundCount}  -  {ActiveHatCount} HATS";
-        message.text = phase == Phase.Reveal ? "Remember the panther's hat" :
-            phase == Phase.Shuffle ? "Keep your eyes on it..." :
-            phase == Phase.Guess ? "Which hat is hiding the panther?" :
-            phase == Phase.RoundWon ? "FOUND IT! Ready for another hat?" :
-            phase == Phase.Won ? "ALL THREE ROUNDS CLEARED!" : "That hat was empty!";
-        footer.text = phase == Phase.Reveal ? "Follow this hat through every swap." :
-            phase == Phase.Shuffle ? $"{ShuffleMoves - movesLeft}/{ShuffleMoves} swaps" :
-            phase == Phase.Guess ? "Click once. Make it count." :
-            phase == Phase.Lost ? "Watch the panther, then try this round again." :
-            phase == Phase.RoundWon ? "More hats. Faster swaps." : "";
-        bool result = phase == Phase.RoundWon || phase == Phase.Lost;
-        roundAction.gameObject.SetActive(result && phaseElapsed >= ResultSeconds);
-        roundActionLabel.text = phase == Phase.RoundWon ? "NEXT ROUND" : "RETRY ROUND";
+        roundLabel.text = RoundTitle;
+        message.text = Message;
+        footer.text = Instructions;
+        roundAction.gameObject.SetActive(CanContinue);
+        roundActionLabel.text = ActionLabel;
 
         for (int i = 0; i < hats.Length; i++)
         {
@@ -347,31 +487,46 @@ public class ShellMinigame : MonoBehaviour
             {
                 hat.panther.gameObject.SetActive(false);
                 hat.marker.gameObject.SetActive(false);
+                hat.name.gameObject.SetActive(false);
                 continue;
             }
-            float x = hat.x - CanvasWidth * 0.5f;
-            float y = CanvasHeight * 0.5f - HatY;
-            float lift = phase == Phase.Reveal ?
-                Mathf.SmoothStep(0f, 1f, phaseElapsed / 0.35f) *
-                (1f - Mathf.SmoothStep(0f, 1f, (phaseElapsed - RevealSeconds + 0.45f) / 0.35f)) :
-                hat.revealed ? Mathf.SmoothStep(0f, 1f, phaseElapsed / 0.4f) : 0f;
+            HatPose pose = GetHatPose(i);
             float entrance = phase == Phase.Reveal ?
                 (1f - Mathf.SmoothStep(0f, 1f, phaseElapsed / 0.4f)) * 35f : 0f;
-            float hover = phase == Phase.Guess && hoveredHat == i ? 8f : 0f;
-            hat.image.rectTransform.anchoredPosition = new Vector2(x, y + hat.arc + lift * 75f + entrance + hover);
-            hat.image.rectTransform.localRotation = Quaternion.Euler(0f, 0f, hat.tilt);
-            float squash = phase == Phase.Shuffle ? Mathf.Abs(hat.arc) / 700f : 0f;
-            hat.image.rectTransform.localScale = new Vector3(1f + squash, 1f - squash, 1f);
-            hat.panther.rectTransform.anchoredPosition = new Vector2(x, y - 30f + Mathf.Sin(animationElapsed * 4f) * 3f);
-            hat.panther.gameObject.SetActive(hat.hasPanther &&
-                (phase == Phase.Reveal && lift > 0.1f || hat.revealed));
-            hat.marker.rectTransform.anchoredPosition = new Vector2(x, y - 45f);
-            hat.marker.gameObject.SetActive(hat.revealed || hoveredHat == i);
-            hat.marker.color = hat.revealed ? hat.hasPanther ? Green : Red : Gold;
+            hat.image.rectTransform.anchoredPosition = new Vector2(pose.x, pose.y + pose.lift * 100f + entrance + (pose.hovered ? 8f : 0f));
+            hat.image.rectTransform.localRotation = Quaternion.Euler(0f, 0f, pose.tilt);
+            hat.image.rectTransform.localScale = new Vector3(pose.scaleX, pose.scaleY, 1f);
+            if (hat.pantherType >= 0) hat.panther.texture = PantherTexture(hat.pantherType);
+            hat.panther.rectTransform.anchoredPosition = new Vector2(pose.x, -45f + Mathf.Sin(animationElapsed * 4f) * 3f);
+            hat.panther.gameObject.SetActive(pose.showPanther);
+            hat.name.text = hat.pantherType >= 0 ? $"#{hat.pantherType + 1} {PantherName(hat.pantherType)}" : "";
+            hat.name.rectTransform.anchoredPosition = new Vector2(pose.x, -106f);
+            hat.name.gameObject.SetActive(pose.showPanther);
+            hat.marker.rectTransform.anchoredPosition = new Vector2(pose.x, -60f);
+            hat.marker.gameObject.SetActive(pose.revealed || pose.hovered);
+            hat.marker.color = pose.revealed ? hat.pantherType >= 0 ? Green : Red : Gold;
             hat.marker.rectTransform.localScale = Vector3.one *
                 (1f + Mathf.Sin(animationElapsed * 6f) * 0.025f);
         }
         UpdateVictory();
+    }
+
+    public HatPose GetHatPose(int index)
+    {
+        Hat hat = hats[index];
+        float lift = phase == Phase.Reveal ?
+            Mathf.SmoothStep(0f, 1f, phaseElapsed / 0.35f) *
+            (1f - Mathf.SmoothStep(0f, 1f, (phaseElapsed - RevealSeconds + 0.45f) / 0.35f)) :
+            hat.revealed ? Mathf.SmoothStep(0f, 1f, (animationElapsed - hat.revealedAt) / 0.4f) : 0f;
+        float squash = phase == Phase.Shuffle ? Mathf.Abs(hat.arc) / 700f : 0f;
+        return new HatPose
+        {
+            x = hat.x - CanvasWidth * 0.5f, y = CanvasHeight * 0.5f - HatY + hat.arc,
+            lift = lift, tilt = hat.tilt, scaleX = 1f + squash, scaleY = 1f - squash,
+            panther = hat.pantherType, revealed = hat.revealed,
+            showPanther = hat.pantherType >= 0 && (phase == Phase.Reveal && lift > 0.1f || hat.revealed),
+            hovered = AcceptsGuess && hoveredHat == index && !hat.revealed,
+        };
     }
 
     private void BuildView(RectTransform parent)
@@ -406,7 +561,6 @@ public class ShellMinigame : MonoBehaviour
         // Panthers and reveal rings stay behind the hats while they cross.
         for (int i = 0; i < hats.Length; i++)
         {
-            hats[i] = new Hat();
             hats[i].panther = CreateImage("Panther", gameRoot, panther, new Vector2(85f, 85f));
             // The source is a two-frame vertical sheet; only draw the top panther.
             hats[i].panther.uvRect = new Rect(0f, 0.5f, 1f, 0.5f);
@@ -416,9 +570,10 @@ public class ShellMinigame : MonoBehaviour
             hats[i].marker = CreateImage("Reveal ring", gameRoot, markerTexture, new Vector2(148f, 153f));
         for (int i = 0; i < hats.Length; i++)
             hats[i].image = CreateImage("Hat", gameRoot, shell, new Vector2(HatWidth, HatHeight));
+        for (int i = 0; i < hats.Length; i++)
+            hats[i].name = CreateLabel("Panther name", gameRoot, "", 9f, Vector2.zero, new Vector2(130f, 24f), Ink);
         roundAction = CreateButton("Round action", gameRoot, "", new Vector2(0f, -155f), new Vector2(270f, 48f));
         roundActionLabel = roundAction.GetComponentInChildren<PixelText>();
-        BuildVictory();
     }
 
     private PixelText CreateLabel(string name, string text, float size, float y, Color color)
@@ -461,9 +616,16 @@ public class ShellMinigame : MonoBehaviour
         return button;
     }
 
-    private void BuildVictory()
+    private void BuildVictory(RectTransform parent)
     {
-        victoryPaper = CreatePanel("Clue letter", surface, Vector2.zero,
+        if (victory != null)
+        {
+            victory.SetParent(parent, false);
+            victory.anchoredPosition = Vector2.zero;
+            victory.localScale = Vector3.one;
+            return;
+        }
+        victoryPaper = CreatePanel("Clue letter", parent, Vector2.zero,
             new Vector2(650f, 406.25f), new Color32(233, 214, 168, 255));
         victoryPaper.preserveAspect = true;
         victory = victoryPaper.rectTransform;
@@ -475,7 +637,8 @@ public class ShellMinigame : MonoBehaviour
     private void UpdateVictory()
     {
         bool show = phase == Phase.Won && phaseElapsed >= ResultSeconds;
-        gameRoot.gameObject.SetActive(!show);
+        if (worldMode) worldStage.SetRewardVisible(show);
+        else gameRoot.gameObject.SetActive(!show);
         victory.gameObject.SetActive(show);
         if (!show) return;
         victoryFade.alpha = 1f - Mathf.SmoothStep(0f, 1f,
@@ -493,7 +656,7 @@ public class ShellMinigame : MonoBehaviour
         return image;
     }
 
-    private static Texture2D CreateMarkerTexture()
+    internal static Texture2D CreateMarkerTexture()
     {
         const int width = 148;
         const int height = 153;
