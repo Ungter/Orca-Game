@@ -16,6 +16,8 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
     public const string Greeting = "Want to see a magic trick?";
     public const string MissingWand = "Oh no! Im missing my magic wand!, Please find it for me, it should leak magic";
     public const string Thanks = "Oh Thanks for my wand!";
+    public const string LanternGift = "Take my lantern to light your way! Press its number to hold it.";
+    public const string LanternNoRoom = "I would give you my lantern, but your bag is full! Come back for it.";
     public const float FadeDuration = 0.35f;
     public const float RoomEnterDuration = 0.6f;
 
@@ -23,6 +25,12 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
     public static bool BlocksMovement => IsOpen && (active == null || active.CurrentPhase != Phase.Playing);
     public bool HasWand { get; private set; }
     public bool HasRequestedWand { get; private set; }
+    public bool HasGivenLantern { get; private set; }
+    // True from the first E at the door. The house's windows light up once the player is back outside.
+    public bool HasVisited { get; private set; }
+    // The room, or the fade into or out of it, covers the world.
+    public bool InRoom => CurrentPhase != Phase.Idle && CurrentPhase != Phase.Returning &&
+        CurrentPhase != Phase.EnteringTrick && CurrentPhase != Phase.Playing;
     public float MaxGameDistance => maxGameDistance;
     public Phase CurrentPhase { get; private set; }
     public float PhaseTime { get; private set; }
@@ -33,10 +41,12 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
     [SerializeField, Min(3f)] private float maxGameDistance = 25f;
     [SerializeField] private float charactersPerSecond = 40f;
     [SerializeField] private Sprite rewardPaper;
+    [SerializeField] private Sprite lanternSprite;
 
     private static MagicianEncounter active;
     private Transform player;
     private bool handInOnEntry;
+    private bool offeredLanternThisVisit;
     private float promptAlpha;
     private float typed;
     private float roomTime;
@@ -56,9 +66,6 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
     private ShellMinigame game;
     private WorldHatStage worldStage;
     private Transform house;
-
-    private bool WaitingForWand => HasRequestedWand && !HasWand &&
-        (InventorySystem.instance == null || !InventorySystem.instance.Contains(WandItemName));
 
     public static bool TryGetGameBounds(out Bounds bounds)
     {
@@ -98,7 +105,7 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
 
     public float InteractDistanceSqr()
     {
-        if (player == null || !isActiveAndEnabled || WaitingForWand) return float.MaxValue;
+        if (player == null || !isActiveAndEnabled) return float.MaxValue;
         Vector3 delta = player.position - transform.position;
         if (Mathf.Abs(delta.y) > 3f) return float.MaxValue;
         float distance = delta.x * delta.x + delta.z * delta.z;
@@ -108,14 +115,16 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
     public void Begin()
     {
         if (Interactables.Busy || InventoryInspection.IsOpen || PauseMenu.IsPaused || TitleScreen.IsOpen) return;
-        if (WaitingForWand) return;
         if (canvas == null) BuildView();
         inventory = InventorySystem.instance;
         active = this;
         IsOpen = true;
+        HasVisited = true;
+        offeredLanternThisVisit = false;
         promptAlpha = 0f;
         roomTime = 0f;
-        handInOnEntry = HasRequestedWand && !HasWand;
+        // Without the wand in hand the magician can be asked again; the request replays.
+        handInOnEntry = HasRequestedWand && !HasWand && inventory != null && inventory.Contains(WandItemName);
         SetLine(handInOnEntry ? Thanks : Greeting);
         SetPhase(Phase.FadingToRoom);
         stage.gameObject.SetActive(false);
@@ -211,11 +220,13 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
         UpdateVisuals();
     }
 
+    // The lantern comes once per visit until it is in the bag: after the wand request when
+    // the wand is still missing, or after the thanks (or greeting) before the trick.
     private void AdvanceLine()
     {
         if (HasWand)
         {
-            SetPhase(Phase.LeavingForTrick);
+            if (!OfferLantern()) SetPhase(Phase.LeavingForTrick);
         }
         else if (CurrentLine == Greeting)
         {
@@ -227,10 +238,20 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
             SetLine(Thanks);
             SetPhase(Phase.Typing);
         }
-        else
+        else if (!OfferLantern())
         {
             Exit();
         }
+    }
+
+    private bool OfferLantern()
+    {
+        if (HasGivenLantern || offeredLanternThisVisit || inventory == null) return false;
+        offeredLanternThisVisit = true;
+        HasGivenLantern = inventory.TryAdd(PlayerLantern.ItemName, lanternSprite);
+        SetLine(HasGivenLantern ? LanternGift : LanternNoRoom);
+        SetPhase(Phase.Typing);
+        return true;
     }
 
     private bool AcceptWand()

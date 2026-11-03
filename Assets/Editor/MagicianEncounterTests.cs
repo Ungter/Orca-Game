@@ -58,6 +58,11 @@ public class MagicianEncounterTests
         Assert.AreEqual(MagicianEncounter.MissingWand, encounter.CurrentLine);
         RunUntil(MagicianEncounter.Phase.Waiting);
         Advance();
+        Assert.AreEqual(MagicianEncounter.LanternGift, encounter.CurrentLine);
+        Assert.IsTrue(encounter.HasGivenLantern);
+        Assert.IsTrue(inventory.Contains(PlayerLantern.ItemName));
+        RunUntil(MagicianEncounter.Phase.Waiting);
+        Advance();
         Assert.AreEqual(MagicianEncounter.Phase.LeavingRoom, encounter.CurrentPhase);
         Assert.IsFalse(encounter.HasWand);
         Assert.IsFalse(root.GetComponent<ShellMinigame>().IsShowing);
@@ -99,9 +104,10 @@ public class MagicianEncounterTests
         Assert.AreEqual(MagicianEncounter.Thanks, encounter.CurrentLine);
         Assert.IsTrue(encounter.HasWand);
         Assert.IsFalse(inventory.Contains(MagicianEncounter.WandItemName));
-        Assert.AreEqual(2, inventory.ItemCount());
-        Assert.AreEqual("Other clue", inventory.GetItem(0));
-        Assert.AreEqual("Another clue", inventory.GetItem(1));
+        Assert.AreEqual(3, inventory.ItemCount());
+        Assert.AreEqual(PlayerLantern.ItemName, inventory.GetItem(0));
+        Assert.AreEqual("Other clue", inventory.GetItem(1));
+        Assert.AreEqual("Another clue", inventory.GetItem(2));
         Assert.IsFalse(root.GetComponent<ShellMinigame>().IsShowing);
         RunUntil(MagicianEncounter.Phase.Waiting);
         Advance();
@@ -125,7 +131,8 @@ public class MagicianEncounterTests
         Advance();
         RunUntil(MagicianEncounter.Phase.Playing);
         Assert.AreEqual(MagicianEncounter.Phase.Playing, encounter.CurrentPhase);
-        Assert.AreEqual(0, inventory.ItemCount());
+        Assert.AreEqual(1, inventory.ItemCount(), "Only the lantern is left; it is not given twice.");
+        Assert.AreEqual(PlayerLantern.ItemName, inventory.GetItem(0));
     }
 
     [Test]
@@ -251,6 +258,10 @@ public class MagicianEncounterTests
         RunUntil(MagicianEncounter.Phase.Waiting);
         Advance();
         RunUntil(MagicianEncounter.Phase.Waiting);
+        Assert.AreEqual(MagicianEncounter.Thanks, encounter.CurrentLine);
+        Advance();
+        Assert.AreEqual(MagicianEncounter.LanternGift, encounter.CurrentLine, "Arriving with the wand, the lantern comes before the trick.");
+        RunUntil(MagicianEncounter.Phase.Waiting);
         Advance();
         Assert.AreEqual(MagicianEncounter.Phase.LeavingForTrick, encounter.CurrentPhase);
         Assert.IsFalse(root.GetComponent<ShellMinigame>().IsShowing);
@@ -265,18 +276,75 @@ public class MagicianEncounterTests
     }
 
     [Test]
-    public void WandRequestOnlyPlaysOnceAndTheDoorIsAvailableAgainAfterFindingIt()
+    public void MagicianCanBeAskedAgainAsOftenAsWantedUntilTheWandIsFound()
     {
         VisitWithoutWand();
         Assert.IsTrue(encounter.HasRequestedWand);
-        Assert.AreEqual(float.MaxValue, encounter.InteractDistanceSqr());
-        encounter.Begin();
-        Assert.AreEqual(MagicianEncounter.Phase.Idle, encounter.CurrentPhase);
-        Assert.IsFalse(MagicianEncounter.IsOpen);
+        for (int visit = 0; visit < 2; visit++)
+        {
+            Assert.AreEqual(0f, encounter.InteractDistanceSqr());
+            encounter.Begin();
+            Assert.IsTrue(MagicianEncounter.IsOpen);
+            RunUntil(MagicianEncounter.Phase.Waiting);
+            Assert.AreEqual(MagicianEncounter.Greeting, encounter.CurrentLine);
+            Advance();
+            Assert.AreEqual(MagicianEncounter.MissingWand, encounter.CurrentLine);
+            RunUntil(MagicianEncounter.Phase.Waiting);
+            Advance();
+            RunUntil(MagicianEncounter.Phase.Idle);
+            Assert.IsFalse(MagicianEncounter.IsOpen);
+            Assert.IsFalse(encounter.HasWand);
+        }
         inventory.TryAdd(MagicianEncounter.WandItemName);
         Assert.AreEqual(0f, encounter.InteractDistanceSqr());
         encounter.Begin();
         Assert.AreEqual(MagicianEncounter.Thanks, encounter.CurrentLine);
+    }
+
+    [Test]
+    public void AFullBagGetsTheLanternOnALaterVisitAndItIsOnlyGivenOnce()
+    {
+        for (int i = 0; i < inventory.SlotCount(); i++) inventory.TryAdd("Clue " + i);
+        encounter.Begin();
+        RunUntil(MagicianEncounter.Phase.Waiting);
+        Advance();
+        RunUntil(MagicianEncounter.Phase.Waiting);
+        Advance();
+        Assert.AreEqual(MagicianEncounter.LanternNoRoom, encounter.CurrentLine);
+        Assert.IsFalse(encounter.HasGivenLantern);
+        RunUntil(MagicianEncounter.Phase.Waiting);
+        Advance();
+        RunUntil(MagicianEncounter.Phase.Idle);
+
+        inventory.TryRemove("Clue 0");
+        VisitWithoutWand();
+        Assert.IsTrue(encounter.HasGivenLantern);
+        Assert.IsTrue(inventory.Contains(PlayerLantern.ItemName));
+
+        inventory.TryRemove("Clue 1");
+        encounter.Begin();
+        RunUntil(MagicianEncounter.Phase.Waiting);
+        Advance();
+        RunUntil(MagicianEncounter.Phase.Waiting);
+        Advance();
+        Assert.AreEqual(MagicianEncounter.Phase.LeavingRoom, encounter.CurrentPhase, "No second lantern.");
+        Assert.AreEqual(inventory.SlotCount() - 1, inventory.ItemCount());
+    }
+
+    [Test]
+    public void TheVisitIsRememberedAndTheRoomCoversTheWorldOnlyWhileInside()
+    {
+        Assert.IsFalse(encounter.HasVisited);
+        Assert.IsFalse(encounter.InRoom);
+        encounter.Begin();
+        Assert.IsTrue(encounter.HasVisited);
+        Assert.IsTrue(encounter.InRoom);
+        RunUntil(MagicianEncounter.Phase.Waiting);
+        Assert.IsTrue(encounter.InRoom);
+        encounter.Tick(0.01f, false, true);
+        RunUntil(MagicianEncounter.Phase.Idle);
+        Assert.IsFalse(encounter.InRoom);
+        Assert.IsTrue(encounter.HasVisited);
     }
 
     [Test]
@@ -391,6 +459,8 @@ public class MagicianEncounterTests
         Advance();
         RunUntil(MagicianEncounter.Phase.Waiting);
         Advance();
+        RunUntil(MagicianEncounter.Phase.Waiting);
+        Advance();
         RunUntil(MagicianEncounter.Phase.Playing);
         Assert.AreEqual(MagicianEncounter.Phase.Playing, encounter.CurrentPhase);
     }
@@ -402,6 +472,11 @@ public class MagicianEncounterTests
         Advance();
         RunUntil(MagicianEncounter.Phase.Waiting);
         Advance();
+        if (encounter.CurrentLine == MagicianEncounter.LanternGift)
+        {
+            RunUntil(MagicianEncounter.Phase.Waiting);
+            Advance();
+        }
         RunUntil(MagicianEncounter.Phase.Idle);
     }
 

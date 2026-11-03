@@ -4047,8 +4047,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 59f720564d2b4d4aa937d907c05527be, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
+  m_Name: 
+  m_EditorClassIdentifier: 
   interactRadius: 2.5
   hintOffsetY: 10
   promptPixelSize: 3
@@ -10842,8 +10842,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
+  m_Name: 
+  m_EditorClassIdentifier: 
   target: {fileID: 0}
 --- !u!114 &882973584
 MonoBehaviour:
@@ -10855,8 +10855,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 302e048f411347b9999a5c3055e0f90a, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1 &890496190
 GameObject:
   m_ObjectHideFlags: 0
@@ -11190,7 +11190,7 @@ MonoBehaviour:
   - 0.2
   uiPixelSize: 3
   reward: {fileID: 882973582}
-  revealedBy: {fileID: 0}
+  revealedBy: {fileID: 900000101}
   sparkleColor: {r: 1, g: 0.86, b: 0.5, a: 1}
   sparkleLightIntensity: 1.5
   sparkleLightRange: 3
@@ -12201,6 +12201,7 @@ GameObject:
   - component: {fileID: 1000000106}
   - component: {fileID: 1000000107}
   - component: {fileID: 1000000110}
+  - component: {fileID: 1000000111}
   m_Layer: 0
   m_Name: Player
   m_TagString: Player
@@ -12217,13 +12218,30 @@ Transform:
   m_GameObject: {fileID: 1000000100}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1, z: 0}
+  m_LocalPosition: {x: 15.7, y: 1, z: -134.43}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 2023870995}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1000000111
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1000000100}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 039107286c664ff6b79dbfd9ddebd293, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  color: {r: 1, g: 0.72, b: 0.36, a: 1}
+  intensity: 4
+  range: 9
+  flicker: 0.15
+  handOffset: {x: 0.5, y: -0.26, z: 0.15}
 --- !u!143 &1000000104
 CharacterController:
   m_ObjectHideFlags: 0
@@ -12279,6 +12297,16 @@ MonoBehaviour:
   - {fileID: 7338173153157704984, guid: 83c54fc0f1602624a976f59e2da41ea4, type: 3}
   - {fileID: -885317094, guid: 83c54fc0f1602624a976f59e2da41ea4, type: 3}
   walkFrameRate: 6
+  lanternFrontIdle: {fileID: 21300000, guid: ec91900f53af4dc18964726c2b305039, type: 3}
+  lanternFrontWalk:
+  - {fileID: 2456072394801935193, guid: bf25073919584109909ebe3070bd3381, type: 3}
+  - {fileID: 7623797889165179752, guid: bf25073919584109909ebe3070bd3381, type: 3}
+  lanternLeftWalk:
+  - {fileID: -6687575401214554382, guid: f9864d881c9143099fe5ddb89a67d26d, type: 3}
+  - {fileID: -7524216205516636185, guid: f9864d881c9143099fe5ddb89a67d26d, type: 3}
+  lanternRightWalk:
+  - {fileID: -562663393432407678, guid: 0c772fe5c4314b319b71b39f476498e5, type: 3}
+  - {fileID: -8212117545367085396, guid: 0c772fe5c4314b319b71b39f476498e5, type: 3}
   shadowCaster: {fileID: 2023870997}
   shadowLight: {fileID: 0}
   shadowWidthScale: 0.52
@@ -12645,6 +12673,55 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1000000300
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1000000301}
+  - component: {fileID: 1000000302}
+  m_Layer: 0
+  m_Name: MagicianEntrance
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1000000301
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1000000300}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 7.61, y: 0.035, z: 128.93}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1000000302
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1000000300}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c8b170a94a3147d9a39e3a2861bd7df9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  talkRadius: 3
+  maxGameDistance: 25
+  charactersPerSecond: 40
+  rewardPaper: {fileID: 21300000, guid: 5cc2cf319df20525f0801c5c21ca6a70, type: 3}
+  lanternSprite: {fileID: 21300000, guid: 2c60dfc88c8c4e308c37ade6d0020cd1, type: 3}
 --- !u!114 &1000000400
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -19862,6 +19939,14 @@ PrefabInstance:
       propertyPath: m_LocalPosition.z
       value: -0.3294
       objectReference: {fileID: 0}
+    - target: {fileID: -1445022888446311982, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
+      propertyPath: m_Name
+      value: glowWindow2
+      objectReference: {fileID: 0}
+    - target: {fileID: -1311139571274391234, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
+      propertyPath: m_Name
+      value: glowWindow1
+      objectReference: {fileID: 0}
     - target: {fileID: -538373272470632560, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
       propertyPath: m_LocalPosition.x
       value: 0.8194
@@ -20049,8 +20134,80 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: -6970015007480930496, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
       insertIndex: 96
       addedObject: {fileID: 737384321}
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: -1311139571274391234, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 900000202}
+    - targetCorrespondingSourceObject: {fileID: -1445022888446311982, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 900000204}
   m_SourcePrefab: {fileID: 100100000, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
+--- !u!1 &900000201 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: -1311139571274391234, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
+  m_PrefabInstance: {fileID: 1595777604}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &900000202
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 900000201}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8d65b50d6de54b32b3c5969748dfe04c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  color: {r: 1, g: 0.76, b: 0.4, a: 1}
+  litBy: {fileID: 1000000302}
+  switchOnDelay: 0.5
+  fadeInTime: 1.5
+  glassMaterial: {fileID: 2100000, guid: 47811f65131241c291dec316df8b4be7, type: 2}
+  glassSlot: 0
+  glassEmission: 2.6
+  rayMaterial: {fileID: 2100000, guid: 3d8f91fe5966421ba5379beeeacbb4b7, type: 2}
+  rayLength: 2.6
+  raySpread: 0.45
+  rayDroop: 0.25
+  shafts: 9
+  lightIntensity: 22
+  lightRange: 14
+  spotAngle: 120
+  flicker: 0.08
+--- !u!1 &900000203 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: -1445022888446311982, guid: d23783ca6715ff64fb8d8b58326471be, type: 3}
+  m_PrefabInstance: {fileID: 1595777604}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &900000204
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 900000203}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8d65b50d6de54b32b3c5969748dfe04c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  color: {r: 1, g: 0.76, b: 0.4, a: 1}
+  litBy: {fileID: 1000000302}
+  switchOnDelay: 0
+  fadeInTime: 1.5
+  glassMaterial: {fileID: 2100000, guid: 47811f65131241c291dec316df8b4be7, type: 2}
+  glassSlot: 0
+  glassEmission: 2.6
+  rayMaterial: {fileID: 2100000, guid: 3d8f91fe5966421ba5379beeeacbb4b7, type: 2}
+  rayLength: 2.6
+  raySpread: 0.45
+  rayDroop: 0.25
+  shafts: 9
+  lightIntensity: 22
+  lightRange: 14
+  spotAngle: 120
+  flicker: 0.08
 --- !u!1 &1601303633
 GameObject:
   m_ObjectHideFlags: 0
@@ -26803,53 +26960,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: -191.217, z: 0}
---- !u!1 &1000000300
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1000000301}
-  - component: {fileID: 1000000302}
-  m_Layer: 0
-  m_Name: MagicianEntrance
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1000000301
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1000000300}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 7.61, y: 0.035, z: 128.93}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1000000302
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1000000300}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c8b170a94a3147d9a39e3a2861bd7df9, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
-  talkRadius: 3
-  charactersPerSecond: 40
-  rewardPaper: {fileID: 21300000, guid: 5cc2cf319df20525f0801c5c21ca6a70, type: 3}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

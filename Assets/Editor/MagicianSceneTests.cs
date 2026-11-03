@@ -31,6 +31,7 @@ public class MagicianSceneTests
             Assert.Less(new Vector2(offset.x, offset.z).magnitude, 1.5f);
             Assert.AreEqual(bounds.min.y, encounter.transform.position.y, 0.1f);
             Assert.IsNotNull(new SerializedObject(encounter).FindProperty("rewardPaper").objectReferenceValue);
+            Assert.IsNotNull(new SerializedObject(encounter).FindProperty("lanternSprite").objectReferenceValue);
             Assert.IsNotNull(wand);
             Assert.AreEqual(MagicianEncounter.WandItemName,
                 new SerializedObject(wand).FindProperty("itemName").stringValue);

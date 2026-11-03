@@ -71,11 +71,19 @@ public class InventoryHUD : MonoBehaviour
             Show();
         }
 
+        bool visible = opacity > 0.05f;
         Mouse mouse = Mouse.current;
         if (mouse != null)
         {
             Vector2 position = mouse.position.ReadValue();
             position = new Vector2(position.x, Screen.height - position.y);
+            // Clicking the lantern's slot holds it up or puts it away, like its number key.
+            if (visible && mouse.leftButton.wasPressedThisFrame && !InventoryInspection.IsOpen &&
+                !Interactables.Busy && !PauseMenu.IsPaused && !TitleScreen.IsOpen && PlayerLantern.Current != null)
+            {
+                int slot = SlotAt(position);
+                if (slot >= 0 && PlayerLantern.Handles(inventory.GetItem(slot))) PlayerLantern.Current.Toggle();
+            }
             bool pointerActivity = mouse.delta.ReadValue().sqrMagnitude > 0f
                 || mouse.leftButton.wasPressedThisFrame || mouse.rightButton.wasPressedThisFrame
                 || mouse.scroll.ReadValue().sqrMagnitude > 0f;
@@ -104,6 +112,19 @@ private int PixelScale()
     {
         int slots = inventory.SlotCount();
         return slots * SlotWidth + Mathf.Max(0, slots - 1) * SlotGap;
+    }
+
+    // Slot under a screen point (IMGUI top-left origin), or -1.
+    public int SlotAt(Vector2 point)
+    {
+        Rect panel = PanelRect();
+        int p = PixelScale();
+        float x = (point.x - panel.x) / p;
+        float y = (point.y - panel.y) / p - (BannerHeight + RowGap);
+        if (y < 0f || y >= SlotHeight || x < 0f) return -1;
+        int slot = Mathf.FloorToInt(x / (SlotWidth + SlotGap));
+        bool inGap = x - slot * (SlotWidth + SlotGap) >= SlotWidth;
+        return slot < inventory.SlotCount() && !inGap ? slot : -1;
     }
 
     // Panel bounds in screen pixels (IMGUI top-left origin), snapped to whole pixels.
@@ -147,10 +168,23 @@ private void OnGUI()
             // The well inside the frame, one pixel in from its shadowed edge.
             var well = new Rect(x + InventoryPixelArt.SlotBorder.left + 1, top + InventoryPixelArt.SlotBorder.top + 1,
                 SlotWidth - InventoryPixelArt.SlotBorder.horizontal - 2, SlotHeight - InventoryPixelArt.SlotBorder.vertical - 2);
+            bool held = occupied && PlayerLantern.Current != null && PlayerLantern.Current.Equipped &&
+                PlayerLantern.Handles(inventory.GetItem(i));
+            if (held)
+            {
+                // A gold rim round the well marks the lantern being held.
+                Color tint = GUI.color;
+                GUI.color = new Color(Gold.r, Gold.g, Gold.b, tint.a);
+                GUI.DrawTexture(new Rect(well.x - 1, well.y - 1, well.width + 2, 1), Texture2D.whiteTexture);
+                GUI.DrawTexture(new Rect(well.x - 1, well.yMax, well.width + 2, 1), Texture2D.whiteTexture);
+                GUI.DrawTexture(new Rect(well.x - 1, well.y, 1, well.height), Texture2D.whiteTexture);
+                GUI.DrawTexture(new Rect(well.xMax, well.y, 1, well.height), Texture2D.whiteTexture);
+                GUI.color = tint;
+            }
             if (occupied)
             {
                 DrawIcon(well, inventory.GetSprite(i));
-                DrawName(x, top + SlotHeight + NameGap, inventory.GetItem(i));
+                DrawName(x, top + SlotHeight + NameGap, inventory.GetItem(i), held ? Gold : Parchment);
             }
 
             Color number = occupied ? Gold : new Color(ParchmentDim.r, ParchmentDim.g, ParchmentDim.b, 0.55f);
@@ -193,7 +227,7 @@ private void OnGUI()
     }
 
     // Item name under its slot: word-wrapped to the slot width, at most two centred lines.
-    private static void DrawName(int slotX, int y, string name)
+    private static void DrawName(int slotX, int y, string name, Color color)
     {
         if (string.IsNullOrEmpty(name))
         {
@@ -214,7 +248,7 @@ private void OnGUI()
                     line += "..";
                 }
                 int width = PixelFont.Measure(line);
-                PixelFont.Draw(slotX + Mathf.Floor((SlotWidth - width) * 0.5f), y + lines * LineHeight, line, Parchment, Outline);
+                PixelFont.Draw(slotX + Mathf.Floor((SlotWidth - width) * 0.5f), y + lines * LineHeight, line, color, Outline);
                 lines++;
                 line = w < words.Length ? words[w] : "";
             }

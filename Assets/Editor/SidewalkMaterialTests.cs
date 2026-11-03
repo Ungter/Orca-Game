@@ -49,5 +49,30 @@ public class SidewalkMaterialTests
         Transform spill = map.transform.Find("Sidewalk Spill");
         Assert.IsNotNull(spill);
         Assert.AreEqual(pavement, spill.GetComponent<MeshRenderer>().sharedMaterial);
+
+        MeshRenderer slab = FindRenderer(map, "pCube86");
+        Assert.IsNotNull(slab);
+        foreach (Material material in slab.sharedMaterials)
+            Assert.AreEqual(pavement, material, "pCube86 is paved like the sidewalk.");
+    }
+
+    // Mirrored by a negative Y scale with its faces stored inward, it used to trap the player.
+    [Test]
+    public void MirroredSlabFacesOutwardSoItsColliderCannotTrapThePlayer()
+    {
+        GameObject map = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/IslanddemoV3.fbx");
+        MeshRenderer slab = FindRenderer(map, "pCube86");
+        Assert.IsNotNull(slab);
+        Mesh mesh = slab.GetComponent<MeshFilter>().sharedMesh;
+        // Positive volume means its faces point out, whatever sign its mirrored scale has.
+        Assert.Greater(IslandLampLights.SignedVolume(mesh, mesh.vertices), 0f);
+        Assert.AreEqual(mesh, slab.GetComponent<MeshCollider>().sharedMesh);
+    }
+
+    private static MeshRenderer FindRenderer(GameObject map, string name)
+    {
+        foreach (MeshRenderer renderer in map.GetComponentsInChildren<MeshRenderer>(true))
+            if (renderer.name == name) return renderer;
+        return null;
     }
 }

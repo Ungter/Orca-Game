@@ -16,6 +16,15 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private Sprite[] leftWalk;
     [SerializeField] private Sprite[] rightWalk;
     [SerializeField] private float walkFrameRate = 6f;
+
+    // Shown while PlayerLantern is equipped. There is no back view with the lantern: from
+    // behind the body hides it, so the normal back sprites are used.
+    [Header("Holding the lantern")]
+    [SerializeField] private Sprite lanternFrontIdle;
+    [SerializeField] private Sprite[] lanternFrontWalk;
+    [SerializeField] private Sprite[] lanternLeftWalk;
+    [SerializeField] private Sprite[] lanternRightWalk;
+
     [SerializeField] private Renderer shadowCaster;
     [SerializeField] private Light shadowLight;
     [Tooltip("Narrows the shadow; a flat billboard casts its full front width even when lit from the side.")]
@@ -29,6 +38,7 @@ public class PlayerController : MonoBehaviour
     private static readonly int MainTexStId = Shader.PropertyToID("_MainTex_ST");
 
     private CharacterController characterController;
+    private PlayerLantern lantern;
     private float verticalVelocity;
     private SpriteRenderer spriteRenderer;
     private bool facingBack;
@@ -47,6 +57,11 @@ public class PlayerController : MonoBehaviour
     {
         characterController = GetComponent<CharacterController>();
         spriteRenderer = GetComponent<SpriteRenderer>();
+        lantern = GetComponent<PlayerLantern>();
+        if (lantern == null)
+        {
+            lantern = gameObject.AddComponent<PlayerLantern>();
+        }
         if (shadowLight == null)
         {
             shadowLight = FindDirectionalLight();
@@ -178,11 +193,13 @@ public class PlayerController : MonoBehaviour
         if (input.y > 0f) facingBack = true;
         else if (input.y < 0f) facingBack = false;
 
+        bool holding = lantern != null && lantern.Equipped;
         Sprite[] walk = input.y > 0f ? backWalk :
-                        input.y < 0f ? frontWalk :
-                        input.x < 0f ? leftWalk : rightWalk;
+                        input.y < 0f ? Pick(holding, lanternFrontWalk, frontWalk) :
+                        input.x < 0f ? Pick(holding, lanternLeftWalk, leftWalk) : Pick(holding, lanternRightWalk, rightWalk);
         Sprite next;
-        if (input != Vector2.zero && walk != null && walk.Length > 0)
+        bool moving = input != Vector2.zero && walk != null && walk.Length > 0;
+        if (moving)
         {
             walkTimer += Time.deltaTime * walkFrameRate;
             next = walk[(int)walkTimer % walk.Length];
@@ -190,7 +207,16 @@ public class PlayerController : MonoBehaviour
         else
         {
             walkTimer = 0f;
-            next = facingBack ? backIdle : frontIdle;
+            next = facingBack ? backIdle : holding && lanternFrontIdle != null ? lanternFrontIdle : frontIdle;
+        }
+
+        // The lantern hangs on the sprite's left in the front and left-walk art and on its
+        // right walking right; from behind it is in the hidden hand, on the other side.
+        if (lantern != null)
+        {
+            bool away = moving ? input.y > 0f : facingBack;
+            bool right = moving && input.y == 0f && input.x > 0f;
+            lantern.SetHand(away || right ? 1f : -1f, away);
         }
 
         if (next == null || next == spriteRenderer.sprite)
@@ -200,6 +226,11 @@ public class PlayerController : MonoBehaviour
 
         spriteRenderer.sprite = next;
         UpdateShadowCaster(next);
+    }
+
+    private static Sprite[] Pick(bool holding, Sprite[] withLantern, Sprite[] normal)
+    {
+        return holding && withLantern != null && withLantern.Length > 0 ? withLantern : normal;
     }
 
     // The shadow quad is shadows-only; point its texture at the current sprite's

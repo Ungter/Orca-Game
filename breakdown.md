@@ -13,11 +13,13 @@ Each section names the files involved, so you can jump straight to the code.
 - [6. Night sky](#6-night-sky) - `Materials/NightSkySkybox.shader`
 - [7. Lighting the sprite player](#7-lighting-the-sprite-player) - `SpriteLightTint.cs`
 - [8. Fixing the map on import](#8-fixing-the-map-on-import) - `Editor/IslandLampLights.cs`
+- [8c. Glowing windows](#8c-glowing-windows) - `WindowGlow.cs`, `Materials/WindowLightRays.shader`
 - [9. Fixing the FBX itself](#9-fixing-the-fbx-itself) - one-off scripts
 - [10. Title screen](#10-title-screen) - `TitleScreen.cs`, `PixelButton.cs`
 - [11. Talking to the gravestone](#11-talking-to-the-gravestone) - `TalkInteractable.cs`, `InteractPrompt.cs`
 - [12. Dig site skill checks](#12-dig-site-skill-checks) - `DigSite.cs`, `DigSparkles.cs`, `Interactables.cs`
 - [15. Dolphin statue letter puzzle](#15-dolphin-statue-letter-puzzle) - `DolphinWordPuzzle.cs`
+- [16. The magician's lantern](#16-the-magicians-lantern) - `PlayerLantern.cs`, `MagicianEncounter.cs`
 - [Shared rules for crisp pixel art](#shared-rules-for-crisp-pixel-art)
 
 ---
@@ -503,10 +505,18 @@ Maya and follow the map into any scene.
   back: only ambient lit it and shadows had nothing to darken. `FixInvertedNormals` does an
   area-weighted vote per mesh (triangle `Cross(b-a, c-a)` vs. its vertex normals) and flips
   normals + tangents when disagreement outweighs agreement 3:1. Only that slab trips it.
+- **Inside-out slab (player stuck in `pCube86`):** `pCube86` is mirrored by a negative Y scale
+  and its faces are stored pointing inward. Unity flips culling for mirrored objects and PhysX
+  flips their collider triangles, so the stored direction wins: the slab rendered and collided
+  inside out, the player walked in through faces pointing away and the inner faces boxed them in.
+  `FixInsideOutMeshes` welds each mesh by position, and if it is closed with a negative enclosed
+  volume it reverses the winding, flips the normals and the tangent sign. Only `pCube86` trips it.
 - **Gravel sidewalk:** the slab gets a matte copy of `Assets/Materials/SidewalkGravel.mat`
   (URP Lit, smoothness 0, specular highlights and environment reflections off - the Arnold
   import was glossy) with a hand-drawn 32x32 gravel tile from
-  `Assets/Editor/SidewalkGravelArt.cs` as its base map.
+  `Assets/Editor/SidewalkGravelArt.cs` as its base map. `ExtraSidewalkNames` (`pCube86`) get the
+  same material and metre UVs (normals via the inverse transpose, so squashed slabs keep their
+  walls) but no spill.
   - **Bitmap as text:** same idea as `InventoryPixelArt` - one string per pixel row, one
     palette letter per pixel. Styled on Minecraft gravel: grey stones packed edge to edge
     (mid, pale, dark and a rare faintly warm grey), each lit from the top-left (light rim
@@ -600,6 +610,43 @@ Maya and follow the map into any scene.
   grid. 12 frames at 10 fps swapped through a `MaterialPropertyBlock`; every cycle divides 12
   so the loop has no seam.
 - Built in `Start`, so it only shows in Play mode.
+
+---
+
+## 8c. Glowing windows
+
+**Files:** `Assets/WindowGlow.cs` (on `glowWindow1` and `glowWindow2`, the FBX's
+`world/building1/pCube79` and `pCube56`, renamed in the scene), `Assets/Materials/WindowLightRays.shader`
+and `.mat` (the rays), `Assets/Materials/WindowGlow.mat` (emissive glass template)
+
+- **Which way is out:** each window is a thin box. Its thinnest axis is the glass normal, and of
+  its two faces the one away from the centre of the rest of the house is the outside, so the
+  same component works on any wall.
+- **Glass:** slot 0 (`glassSlot`) gets a copy of `WindowGlow.mat` in `color`, emission
+  `color x 2.6` (HDR, so bloom spreads it); slot 1, the window bars, stays the house material.
+  The original materials come back when the component is disabled or destroyed.
+- **Rays:** a mesh of additive cards from the glass outwards. Nine shafts (`shafts`) start at
+  spread-out spots on the glass, each two crossed cards (one flat, one upright) 12-30% of the
+  window wide and 55-100% of `rayLength` (2.6 m) long. They widen by `raySpread` (45%) and lean
+  down by `rayDroop` (0.25 m per m). Two upright and two flat haze cards fill the beam between them.
+- **`Orca/Window Light Rays` shader:** brightest at the glass, fading out along the card
+  (`(1 - y)^1.8` after a quick rise off the glass), soft sides, and faded when a card is seen
+  edge-on so no shaft shows as a hard line. Each shaft brightens and dims on its own phase
+  (UV z), about one slow pulse every 3 s. Vertex colour carries the light colour and each
+  shaft's brightness.
+- **Light:** a shadowless spot (intensity 22, range 14 m, 120 degree cone) on the glass,
+  tipped down like the rays, with a slow Perlin waver of up to 8%. It sits outside the window's
+  collider so `SpriteLightTint` doesn't count the window as blocking it.
+- **Switching on:** `litBy` points at the house's door (`MagicianEntrance`'s `MagicianEncounter`).
+  The windows stay dark until `HasVisited` (the first E at the door) and the player is back
+  outside (`!InRoom`: idle, the fade back out, or the outdoor trick), so the player sees them come
+  on. Then everything (light intensity, ray intensity, glass emission, and the glass colour from
+  its unlit colour) fades in over `fadeInTime` (1.5 s, smoothstepped), `glowWindow1` half a
+  second (`switchOnDelay`) after `glowWindow2`. Once on they stay on. Left empty, a window is
+  lit from the start. Each window keeps its own copy of the ray material, so the fades don't mix.
+- The rays and the light live on a root object (`glowWindowN Light Rays`): not under the window,
+  whose uneven scale would stretch them, nor under the house, whose bounds frame the hat trick.
+  Built in `Start`, so they only show in Play mode.
 
 ---
 
@@ -777,6 +824,8 @@ Dead by Daylight style skill checks with Space. Clearing them raises `ClueLetter
 - `Unearth` drops it below its resting bottom edge and eases it up over 1.2 s with a small shudder; the
   ground hides the part still underground. Its glow brightens with it. The bob phase is reset so the
   bob starts from zero. After that it is a normal pickup with its own `[E] PICK UP` prompt.
+- A buried `MagicWand` keeps its leaking magic (`WandMagic`'s glints and light) dark until it has risen
+  (`PickupItem.IsBuried`), so before the gravestone talk nothing lights the site.
 
 ### Sparkles after the gravestone
 
@@ -871,6 +920,31 @@ cascades, plus a full re-render for SSAO's depth-normals prepass.
   another tile to move or swap it. The answer slots have gaps after JEFF and THE.
   When they exactly spell **JEFF THE KILLER**, the menu says **YOU WIN** and keeps
   the completed arrangement on reopening.
+
+---
+
+## 16. The magician's lantern
+
+**Files:** `Assets/PlayerLantern.cs` (on `Player`), `Assets/MagicianEncounter.cs` (hands it over),
+`Assets/PlayerController.cs` (sprites), `Assets/InventoryInspection.cs` and `Assets/InventoryHUD.cs`
+(equipping), art in `Assets/Sprites/lanternPlayer/`
+
+- **Handed over once:** the first time the magician has talked about the wand, the next Enter gives
+  the lantern (`LanternGift`, item `"Lantern"`, icon `Lantern.png`). Without the wand that is
+  right after the wand request; arriving with it, after the thanks and before the trick. A full bag
+  gets `LanternNoRoom` and the offer comes back next visit (`HasGivenLantern` stays false).
+- **Equipping:** pressing the lantern's slot number (1-5) toggles holding it instead of opening
+  the inspection view, and clicking its slot in the inventory strip does the same. While held, its
+  slot gets a gold rim and a gold name. Losing the item puts it away.
+- **Sprites:** `lanternFrontIdle`, `lanternFrontWalk`, `lanternLeftWalk`, `lanternRightWalk` on
+  `PlayerController` (512 px frames like the rest, two-frame sheets sliced top then bottom). There
+  is no back view with the lantern: from behind the body hides it, so the normal back sprites stay.
+- **Light:** a warm shadowless point light (intensity 4, range 9 m, Perlin flicker up to 15%) on a
+  child of the player, moved to the hand holding it: the sprite's left from the front and walking
+  left, its right walking right, and in front of the player when they face away.
+- **Lighting the holder:** `SpriteLightTint` would otherwise see a light a few centimetres from the
+  sprite and burn it white. Lights inside the player count as at least 1 m away and at 40%
+  (`heldLightShare`), so the lantern brightens the player without washing them out.
 
 ---
 

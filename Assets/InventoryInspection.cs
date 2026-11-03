@@ -147,6 +147,13 @@ public class InventoryInspection : MonoBehaviour
     private void Open(int slot)
     {
         string itemName = inventory.GetItem(slot);
+        if (PlayerLantern.Handles(itemName))
+        {
+            // The lantern's number holds it up or puts it away instead of inspecting it.
+            Close();
+            if (PlayerLantern.Current != null) PlayerLantern.Current.Toggle();
+            return;
+        }
         Sprite sprite = inventory.GetSprite(slot);
         bool cluePuzzle = minigame.Handles(itemName);
         bool shellPuzzle = shellMinigame.Handles(itemName);

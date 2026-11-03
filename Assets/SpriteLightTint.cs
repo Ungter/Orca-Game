@@ -43,6 +43,12 @@ public class SpriteLightTint : MonoBehaviour
     [SerializeField]
     private LayerMask occluders = ~0;
 
+    [Tooltip("Share of a carried light (one inside this object, like the lantern) that lights the sprite. It counts as at least HeldLightDistance away, or it would always burn the sprite white.")]
+    [SerializeField, Range(0f, 1f)]
+    private float heldLightShare = 0.4f;
+
+    private const float HeldLightDistance = 1f;
+
     private const float LightRefreshInterval = 1f;
     private const float DirectionalRayLength = 500f;
 
@@ -136,17 +142,18 @@ public class SpriteLightTint : MonoBehaviour
                 continue;
             }
 
+            bool held = light.transform.IsChildOf(transform);
             float lit = 0f;
             for (int i = 0; i < samples.Length; i++)
             {
-                lit += Contribution(light, samples[i]);
+                lit += Contribution(light, samples[i], held);
             }
-            total += light.color * (light.intensity * lit / samples.Length);
+            total += light.color * (light.intensity * lit / samples.Length * (held ? heldLightShare : 1f));
         }
         return total;
     }
 
-    private float Contribution(Light light, Vector3 point)
+    private float Contribution(Light light, Vector3 point, bool held = false)
     {
         Vector3 toLight;
         float distance;
@@ -172,7 +179,7 @@ public class SpriteLightTint : MonoBehaviour
                 toLight = offset / Mathf.Max(distance, 1e-4f);
                 // URP's falloff: inverse square with a smooth fade to zero at the range.
                 float fade = 1f - (distSqr / rangeSqr) * (distSqr / rangeSqr);
-                attenuation = fade * fade / Mathf.Max(distSqr, 1e-4f);
+                attenuation = fade * fade / Mathf.Max(distSqr, held ? HeldLightDistance * HeldLightDistance : 1e-4f);
                 if (light.type == LightType.Spot)
                 {
                     float cosOuter = Mathf.Cos(light.spotAngle * 0.5f * Mathf.Deg2Rad);

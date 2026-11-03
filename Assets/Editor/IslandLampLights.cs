@@ -22,13 +22,16 @@ public class IslandLampLights : AssetPostprocessor
     {
         // Bump when the lamp setup or LampGlow defaults change, so the map reimports.
         // Editing the sidewalk pixel art changes the hash, which reimports it too.
-        return 18u ^ (SidewalkGravelArt.ContentHash() << 8);
+        return 19u ^ (SidewalkGravelArt.ContentHash() << 8);
     }
 
     // The slab gets a matte copy of this template, using its supplied texture when set.
     // UVs are laid out in scene metres, so the template's tiling reads as tiles per metre
     // (0.5 = one tile every 2 m). Hand-drawn gravel is a fallback for untextured templates.
     private const string SidewalkName = "IslandDemo:pCube2";
+    // Loose slabs paved like the sidewalk (named IslandDemo:sideWalk in SampleScene). They
+    // share its material and metre UVs but grow no gravel spill of their own.
+    private static readonly string[] ExtraSidewalkNames = { "pCube86" };
     // The island's ground block, which the spilled gravel slopes down onto.
     private const string GroundName = "IslandDemo:pCube1";
     // Bumps on the gravel: normal map strength from the art's height field. The parallax
@@ -133,6 +136,7 @@ public class IslandLampLights : AssetPostprocessor
             Debug.LogWarning("[IslandLampLights] No lampN/pCylinder1 pole found in " + MapPath);
         }
         FixInvertedNormals(root);
+        FixInsideOutMeshes(root);
         if (!ApplyGroundUVs(root))
         {
             Debug.LogWarning("[IslandLampLights] No " + GroundName + " ground found in " + MapPath);
@@ -454,6 +458,123 @@ public class IslandLampLights : AssetPostprocessor
         }
     }
 
+    // Closed meshes whose faces all point inward (negative enclosed volume), e.g. pCube86,
+    // which Maya mirrors back with a negative scale. Unity flips culling for mirrored objects
+    // and PhysX flips their collider's triangles, so in Unity the mesh is inside out: the
+    // player walks in through faces that point away from them, then the faces pointing at
+    // them box them in. Turn every face, normal and tangent frame outward.
+    private static void FixInsideOutMeshes(GameObject root)
+    {
+        var seen = new HashSet<Mesh>();
+        var fixedNames = new List<string>();
+        foreach (MeshFilter filter in root.GetComponentsInChildren<MeshFilter>(true))
+        {
+            Mesh mesh = filter.sharedMesh;
+            if (mesh == null || !seen.Add(mesh))
+            {
+                continue;
+            }
+            Vector3[] vertices = mesh.vertices;
+            if (!IsClosedTriangleMesh(mesh, vertices) || SignedVolume(mesh, vertices) >= 0f)
+            {
+                continue;
+            }
+
+            for (int sub = 0; sub < mesh.subMeshCount; sub++)
+            {
+                int[] triangles = mesh.GetTriangles(sub);
+                for (int t = 0; t + 2 < triangles.Length; t += 3)
+                {
+                    (triangles[t + 1], triangles[t + 2]) = (triangles[t + 2], triangles[t + 1]);
+                }
+                mesh.SetTriangles(triangles, sub, false);
+            }
+            Vector3[] normals = mesh.normals;
+            if (normals != null && normals.Length == vertices.Length)
+            {
+                for (int i = 0; i < normals.Length; i++) normals[i] = -normals[i];
+                mesh.normals = normals;
+            }
+            // The surface directions stay; only the side flips, so the bitangent sign does too.
+            Vector4[] tangents = mesh.tangents;
+            if (tangents != null && tangents.Length == vertices.Length)
+            {
+                for (int i = 0; i < tangents.Length; i++) tangents[i].w = -tangents[i].w;
+                mesh.tangents = tangents;
+            }
+            fixedNames.Add(filter.name);
+        }
+        if (fixedNames.Count > 0)
+        {
+            Debug.Log("[IslandLampLights] Turned inside-out meshes outward: " + string.Join(", ", fixedNames));
+        }
+    }
+
+    // Volume enclosed by the triangles; positive when they face outward (Unity winding).
+    internal static float SignedVolume(Mesh mesh, Vector3[] vertices)
+    {
+        double volume = 0.0;
+        for (int sub = 0; sub < mesh.subMeshCount; sub++)
+        {
+            int[] triangles = mesh.GetTriangles(sub);
+            for (int t = 0; t + 2 < triangles.Length; t += 3)
+            {
+                Vector3 a = vertices[triangles[t]], b = vertices[triangles[t + 1]], c = vertices[triangles[t + 2]];
+                volume += Vector3.Dot(a, Vector3.Cross(b, c));
+            }
+        }
+        return (float)(volume / 6.0);
+    }
+
+    // Every edge, with split vertices welded by position, is shared with a face running it
+    // the other way. Only then does the enclosed volume say which side is out.
+    private static bool IsClosedTriangleMesh(Mesh mesh, Vector3[] vertices)
+    {
+        if (vertices.Length == 0)
+        {
+            return false;
+        }
+        var welded = new Dictionary<Vector3, int>();
+        var ids = new int[vertices.Length];
+        for (int i = 0; i < vertices.Length; i++)
+        {
+            if (!welded.TryGetValue(vertices[i], out ids[i]))
+            {
+                ids[i] = welded.Count;
+                welded.Add(vertices[i], ids[i]);
+            }
+        }
+        var edges = new HashSet<long>();
+        for (int sub = 0; sub < mesh.subMeshCount; sub++)
+        {
+            if (mesh.GetTopology(sub) != MeshTopology.Triangles)
+            {
+                return false;
+            }
+            int[] triangles = mesh.GetTriangles(sub);
+            for (int t = 0; t + 2 < triangles.Length; t += 3)
+            {
+                for (int k = 0; k < 3; k++)
+                {
+                    long from = ids[triangles[t + k]], to = ids[triangles[t + (k + 1) % 3]];
+                    if (from != to) edges.Add((from << 32) | to);
+                }
+            }
+        }
+        if (edges.Count == 0)
+        {
+            return false;
+        }
+        foreach (long edge in edges)
+        {
+            if (!edges.Contains(((edge & 0xffffffffL) << 32) | (edge >> 32)))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     // The scene overrides this mesh's material with GroundMat. Give it metre-based UVs
     // so the grass pattern tiles consistently across the island instead of stretching.
     private static bool ApplyGroundUVs(GameObject root)
@@ -482,7 +603,8 @@ public class IslandLampLights : AssetPostprocessor
         bool found = false;
         foreach (MeshRenderer renderer in root.GetComponentsInChildren<MeshRenderer>(true))
         {
-            if (renderer.name != SidewalkName)
+            bool sidewalk = renderer.name == SidewalkName;
+            if (!sidewalk && Array.IndexOf(ExtraSidewalkNames, renderer.name) < 0)
             {
                 continue;
             }
@@ -491,7 +613,7 @@ public class IslandLampLights : AssetPostprocessor
             {
                 continue;
             }
-            found = true;
+            found |= sidewalk;
             BoxProjectUVs(root.transform, filter);
 
             if (material == null)
@@ -501,7 +623,10 @@ public class IslandLampLights : AssetPostprocessor
             var materials = new Material[renderer.sharedMaterials.Length];
             for (int i = 0; i < materials.Length; i++) materials[i] = material;
             renderer.sharedMaterials = materials;
-            AddSidewalkSpill(root.transform, filter, material);
+            if (sidewalk)
+            {
+                AddSidewalkSpill(root.transform, filter, material);
+            }
         }
         return found;
     }
@@ -595,6 +720,8 @@ public class IslandLampLights : AssetPostprocessor
     {
         Mesh mesh = filter.sharedMesh;
         Matrix4x4 toRoot = root.worldToLocalMatrix * filter.transform.localToWorldMatrix;
+        // Normals need the inverse transpose, or a squashed slab (pCube86) tilts its walls.
+        Matrix4x4 normalToRoot = toRoot.inverse.transpose;
         Vector3[] vertices = mesh.vertices;
         Vector3[] normals = mesh.normals;
         bool hasNormals = normals != null && normals.Length == vertices.Length;
@@ -602,7 +729,7 @@ public class IslandLampLights : AssetPostprocessor
         for (int i = 0; i < vertices.Length; i++)
         {
             Vector3 p = toRoot.MultiplyPoint3x4(vertices[i]) * MapSceneScale;
-            Vector3 n = hasNormals ? toRoot.MultiplyVector(normals[i]) : Vector3.up;
+            Vector3 n = hasNormals ? normalToRoot.MultiplyVector(normals[i]) : Vector3.up;
             float ax = Mathf.Abs(n.x), ay = Mathf.Abs(n.y), az = Mathf.Abs(n.z);
             if (ay >= ax && ay >= az) uvs[i] = new Vector2(p.x, p.z);
             else if (ax >= az) uvs[i] = new Vector2(p.z, p.y);
