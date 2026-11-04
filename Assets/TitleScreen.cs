@@ -4,9 +4,9 @@ using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 
 // Title screen shown when the game starts. The camera circles high above the island while a
-// parchment "ORCA PLACEHOLDER" scroll hangs on chains between two wall torches, the orca leaps
+// parchment "ORCA PLACEHOLDER" scroll floats over the island, the orca leaps
 // out from behind it and wooden PLAY and EXIT buttons (the pause menu's buttons) wait below.
-// PLAY flies the camera down into the follow camera's view and hands control to the player;
+// PLAY flies down to the starting house, watches the player walk out, then eases into gameplay;
 // EXIT quits the game. It opens on every load of a gameplay scene, including the pause menu's HOME.
 // Runs after CameraFollow so LateUpdate can blend from the title view into the follow view.
 [DefaultExecutionOrder(100)]
@@ -36,14 +36,17 @@ public class TitleScreen : MonoBehaviour
     private const string ExitLabel = "EXIT";
     private const string OrcaPath = "TitleScreen/Orca Sprite";
     private const string MapName = "IslanddemoV3";
+    private const string OpeningMessage = "SOMEONE'S BEEN MURDERED!";
 
     private const float FadeInDuration = 1.2f;
     private const float UIFadeDuration = 0.4f;
+    private const float HandoffDuration = 1.2f;
+    private const float MessageDuration = 2.8f;
+    private const float MessageFadeDuration = 0.2f;
+    private const float HandoffStart = OpeningWalkout.Duration + MessageDuration;
     private const int MaxTitleScale = 3;
-    private const int TorchScale = 2;
     private const int CornerScale = 2;
     private const int CornerMargin = 3;
-    private const int EmbersPerTorch = 5;
 
     // The orca sheet is two 64x64 frames stacked vertically, drawn 4 texels per art pixel.
     // Content spans rows 8-56 of a frame and is centred 27 pixels from its left edge.
@@ -55,7 +58,7 @@ public class TitleScreen : MonoBehaviour
     private const int OrcaOverlap = 5;
     private const float OrcaFrameRate = 3f;
 
-    // The scroll sways on its chains: at most this many art pixels either side of centre, once
+    // The scroll drifts at most this many art pixels either side of centre, once
     // there and back every SwayPeriod seconds. It moves in whole screen pixels, not art pixels,
     // so it glides instead of hopping between a handful of positions and resting at the ends.
     private const float SwayAmplitude = 2f;
@@ -70,15 +73,12 @@ public class TitleScreen : MonoBehaviour
     private static readonly Color InkShadow = new Color32(200, 168, 114, 140);
     private static readonly Color Gold = new Color32(212, 160, 42, 255);
     private static readonly Color Outline = new Color32(26, 15, 10, 220);
-    private static readonly Color EmberHot = new Color32(255, 206, 84, 255);
-    private static readonly Color EmberWarm = new Color32(234, 118, 36, 255);
-    private static readonly Color EmberCool = new Color32(168, 44, 22, 255);
+    private static readonly Color GoldHighlight = new Color32(255, 206, 84, 255);
 
     private readonly List<Behaviour> frozen = new List<Behaviour>();
     private readonly List<Behaviour> cameraRigs = new List<Behaviour>();
     private Camera cam;
     private Texture2D orca;
-    private Texture2D glow;
     private GUIStyle bannerStyle;
 
     private Vector3 islandCentre;
@@ -98,6 +98,10 @@ public class TitleScreen : MonoBehaviour
     private float flightTime;
     private Vector3 flightStartPosition;
     private Quaternion flightStartRotation;
+    private OpeningWalkout opening;
+    private bool handingOff;
+    private Vector3 handoffPosition;
+    private Quaternion handoffRotation;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetStatics()
@@ -162,8 +166,6 @@ public class TitleScreen : MonoBehaviour
         {
             orca.filterMode = FilterMode.Point;
         }
-        glow = BuildGlow();
-
         FrameIsland();
         orbitYaw = cam.transform.eulerAngles.y;
         originalFarClip = cam.farClipPlane;
@@ -173,14 +175,13 @@ public class TitleScreen : MonoBehaviour
 
     private void OnDestroy()
     {
+        opening?.Dispose();
+        Thaw(cameraRigs);
+        Thaw(frozen);
         IsOpen = false;
         if (cam != null)
         {
             cam.farClipPlane = originalFarClip;
-        }
-        if (glow != null)
-        {
-            Destroy(glow);
         }
     }
 
@@ -263,10 +264,29 @@ public class TitleScreen : MonoBehaviour
         if (starting)
         {
             flightTime += dt;
-            if (flightTime >= flightDuration)
+            float arrival = Mathf.Max(0.01f, flightDuration);
+            if (opening == null)
             {
-                Finish();
+                if (flightTime >= arrival) Finish();
+                return;
             }
+            float time = flightTime - arrival;
+            if (time < 0f) return;
+            if (!handingOff)
+            {
+                opening.Tick(Mathf.Min(time, OpeningWalkout.Duration));
+                if (time >= HandoffStart)
+                {
+                    opening.Dispose();
+                    foreach (Behaviour rig in cameraRigs)
+                        if (rig is CameraFollow follow) follow.LookTowards(opening.DoorGround);
+                    handoffPosition = cam.transform.position;
+                    handoffRotation = cam.transform.rotation;
+                    handingOff = true;
+                    Thaw(cameraRigs);
+                }
+            }
+            if (handingOff && time >= HandoffStart + HandoffDuration) Finish();
             return;
         }
 
@@ -350,30 +370,51 @@ public class TitleScreen : MonoBehaviour
             return;
         }
 
-        // CameraFollow has already placed the camera for this frame; ease from the title view into it.
-        float t = Mathf.Clamp01(flightTime / flightDuration);
-        t = t * t * (3f - 2f * t);
         Transform view = cam.transform;
+        float arrival = Mathf.Max(0.01f, flightDuration);
+        if (opening != null && !handingOff)
+        {
+            opening.GetCameraPose((flightTime - arrival) / OpeningWalkout.Duration,
+                out Vector3 position, out Quaternion rotation);
+            float approach = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(flightTime / arrival));
+            view.SetPositionAndRotation(Vector3.Lerp(flightStartPosition, position, approach),
+                Quaternion.Slerp(flightStartRotation, rotation, approach));
+            opening.AnimatePlayer(Time.unscaledDeltaTime);
+            return;
+        }
+
+        // CameraFollow has placed this frame's gameplay view; blend into it without a cut.
+        float blend = handingOff
+            ? (flightTime - arrival - HandoffStart) / HandoffDuration
+            : flightTime / arrival;
+        blend = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(blend));
         view.SetPositionAndRotation(
-            Vector3.Lerp(flightStartPosition, view.position, t),
-            Quaternion.Slerp(flightStartRotation, view.rotation, t));
+            Vector3.Lerp(handingOff ? handoffPosition : flightStartPosition, view.position, blend),
+            Quaternion.Slerp(handingOff ? handoffRotation : flightStartRotation, view.rotation, blend));
+        opening?.AnimatePlayer(Time.unscaledDeltaTime);
     }
 
     private void Begin()
     {
+        if (starting) return;
         starting = true;
         hoveredButton = -1;
         pressedButton = -1;
         flightTime = 0f;
         flightStartPosition = cam.transform.position;
         flightStartRotation = cam.transform.rotation;
-        Thaw(cameraRigs);
+        GameObject map = GameObject.Find(MapName);
+        PlayerController player = FindAnyObjectByType<PlayerController>();
+        if (!OpeningWalkout.TryCreate(map != null ? map.transform : null, player, out opening))
+            Thaw(cameraRigs);
     }
 
     private void Finish()
     {
+        opening?.Dispose();
         Thaw(cameraRigs);
         Thaw(frozen);
+        enabled = false;
         Destroy(gameObject);
     }
 
@@ -406,7 +447,7 @@ public class TitleScreen : MonoBehaviour
         layout.Right = Mathf.Floor((Screen.width - layout.Origin.x) / p);
         layout.Bottom = Mathf.Floor(Screen.height / (float)p);
 
-        // The scroll is as large a whole-number multiple as fits, leaving room for the torches.
+        // The scroll is as large a whole-number multiple as fits within the side margins.
         layout.BannerArtWidth = InventoryPixelArt.BannerBorder.horizontal + PixelFont.Measure(Title) + 6;
         float screenArtWidth = layout.Right - layout.Left;
         layout.TitleScale = Mathf.Clamp(Mathf.FloorToInt(screenArtWidth * 0.8f / layout.BannerArtWidth), 1, MaxTitleScale);
@@ -464,9 +505,6 @@ public class TitleScreen : MonoBehaviour
 
             DrawShade(layout);
             DrawCorners(layout);
-            DrawChains(layout, sway);
-            DrawTorch(layout, layout.BannerX - 6f - InventoryPixelArt.Torch[0].Length * TorchScale, time, 0);
-            DrawTorch(layout, layout.BannerX + layout.BannerWidth + 6f, time, 1);
             DrawOrca(layout, time, sway);
             DrawBanner(layout, artMatrix, sway);
             GUI.matrix = artMatrix;
@@ -479,6 +517,17 @@ public class TitleScreen : MonoBehaviour
                 PixelButton.Draw(ButtonX(), ButtonTop(layout, i), i == 0 ? Label : ExitLabel, selectedButton == i, held);
             }
             PixelButton.DrawSelection(ButtonX(), ButtonTop(layout, selectedButton));
+        }
+
+        if (starting && opening != null)
+        {
+            GUI.matrix = previousMatrix;
+            float arrival = Mathf.Max(0.01f, flightDuration);
+            float time = flightTime - arrival;
+            float bars = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(flightTime / UIFadeDuration)) *
+                CinematicBarsAmount(time);
+            CinematicOverlay.DrawBars(bars);
+            CinematicOverlay.DrawMessage(OpeningMessage, OpeningMessageOpacity(time), pixelSize);
         }
 
         if (veil > 0f)
@@ -497,6 +546,21 @@ public class TitleScreen : MonoBehaviour
         color.a *= uiOpacity;
         GUI.color = color;
         GUI.DrawTexture(art, Texture2D.whiteTexture);
+    }
+
+    // Hold the reveal with the bars fully in place. Only after it has been read and
+    // faded out does the camera hand off and the letterbox open up for gameplay.
+    private static float OpeningMessageOpacity(float time)
+    {
+        float elapsed = time - OpeningWalkout.Duration;
+        float fadeIn = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / MessageFadeDuration));
+        float fadeOut = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((MessageDuration - elapsed) / MessageFadeDuration));
+        return fadeIn * fadeOut;
+    }
+
+    private static float CinematicBarsAmount(float time)
+    {
+        return 1f - Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((time - HandoffStart) / HandoffDuration));
     }
 
     private void DrawSprite(Texture2D texture, float x, float y, int scale, Rect uv, float alpha = 1f)
@@ -547,59 +611,6 @@ public class TitleScreen : MonoBehaviour
         return Mathf.Round(SwayAmplitude * pixel * (sine + triangle) * 0.5f) / pixel;
     }
 
-    // Iron chains from the top of the screen down behind the scroll's rolled ends. They hang from
-    // fixed points above the screen, so each link swings in proportion to how far down it hangs:
-    // the bottom link moves with the scroll, links near the top barely move.
-    private void DrawChains(Layout layout, float sway)
-    {
-        Texture2D link = InventoryPixelArt.ChainLinkTexture;
-        float rollCentre = 2.5f * layout.TitleScale;
-        float bottom = layout.BannerTop + 3f * layout.TitleScale;
-        int links = Mathf.CeilToInt(bottom / link.height);
-        var full = new Rect(0f, 0f, 1f, 1f);
-        foreach (float centre in new[] { layout.BannerX + rollCentre, layout.BannerX + layout.BannerWidth - rollCentre })
-        {
-            float x = Mathf.Floor(centre - link.width * 0.5f);
-            for (int i = 0; i < links; i++)
-            {
-                float top = bottom - (i + 1) * link.height;
-                float reach = Mathf.Clamp01((top + link.height) / bottom);
-                DrawSprite(link, x + Mathf.Round(sway * reach * layout.Pixel) / layout.Pixel, top, 1, full);
-            }
-        }
-    }
-
-    // A wall torch level with the scroll: flickering glow, animated flame, rising embers.
-    private void DrawTorch(Layout layout, float x, float time, int index)
-    {
-        Texture2D body = InventoryPixelArt.TorchTexture;
-        Texture2D flame = InventoryPixelArt.TorchFlameTexture(Mathf.FloorToInt(time * 8f) + index);
-        float flameHeight = flame.height * TorchScale;
-        // The flame's bottom row sits behind the cresset rim.
-        float totalHeight = flameHeight + body.height * TorchScale - TorchScale;
-        float flameTop = Mathf.Round(layout.BannerTop + (layout.BannerHeight - totalHeight) * 0.5f);
-        float bodyTop = flameTop + flameHeight - TorchScale;
-        float centreX = x + body.width * TorchScale * 0.5f;
-        var full = new Rect(0f, 0f, 1f, 1f);
-
-        float flicker = 0.8f + 0.2f * Mathf.PerlinNoise(time * 3f, index * 7.3f);
-        float glowSize = glow.width * TorchScale;
-        DrawSprite(glow, Mathf.Round(centreX - glowSize * 0.5f), Mathf.Round(flameTop + flameHeight * 0.5f - glowSize * 0.5f), TorchScale, full, flicker);
-
-        for (int i = 0; i < EmbersPerTorch; i++)
-        {
-            float seed = index * 0.37f + i * 1.91f;
-            float life = Mathf.Repeat(time * 0.6f + i / (float)EmbersPerTorch + seed, 1f);
-            float drift = Mathf.Round(Mathf.Sin(time * 2.1f + seed * 5f) * 2f + (i - EmbersPerTorch / 2));
-            Color ember = life < 0.3f ? EmberHot : life < 0.65f ? EmberWarm : EmberCool;
-            ember.a = 1f - life;
-            Fill(new Rect(Mathf.Floor(centreX) + drift, flameTop + 4f - Mathf.Round(life * 28f), 1f, 1f), ember);
-        }
-
-        DrawSprite(flame, x, flameTop, TorchScale, full);
-        DrawSprite(body, x, bodyTop, TorchScale, full);
-    }
-
     // The orca leaps out from behind the scroll, bobbing a pixel and flicking between its two frames.
     // It sways with the scroll so its tail stays tucked behind it.
     private void DrawOrca(Layout layout, float time, float sway)
@@ -646,35 +657,9 @@ public class TitleScreen : MonoBehaviour
         foreach (float end in new[] { ruleLeft - 3f, ruleLeft + ruleWidth })
         {
             Fill(new Rect(end, ruleY - 1f, 3f, 5f), Outline);
-            Fill(new Rect(end + 1f, ruleY + 1f, 1f, 1f), EmberHot);
+            Fill(new Rect(end + 1f, ruleY + 1f, 1f, 1f), GoldHighlight);
         }
         DrawSprite(gem, gemX, layout.DividerTop, 1, new Rect(0f, 0f, 1f, 1f));
     }
 
-    // Stepped rings of warm light behind each torch flame.
-    private static Texture2D BuildGlow()
-    {
-        const int Size = 25;
-        var texture = new Texture2D(Size, Size, TextureFormat.RGBA32, false)
-        {
-            name = "title_torch_glow",
-            filterMode = FilterMode.Point,
-            wrapMode = TextureWrapMode.Clamp,
-            hideFlags = HideFlags.HideAndDontSave,
-        };
-        var pixels = new Color32[Size * Size];
-        float centre = (Size - 1) * 0.5f;
-        for (int y = 0; y < Size; y++)
-        {
-            for (int x = 0; x < Size; x++)
-            {
-                float distance = Vector2.Distance(new Vector2(x, y), new Vector2(centre, centre));
-                byte alpha = distance <= 5f ? (byte)60 : distance <= 8.5f ? (byte)36 : distance <= 12f ? (byte)18 : (byte)0;
-                pixels[y * Size + x] = new Color32(255, 170, 70, alpha);
-            }
-        }
-        texture.SetPixels32(pixels);
-        texture.Apply(false, true);
-        return texture;
-    }
 }

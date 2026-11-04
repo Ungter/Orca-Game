@@ -185,6 +185,23 @@ public class PlayerController : MonoBehaviour
     // Standing still shows the last front/back facing's idle sprite.
     private void UpdateSprite(Vector2 input)
     {
+        AnimateSprite(input, Time.deltaTime);
+    }
+
+    // A scripted walk uses the same sprites, lantern hand and shadow as normal movement,
+    // but never reads input. The title owns the player until the camera has settled.
+    public void AnimateCinematicWalk(Vector3 worldDirection, float deltaTime)
+    {
+        if (Camera.main != null)
+            transform.rotation = Quaternion.Euler(0f, Camera.main.transform.eulerAngles.y, 0f);
+        Vector2 input = new Vector2(Vector3.Dot(worldDirection, CameraRight()),
+            Vector3.Dot(worldDirection, CameraForward()));
+        if (Mathf.Abs(input.y) < 0.35f) input.y = 0f;
+        AnimateSprite(input, deltaTime);
+    }
+
+    private void AnimateSprite(Vector2 input, float deltaTime)
+    {
         if (spriteRenderer == null)
         {
             return;
@@ -201,7 +218,7 @@ public class PlayerController : MonoBehaviour
         bool moving = input != Vector2.zero && walk != null && walk.Length > 0;
         if (moving)
         {
-            walkTimer += Time.deltaTime * walkFrameRate;
+            walkTimer += deltaTime * walkFrameRate;
             next = walk[(int)walkTimer % walk.Length];
         }
         else

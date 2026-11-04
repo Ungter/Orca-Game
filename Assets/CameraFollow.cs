@@ -60,7 +60,7 @@ public class CameraFollow : MonoBehaviour
         // J rotates the camera clockwise around the player, L counter-clockwise.
         // Viewed from above, decreasing the angle moves clockwise.
         Keyboard keyboard = Keyboard.current;
-        if (keyboard != null)
+        if (keyboard != null && !TitleScreen.IsOpen && !CachudCallout.IsOpen)
         {
             if (keyboard.jKey.isPressed) cameraAngle -= rotationSpeed * Time.deltaTime;
             if (keyboard.lKey.isPressed) cameraAngle += rotationSpeed * Time.deltaTime;

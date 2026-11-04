@@ -142,7 +142,7 @@ private int PixelScale()
 private void OnGUI()
     {
         if (inventory == null || opacity <= 0f || InventoryInspection.IsOpen ||
-            MagicianEncounter.IsOpen || Event.current.type != EventType.Repaint)
+            MagicianEncounter.IsOpen || CachudCallout.IsOpen || TwentyOneGame.IsOpen || Event.current.type != EventType.Repaint)
         {
             return;
         }
