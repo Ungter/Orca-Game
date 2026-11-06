@@ -392,7 +392,7 @@ stroke by stroke in real writing order, with drops of ink flicking off the nib.
 **Files:** `Assets/Materials/NightSkySkybox.shader`, `Assets/Materials/NightSky.hlsl`
 
 Fully procedural skybox - no textures. The stars and aurora live in `NightSky.hlsl`
-(`NightSkyLights(dir, t)`) so the ocean can reuse them for its reflection (see below).
+(`NightSkyLights(dir, t)`).
 
 - **Gradient:** horizon -> zenith with `pow(up, 1 / sharpness)`, a darker colour below the
   horizon.
@@ -414,22 +414,14 @@ Fully procedural skybox - no textures. The stars and aurora live in `NightSky.hl
   "breathing" envelope (`_AuroraFadePeriod`) that never drops below `_AuroraMinVisibility`.
 - Bright aurora slightly dims stars behind it, like real sky glow.
 
-**Ocean reflecting the sky** (`Assets/Materials/OceanWater.shader`): the water evaluates
-`NightSkyLights` along its reflected view ray, so the same stars and aurora show up mirrored
-and moving on the waves. The normal used for that lookup blends the smooth wave normal with
-the rippled one (`_SkyReflectionDistortion`), so the reflection wobbles instead of turning
-into noise. It's scaled by fresnel (`_SkyReflection`) and uses 8 aurora samples instead of 16
-since the waves blur it anyway. The ocean material carries its own copy of the star/aurora
-settings - keep them equal to `NightSkySkybox.mat` so the reflected stars line up with the
-real ones.
-
-**Ocean waves that don't tile:** four user waves (A-D) plus four weaker "secondary" copies
-turned by odd angles and stretched by irrational factors (0.618, 1.371, ...), so the sum never
-lines up into a repeating square. Each wave is also faded by its own slowly drifting
-large-scale noise (`_WaveVariation`, `_WaveVariationScale`), giving calm and rough patches
-that wander. The fade only ever weakens a wave, so crests can't loop over. The ripple/foam
-noise hash was swapped for a float-safe one - the old `frac(p * 123.34)` repeated every 50
-cells.
+**Replacement pixel-art ocean** (`Assets/Materials/PixelWater.shader`,
+`Assets/Materials/OceanWaterMat.mat`, `Assets/Materials/Water.png`): the scene's existing ocean
+material now uses the supplied art directly, not the old procedural water shader. The water
+is flat and unlit to preserve the image's palette, with no generated waves, reflections,
+specular highlights or foam drawn over it. World-space X/Z tiling gives one 256-pixel tile
+per 16 metres, independent of the imported mesh's UVs and scale. Point filtering keeps
+pixels crisp up close, mipmaps stop distant shimmer, and repeat wrapping joins tiles.
+`_TextureScroll` gently drifts the tile; scene fog still softens the distant horizon.
 
 ---
 
@@ -882,9 +874,9 @@ cascades, plus a full re-render for SSAO's depth-normals prepass.
 - **Cheaper, same effects:** SSAO at half resolution from depth only (no depth-normals
   prepass), Gaussian blur; moon shadows 2 cascades instead of 4 (same 50 m distance);
   soft shadows Medium instead of High. The opaque-texture copy is off - nothing samples
-  `_CameraOpaqueTexture` (the ocean only reads depth).
+  `_CameraOpaqueTexture`.
 - **Aurora early-out** (`NightSky.hlsl`): visibility (patches x breathing x horizon fade) is
-  worked out first and the 16-layer loop (8 in the ocean reflection) is skipped where it's
+  worked out first and the 16-layer loop is skipped where it's
   zero. Identical output.
 - **Adaptive resolution** (`AdaptiveResolution`, installs itself): reads GPU frame time from
   `FrameTimingManager` (Frame Timing Stats is on in Player Settings). Over 14.5 ms it lowers
