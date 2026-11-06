@@ -38,7 +38,7 @@ public class WorldHatStageTests
         game.PlayInWorld(null, Vector3.zero);
         Assert.IsTrue(game.IsWorldGame);
         Assert.IsTrue(game.IsShowing);
-        Assert.AreEqual(18, root.GetComponentsInChildren<SpriteRenderer>(true).Length);
+        Assert.AreEqual(15, root.GetComponentsInChildren<SpriteRenderer>(true).Length);
         foreach (RawImage image in root.GetComponentsInChildren<RawImage>(true))
             Assert.AreNotEqual("Background", image.name);
         Assert.AreEqual(RenderMode.ScreenSpaceOverlay, root.GetComponent<WorldHatStage>().Hud.GetComponent<Canvas>().renderMode);
@@ -81,53 +81,76 @@ public class WorldHatStageTests
     }
 
     [Test]
-    public void EveryFinalRoundHatCanBeClickedAtItsActualWorldPosition()
+    public void EveryFinalRoundHatCanBeChosenByWalkingUpToIt()
     {
+        Transform player = CreatePlayer();
         game.PlayInWorld(null, Vector3.zero);
         game.StartWorldPlayback();
-        Call("BeginRound", 3);
+        Call("BeginRound", 2);
         for (int i = 0; i < 2000 && !game.AcceptsGuess; i++) Call("Tick", 0.05f);
         Assert.IsTrue(game.AcceptsGuess);
         WorldHatStage stage = root.GetComponent<WorldHatStage>();
-        camera.transform.position = stage.Centre + new Vector3(-22f, 8f, -22f);
-        camera.transform.LookAt(stage.Centre);
         stage.Frame();
+        Vector3 outward = stage.ViewingPoint - stage.Centre;
+        outward.y = 0f;
+        outward.Normalize();
         int seen = 0;
         foreach (SpriteRenderer hat in root.GetComponentsInChildren<SpriteRenderer>())
         {
             if (!hat.name.StartsWith("Hat ")) continue;
             int index = int.Parse(hat.name.Substring(4)) - 1;
-            Vector3 point = camera.WorldToScreenPoint(hat.transform.position);
-            Assert.Greater(point.z, 0f);
-            Assert.That(point.x, Is.InRange(0f, 1280f));
-            Assert.That(point.y, Is.InRange(0f, 720f));
-            Assert.AreEqual(index, stage.HatAt(point));
+            Vector3 ground = hat.transform.position;
+            ground.y = 0f;
+            player.position = ground + outward * 1.5f;
+            Assert.AreEqual(index, stage.NearestHat());
             seen++;
         }
-        Assert.AreEqual(6, seen);
+        Assert.AreEqual(5, seen);
+        player.position = stage.ViewingPoint;
+        Assert.AreEqual(-1, stage.NearestHat(), "Watching from the viewing point reaches no hat.");
     }
 
     [Test]
-    public void WorldPickingUsesTheFrontmostHatAndCannotClickThroughWorldGeometry()
+    public void OnlyUnrevealedHatsAreOfferedAndOnlyWhileGuessing()
+    {
+        Transform player = CreatePlayer();
+        game.PlayInWorld(null, Vector3.zero);
+        game.StartWorldPlayback();
+        Call("BeginRound", 2);
+        WorldHatStage stage = root.GetComponent<WorldHatStage>();
+        stage.Frame();
+        int first = -1;
+        for (int i = 0; i < game.HatCount; i++)
+            if (game.GetHatPose(i).panther == 0) first = i;
+        player.position = Ground(first);
+        Assert.AreEqual(-1, stage.NearestHat(), "Hats cannot be chosen during the reveal.");
+        for (int i = 0; i < 2000 && !game.AcceptsGuess; i++) Call("Tick", 0.05f);
+        stage.Frame();
+        first = -1;
+        for (int i = 0; i < game.HatCount; i++)
+            if (game.GetHatPose(i).panther == 0) first = i;
+        player.position = Ground(first);
+        Assert.AreEqual(first, stage.NearestHat());
+        game.GuessHat(stage.NearestHat());
+        Call("Tick", 0.81f);
+        Assert.IsTrue(game.AcceptsGuess);
+        Assert.AreNotEqual(first, stage.NearestHat(), "A found hat cannot be chosen again.");
+    }
+
+    [Test]
+    public void OutdoorControlsUseEAndDropMovementHints()
     {
         game.PlayInWorld(null, Vector3.zero);
         game.StartWorldPlayback();
+        Assert.AreEqual("[ESC] END", game.Controls);
         for (int i = 0; i < 2000 && !game.AcceptsGuess; i++) Call("Tick", 0.05f);
-        Assert.IsTrue(game.AcceptsGuess);
-        WorldHatStage stage = root.GetComponent<WorldHatStage>();
-        stage.Frame();
-        Transform first = root.transform.Find("Entrance hat stage/Hat 1");
-        Transform second = root.transform.Find("Entrance hat stage/Hat 2");
-        first.position = Vector3.forward * 30f;
-        second.position = Vector3.forward * 20f;
-        Vector3 point = camera.WorldToScreenPoint(second.position);
-        Assert.AreEqual(1, stage.HatAt(point));
-        GameObject wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        wall.transform.SetParent(root.transform, false);
-        wall.transform.position = Vector3.forward * 10f;
-        wall.transform.localScale = Vector3.one * 5f;
-        Physics.SyncTransforms();
-        Assert.AreEqual(-1, stage.HatAt(point));
+        Call("UpdateVisuals");
+        Assert.AreEqual("[E] CHOOSE A HAT    [ESC] END", game.Controls);
+        string shown = root.GetComponent<WorldHatStage>().Hud.Find("Controls").GetComponent<PixelText>().text;
+        Assert.AreEqual(game.Controls, shown);
+        StringAssert.DoesNotContain("WASD", shown);
+        StringAssert.DoesNotContain("J/L", shown);
+        StringAssert.DoesNotContain("WALK AWAY", shown);
     }
 
     [Test]
@@ -203,9 +226,10 @@ public class WorldHatStageTests
     {
         game.PlayInWorld(null, Vector3.zero);
         game.StartWorldPlayback();
-        Call("BeginRound", 3);
+        Call("BeginRound", 2);
         for (int i = 0; i < 2000 && !game.AcceptsGuess; i++) Call("Tick", 0.05f);
-        for (int type = 0; type < 6; type++)
+        int count = game.PantherCount;
+        for (int type = 0; type < count; type++)
         {
             for (int i = 0; i < game.HatCount; i++)
             {
@@ -213,7 +237,7 @@ public class WorldHatStageTests
                 game.GuessHat(i);
                 break;
             }
-            if (type < 5) Call("Tick", 0.81f);
+            if (type < count - 1) Call("Tick", 0.81f);
         }
         Assert.IsTrue(game.IsSolved);
         Call("Tick", 1f);
@@ -227,6 +251,21 @@ public class WorldHatStageTests
         Assert.AreEqual(0, game.RequestedPanther);
         Assert.IsTrue(root.transform.Find("Entrance hat stage").gameObject.activeSelf);
         Assert.IsFalse(root.GetComponent<WorldHatStage>().Hud.Find("Clue letter").gameObject.activeSelf);
+    }
+
+    private Transform CreatePlayer()
+    {
+        var player = new GameObject("Player");
+        player.tag = "Player";
+        player.transform.SetParent(root.transform, false);
+        return player.transform;
+    }
+
+    private Vector3 Ground(int hat)
+    {
+        Vector3 position = root.transform.Find("Entrance hat stage/Hat " + (hat + 1)).position;
+        position.y = 0f;
+        return position;
     }
 
     private void Call(string name, params object[] arguments) =>

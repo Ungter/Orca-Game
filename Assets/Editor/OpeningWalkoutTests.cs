@@ -110,6 +110,34 @@ public class OpeningWalkoutTests
             player.GetComponent<SpriteRenderer>().sprite);
     }
 
+    // TitleScreen disables PlayerController for the whole opening, so its LateUpdate never
+    // runs; the scripted walk must still keep the shadow quad narrow and facing the light.
+    [Test]
+    public void CinematicWalkKeepsTheShadowNarrowAndFacingTheLightWhileThePlayerIsFrozen()
+    {
+        var serialized = new SerializedObject(player);
+        var caster = (Renderer)serialized.FindProperty("shadowCaster").objectReferenceValue;
+        Assert.IsNotNull(caster);
+        float widthScale = serialized.FindProperty("shadowWidthScale").floatValue;
+        var baseScale = (Vector3)typeof(PlayerController).GetField("shadowBaseScale", PrivateInstance).GetValue(player);
+        var light = (Light)typeof(PlayerController).GetField("shadowLight", PrivateInstance).GetValue(player);
+        Call(player, "Awake");
+        Assert.AreEqual(baseScale, typeof(PlayerController).GetField("shadowBaseScale", PrivateInstance).GetValue(player),
+            "A second Awake must not narrow the shadow twice.");
+
+        player.enabled = false;
+        caster.transform.localScale = baseScale;
+        caster.transform.localRotation = Quaternion.identity;
+        player.AnimateCinematicWalk(Vector3.forward, 0.1f);
+        Assert.AreEqual(baseScale.x * widthScale, caster.transform.localScale.x, 1e-4f);
+        Assert.AreEqual(baseScale.y, caster.transform.localScale.y, 1e-4f);
+        if (light != null)
+        {
+            Vector3 towardsLight = Vector3.ProjectOnPlane(light.transform.forward, Vector3.up).normalized;
+            Assert.Less(Vector3.Angle(towardsLight, caster.transform.forward), 0.1f);
+        }
+    }
+
     [Test]
     public void WalkNeverDipsBelowTheRaisedPathAndTheTemporaryInteriorIsCleanedUp()
     {

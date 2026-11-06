@@ -45,17 +45,18 @@ public static class SidewalkSpill
         private readonly List<Vector3> corners = new List<Vector3>();
         private readonly List<Vector4> bounds = new List<Vector4>();
 
-        public Ground(Mesh mesh, Matrix4x4 toMetres)
+        public void Add(Mesh mesh, Matrix4x4 toMetres)
         {
             Vector3[] vertices = mesh.vertices;
             int[] triangles = mesh.triangles;
+            float facing = Facing(toMetres);
             for (int t = 0; t + 2 < triangles.Length; t += 3)
             {
                 Vector3 a = toMetres.MultiplyPoint3x4(vertices[triangles[t]]);
                 Vector3 b = toMetres.MultiplyPoint3x4(vertices[triangles[t + 1]]);
                 Vector3 c = toMetres.MultiplyPoint3x4(vertices[triangles[t + 2]]);
                 // Only the upward-facing surface counts, not the block's underside.
-                if (Vector3.Cross(b - a, c - a).normalized.y < 0.2f) continue;
+                if (Vector3.Cross(b - a, c - a).normalized.y * facing < 0.2f) continue;
                 corners.Add(a);
                 corners.Add(b);
                 corners.Add(c);
@@ -86,10 +87,23 @@ public static class SidewalkSpill
         }
     }
 
-    // sidewalkToMetres / groundToMetres map each mesh into root space scaled to metres.
-    public static Mesh Build(Mesh sidewalk, Matrix4x4 sidewalkToMetres, Mesh groundMesh, Matrix4x4 groundToMetres, float metresPerUnit)
+    // A mirrored transform (negative determinant, like pCube86's negative Y scale) reverses
+    // the winding, so a face that points out in the mesh points in once transformed.
+    private static float Facing(Matrix4x4 toMetres)
     {
-        var ground = new Ground(groundMesh, groundToMetres);
+        return toMetres.determinant < 0f ? -1f : 1f;
+    }
+
+    // sidewalkToMetres and each ground's matrix map that mesh into root space scaled to metres.
+    // The gravel slopes down onto the highest ground surface below each edge.
+    public static Mesh Build(Mesh sidewalk, Matrix4x4 sidewalkToMetres,
+        IReadOnlyList<(Mesh mesh, Matrix4x4 toMetres)> grounds, float metresPerUnit)
+    {
+        var ground = new Ground();
+        foreach ((Mesh surface, Matrix4x4 surfaceToMetres) in grounds)
+        {
+            ground.Add(surface, surfaceToMetres);
+        }
 
         // Weld the slab's vertices by position: hard edges split them in the imported mesh.
         Vector3[] raw = sidewalk.vertices;
@@ -113,10 +127,11 @@ public static class SidewalkSpill
         var edgeUse = new Dictionary<long, int>();
         var edgeThird = new Dictionary<long, int>();
         int[] triangles = sidewalk.triangles;
+        float facing = Facing(sidewalkToMetres);
         for (int t = 0; t + 2 < triangles.Length; t += 3)
         {
             int a = welded[triangles[t]], b = welded[triangles[t + 1]], c = welded[triangles[t + 2]];
-            Vector3 normal = Vector3.Cross(points[b] - points[a], points[c] - points[a]);
+            Vector3 normal = Vector3.Cross(points[b] - points[a], points[c] - points[a]) * facing;
             if (normal.sqrMagnitude < 1e-12f || normal.normalized.y < 0.6f) continue;
             CountEdge(edgeUse, edgeThird, a, b, c, points.Count);
             CountEdge(edgeUse, edgeThird, b, c, a, points.Count);

@@ -2,7 +2,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
-// Four rounds of identity tracking, shared by the outdoor trick and legacy clue inspections.
+// Three rounds of identity tracking, shared by the outdoor trick and legacy clue inspections.
 [DefaultExecutionOrder(20)]
 public class ShellMinigame : MonoBehaviour
 {
@@ -11,7 +11,7 @@ public class ShellMinigame : MonoBehaviour
     private const float HatY = 265f;
     private const float HatWidth = 130f;
     private const float HatHeight = 145f;
-    private const int RoundCount = 4;
+    private const int RoundCount = 3;
     private const float ResultSeconds = 0.8f;
     private const float KeywordHoldSeconds = 3f;
     private const float KeywordFadeSeconds = 0.65f;
@@ -26,9 +26,9 @@ public class ShellMinigame : MonoBehaviour
 
     private enum Phase { Reveal, Shuffle, Guess, Found, RoundWon, Won, Lost }
 
-    private static readonly int[] RoundHats = { 2, 3, 5, 6 };
-    private static readonly int[] RoundPanthers = { 1, 1, 2, 6 };
-    private static readonly float[] RevealTimes = { 2.4f, 2.2f, 3.8f, 6f };
+    private static readonly int[] RoundHats = { 2, 3, 5 };
+    private static readonly int[] RoundPanthers = { 1, 1, 2 };
+    private static readonly float[] RevealTimes = { 2.4f, 2.2f, 3.8f };
     private static readonly string[] PantherNames = { "Azure", "Amber", "Jade", "Rose", "Violet", "Pearl" };
 
     public struct HatPose
@@ -54,7 +54,10 @@ public class ShellMinigame : MonoBehaviour
         public PixelText name;
     }
 
-    private readonly Hat[] hats = { new Hat(), new Hat(), new Hat(), new Hat(), new Hat(), new Hat() };
+    // The final round uses the most hats.
+    public static int MaxHatCount => RoundHats[RoundHats.Length - 1];
+
+    private readonly Hat[] hats = CreateHats();
     private RectTransform surface;
     private RectTransform gameRoot;
     private PixelText roundLabel;
@@ -105,10 +108,11 @@ public class ShellMinigame : MonoBehaviour
         phase == Phase.Guess ? $"Find {PantherName(targetPanther)} (#{targetPanther + 1})" :
         phase == Phase.Found ? $"{PantherName(targetPanther)} FOUND!" :
         phase == Phase.RoundWon ? "FOUND THEM! Ready for the next round?" :
-        phase == Phase.Won ? "ALL FOUR ROUNDS CLEARED!" : "Wrong hat! Watch each panther's identity.";
+        phase == Phase.Won ? "ALL THREE ROUNDS CLEARED!" : "Wrong hat! Watch each panther's identity.";
     public string Instructions => phase == Phase.Reveal ? PantherCount == 1 ? "Follow this hat through every swap." : "Match each name and number to its hat." :
         phase == Phase.Shuffle ? $"{ShuffleMoves - movesLeft}/{ShuffleMoves} swaps" :
-        phase == Phase.Guess ? $"{targetPanther}/{PantherCount} found. Click the requested panther's hat." :
+        phase == Phase.Guess ? $"{targetPanther}/{PantherCount} found. " +
+            (worldMode ? "Walk up to the requested panther's hat." : "Click the requested panther's hat.") :
         phase == Phase.Lost ? "Try this round again." :
         phase == Phase.RoundWon ? "More hats. More panthers. Faster swaps." : "";
     public string ActionLabel => phase == Phase.RoundWon ? "NEXT ROUND" : "RETRY ROUND";
@@ -123,11 +127,25 @@ public class ShellMinigame : MonoBehaviour
 
     public bool ShouldClose { get; private set; }
 
-    public string Controls => phase == Phase.Guess ? "[CLICK] CHOOSE A HAT    [ESC] CLOSE" :
-        phase == Phase.RoundWon ? "[CLICK] NEXT ROUND    [ESC] CLOSE" :
-        phase == Phase.Lost ? "[CLICK] RETRY ROUND    [ESC] CLOSE" :
-        phase == Phase.Won ? "[ESC] CLOSE" :
-        "[MOUSE] WATCH THE HATS    [ESC] CLOSE";
+    // Outdoors the player walks up to a hat and presses E; the letter inspection uses the mouse.
+    public string Controls
+    {
+        get
+        {
+            string act = worldMode ? "[E]" : "[CLICK]";
+            string close = worldMode ? "[ESC] END" : "[ESC] CLOSE";
+            return phase == Phase.Guess ? $"{act} CHOOSE A HAT    {close}" :
+                phase == Phase.RoundWon ? $"{act} NEXT ROUND    {close}" :
+                phase == Phase.Lost ? $"{act} RETRY ROUND    {close}" : close;
+        }
+    }
+
+    private static Hat[] CreateHats()
+    {
+        var created = new Hat[MaxHatCount];
+        for (int i = 0; i < created.Length; i++) created[i] = new Hat();
+        return created;
+    }
 
     public bool IsShowing => worldMode ? worldStage != null && worldStage.IsShowing :
         surface != null && surface.gameObject.activeSelf;

@@ -24,23 +24,27 @@ public class CircleMazeTests
     public void TearDown() => UnityEngine.Object.DestroyImmediate(root);
 
     [Test]
-    public void PiecesAreColouredCirclesWithTransparentCorners()
+    public void PiecesAreCorkedPotionsOfTheirColourWithTransparentCorners()
     {
         Call("EnsureCanvas");
-        Call("PaintCircle", 100, 100, 100, new Color32(200, 50, 40, 255));
+        Call("PaintPotion", 100, 100, new Color32(200, 50, 40, 255));
         Color32[] pixels = Get<Color32[]>("pixels");
+        // Art pixels are 3 canvas pixels wide; the flask is 9 x 10 of them.
         foreach (Vector2Int corner in new[] {
-            new Vector2Int(105, 105), new Vector2Int(195, 105),
-            new Vector2Int(105, 195), new Vector2Int(195, 195) })
+            new Vector2Int(101, 101), new Vector2Int(126, 101), new Vector2Int(101, 128) })
             Assert.AreEqual(0, pixels[Index(corner.x, corner.y)].a);
-        foreach (Vector2Int point in new[] {
-            new Vector2Int(150, 150), new Vector2Int(150, 110), new Vector2Int(110, 150),
-            new Vector2Int(190, 150), new Vector2Int(150, 190) })
+        foreach (Vector2Int liquid in new[] {
+            new Vector2Int(107, 122), new Vector2Int(113, 119), new Vector2Int(119, 122), new Vector2Int(113, 125) })
         {
-            Color32 color = pixels[Index(point.x, point.y)];
+            Color32 color = pixels[Index(liquid.x, liquid.y)];
             Assert.Greater(color.a, 200);
             Assert.Greater(color.r, color.g * 2);
         }
+        Color32 cork = pixels[Index(113, 104)];
+        Assert.Greater(cork.a, 200);
+        Assert.Greater(cork.r, cork.b + 40, "The stopper is cork brown.");
+        Color32 ink = pixels[Index(113, 101)];
+        Assert.Less(ink.r + ink.g + ink.b, 200, "The flask is outlined in ink.");
     }
 
     [Test]

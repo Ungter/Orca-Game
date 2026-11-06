@@ -22,7 +22,7 @@ public class IslandLampLights : AssetPostprocessor
     {
         // Bump when the lamp setup or LampGlow defaults change, so the map reimports.
         // Editing the sidewalk pixel art changes the hash, which reimports it too.
-        return 19u ^ (SidewalkGravelArt.ContentHash() << 8);
+        return 20u ^ (SidewalkGravelArt.ContentHash() << 8);
     }
 
     // The slab gets a matte copy of this template, using its supplied texture when set.
@@ -30,7 +30,7 @@ public class IslandLampLights : AssetPostprocessor
     // (0.5 = one tile every 2 m). Hand-drawn gravel is a fallback for untextured templates.
     private const string SidewalkName = "IslandDemo:pCube2";
     // Loose slabs paved like the sidewalk (named IslandDemo:sideWalk in SampleScene). They
-    // share its material and metre UVs but grow no gravel spill of their own.
+    // share its material and metre UVs and spill gravel over their edges the same way.
     private static readonly string[] ExtraSidewalkNames = { "pCube86" };
     // The island's ground block, which the spilled gravel slopes down onto.
     private const string GroundName = "IslandDemo:pCube1";
@@ -601,6 +601,7 @@ public class IslandLampLights : AssetPostprocessor
 
         Material material = null;
         bool found = false;
+        var slabs = new List<MeshFilter>();
         foreach (MeshRenderer renderer in root.GetComponentsInChildren<MeshRenderer>(true))
         {
             bool sidewalk = renderer.name == SidewalkName;
@@ -623,10 +624,13 @@ public class IslandLampLights : AssetPostprocessor
             var materials = new Material[renderer.sharedMaterials.Length];
             for (int i = 0; i < materials.Length; i++) materials[i] = material;
             renderer.sharedMaterials = materials;
-            if (sidewalk)
-            {
-                AddSidewalkSpill(root.transform, filter, material);
-            }
+            slabs.Add(filter);
+        }
+        // Every paved slab spills gravel; another slab's top counts as ground below it, so a
+        // spill runs onto a neighbouring slab instead of burying itself in its side.
+        foreach (MeshFilter slab in slabs)
+        {
+            AddSidewalkSpill(root.transform, slab, slabs, material);
         }
         return found;
     }
@@ -677,9 +681,11 @@ public class IslandLampLights : AssetPostprocessor
         return material;
     }
 
-    // Gravel slopes from the slab's edges down to the ground, as a sibling object with its
-    // own collider so the player can walk up them instead of meeting a wall.
-    private void AddSidewalkSpill(Transform root, MeshFilter sidewalk, Material material)
+    // Gravel slopes from the slab's edges down to the ground (or another paved slab), as a
+    // sibling object with its own collider so the player can walk up them instead of meeting
+    // a wall. The main sidewalk's spill keeps the name "Sidewalk Spill" and its asset
+    // identifier; the others are named after their slab.
+    private void AddSidewalkSpill(Transform root, MeshFilter sidewalk, List<MeshFilter> slabs, Material material)
     {
         MeshFilter groundFilter = null;
         foreach (MeshFilter candidate in root.GetComponentsInChildren<MeshFilter>(true))
@@ -697,16 +703,27 @@ public class IslandLampLights : AssetPostprocessor
         }
 
         Matrix4x4 toMetres = Matrix4x4.Scale(Vector3.one * MapSceneScale) * root.worldToLocalMatrix;
+        var grounds = new List<(Mesh, Matrix4x4)>
+        {
+            (groundFilter.sharedMesh, toMetres * groundFilter.transform.localToWorldMatrix),
+        };
+        foreach (MeshFilter slab in slabs)
+        {
+            if (slab != sidewalk) grounds.Add((slab.sharedMesh, toMetres * slab.transform.localToWorldMatrix));
+        }
         Mesh spill = SidewalkSpill.Build(sidewalk.sharedMesh, toMetres * sidewalk.transform.localToWorldMatrix,
-            groundFilter.sharedMesh, toMetres * groundFilter.transform.localToWorldMatrix, MapSceneScale);
+            grounds, MapSceneScale);
+        bool main = sidewalk.name == SidewalkName;
         if (spill == null)
         {
-            Debug.LogWarning("[IslandLampLights] Sidewalk spill came out empty in " + MapPath);
+            Debug.LogWarning("[IslandLampLights] Sidewalk spill for " + sidewalk.name + " came out empty in " + MapPath);
             return;
         }
-        context.AddObjectToAsset("sidewalk_spill_mesh", spill);
+        string label = main ? "Sidewalk Spill" : "Sidewalk Spill (" + sidewalk.name + ")";
+        spill.name = label;
+        context.AddObjectToAsset(main ? "sidewalk_spill_mesh" : "sidewalk_spill_mesh_" + sidewalk.name, spill);
 
-        var holder = new GameObject("Sidewalk Spill");
+        var holder = new GameObject(label);
         holder.transform.SetParent(root, false);
         holder.AddComponent<MeshFilter>().sharedMesh = spill;
         holder.AddComponent<MeshRenderer>().sharedMaterial = material;

@@ -4,15 +4,19 @@ using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 // Real world sprites in front of the doorway, with only instructions and the reward on the HUD.
+// The player walks up to a hat and presses E to choose it.
 public class WorldHatStage : MonoBehaviour
 {
     private const float ArtScale = 0.014f;
+    // Ground distance from the player to a hat's centre that still counts as standing at it.
+    public const float ReachRadius = 2.2f;
+    private const float HatHalfHeight = 145f * ArtScale * 0.5f;
     private static readonly Color Gold = new Color32(242, 211, 107, 255);
-    private readonly SpriteRenderer[] hats = new SpriteRenderer[6];
-    private readonly SpriteRenderer[] panthers = new SpriteRenderer[6];
-    private readonly SpriteRenderer[] markers = new SpriteRenderer[6];
-    private readonly PixelText[] names = new PixelText[6];
-    private readonly Sprite[] pantherSprites = new Sprite[6];
+    private readonly SpriteRenderer[] hats = new SpriteRenderer[ShellMinigame.MaxHatCount];
+    private readonly SpriteRenderer[] panthers = new SpriteRenderer[ShellMinigame.MaxHatCount];
+    private readonly SpriteRenderer[] markers = new SpriteRenderer[ShellMinigame.MaxHatCount];
+    private readonly PixelText[] names = new PixelText[ShellMinigame.MaxHatCount];
+    private readonly Sprite[] pantherSprites = new Sprite[ShellMinigame.MaxHatCount];
     private readonly List<Sprite> ownedSprites = new List<Sprite>();
     private ShellMinigame game;
     private GameObject worldRoot;
@@ -27,6 +31,9 @@ public class WorldHatStage : MonoBehaviour
     private Camera view;
     private Vector3 outward;
     private Vector3 right;
+    private Transform player;
+    private int promptHat = -1;
+    private float promptAlpha;
 
     public RectTransform Hud { get; private set; }
     public Vector3 Centre { get; private set; }
@@ -39,6 +46,9 @@ public class WorldHatStage : MonoBehaviour
         game = owner;
         if (Hud == null) Build();
         view = Camera.main;
+        player = Interactables.FindPlayer();
+        promptHat = -1;
+        promptAlpha = 0f;
 
         Transform door = house != null ? house.Find("pCylinder1") : null;
         Renderer doorway = door != null ? door.GetComponent<Renderer>() : null;
@@ -96,6 +106,8 @@ public class WorldHatStage : MonoBehaviour
         if (worldRoot != null) worldRoot.SetActive(false);
         if (Hud != null) Hud.gameObject.SetActive(false);
         view = null;
+        promptHat = -1;
+        promptAlpha = 0f;
     }
 
     public void Frame()
@@ -111,39 +123,43 @@ public class WorldHatStage : MonoBehaviour
 
     public void HandleInput()
     {
-        Mouse mouse = Mouse.current;
-        if (mouse == null) return;
-        Vector2 pointer = mouse.position.ReadValue();
-        int index = HatAt(pointer);
+        int index = NearestHat();
         game.HoverHat(index);
-        if (!mouse.leftButton.wasPressedThisFrame) return;
+        if (index >= 0) promptHat = index;
+        promptAlpha = Mathf.MoveTowards(promptAlpha, index >= 0 ? 1f : 0f, Time.unscaledDeltaTime * 8f);
+        Keyboard keyboard = Keyboard.current;
+        if (keyboard == null || !keyboard.eKey.wasPressedThisFrame || PauseMenu.IsPaused ||
+            InventoryInspection.IsOpen) return;
         if (game.AcceptsGuess) game.GuessHat(index);
-        else if (game.CanContinue && RectTransformUtility.RectangleContainsScreenPoint(action.rectTransform, pointer))
-            game.ContinueRound();
+        else if (game.CanContinue) game.ContinueRound();
     }
 
-    // Hit the actual billboard planes, not a screen-space rectangle detached from the house.
-    public int HatAt(Vector2 screenPoint)
+    // The unrevealed hat the player stands at, measured on the ground; -1 when out of reach.
+    public int NearestHat()
     {
-        if (!IsShowing || view == null || !game.AcceptsGuess) return -1;
-        Ray ray = view.ScreenPointToRay(screenPoint);
+        if (!IsShowing || !game.AcceptsGuess) return -1;
+        if (player == null) player = Interactables.FindPlayer();
+        if (player == null) return -1;
         int nearest = -1;
-        float nearestDistance = float.MaxValue;
+        float nearestDistance = ReachRadius * ReachRadius;
         for (int i = 0; i < game.HatCount; i++)
         {
-            if (game.GetHatPose(i).revealed) continue;
-            SpriteRenderer hat = hats[i];
-            var plane = new Plane(hat.transform.forward, hat.transform.position);
-            if (!plane.Raycast(ray, out float distance)) continue;
-            Vector3 point = hat.transform.InverseTransformPoint(ray.GetPoint(distance));
-            point.z = 0f;
-            if (!hat.sprite.bounds.Contains(point) || distance >= nearestDistance) continue;
+            ShellMinigame.HatPose pose = game.GetHatPose(i);
+            if (pose.revealed) continue;
+            Vector3 delta = player.position - WorldPoint(pose.x, pose.y);
+            float distance = delta.x * delta.x + delta.z * delta.z;
+            if (distance > nearestDistance) continue;
             nearest = i;
             nearestDistance = distance;
         }
-        if (nearest < 0 || Physics.Raycast(ray, nearestDistance, Physics.DefaultRaycastLayers,
-            QueryTriggerInteraction.Ignore)) return -1;
         return nearest;
+    }
+
+    private void OnGUI()
+    {
+        if (!IsShowing || promptHat < 0 || promptHat >= hats.Length || Event.current.type != EventType.Repaint) return;
+        Vector3 top = hats[promptHat].transform.position + Vector3.up * HatHalfHeight;
+        InteractPrompt.Draw(top, 10f, "E", "Choose", 3, promptAlpha);
     }
 
     public void Refresh()
@@ -152,8 +168,7 @@ public class WorldHatStage : MonoBehaviour
         round.text = game.RoundTitle;
         message.text = game.Message;
         instructions.text = game.Instructions;
-        controls.text = "[WASD] MOVE  [J/L] CAMERA  " + game.Controls.Replace("[ESC] CLOSE", "[ESC] END") +
-            "  WALK AWAY TO END";
+        controls.text = game.Controls;
         action.gameObject.SetActive(game.CanContinue);
         actionLabel.text = game.ActionLabel;
         Quaternion facing = view != null ? view.transform.rotation : Quaternion.LookRotation(-outward);
