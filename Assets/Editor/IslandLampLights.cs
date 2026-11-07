@@ -33,7 +33,7 @@ public class IslandLampLights : AssetPostprocessor
     // share its material and metre UVs and spill gravel over their edges the same way.
     private static readonly string[] ExtraSidewalkNames = { "pCube86" };
     // The island's ground block, which the spilled gravel slopes down onto.
-    private const string GroundName = "IslandDemo:pCube1";
+    internal const string GroundName = "IslandDemo:pCube1";
     // Bumps on the gravel: normal map strength from the art's height field. The parallax
     // depth comes from the template's Height Map scale (_Parallax).
     private const float GravelNormalStrength = 5f;
@@ -730,29 +730,14 @@ public class IslandLampLights : AssetPostprocessor
         holder.AddComponent<MeshCollider>().sharedMesh = spill;
     }
 
-    // World-aligned UVs in scene metres: tops and bottoms take X/Z, walls take whichever
-    // vertical plane they face most, so the pebbles keep one size everywhere and line up
-    // across separate faces.
+    // World-aligned UVs in scene metres (SidewalkSpill.MetreUVs), so the pebbles keep one size
+    // everywhere and line up across separate faces.
     private static void BoxProjectUVs(Transform root, MeshFilter filter)
     {
         Mesh mesh = filter.sharedMesh;
-        Matrix4x4 toRoot = root.worldToLocalMatrix * filter.transform.localToWorldMatrix;
-        // Normals need the inverse transpose, or a squashed slab (pCube86) tilts its walls.
-        Matrix4x4 normalToRoot = toRoot.inverse.transpose;
-        Vector3[] vertices = mesh.vertices;
-        Vector3[] normals = mesh.normals;
-        bool hasNormals = normals != null && normals.Length == vertices.Length;
-        var uvs = new Vector2[vertices.Length];
-        for (int i = 0; i < vertices.Length; i++)
-        {
-            Vector3 p = toRoot.MultiplyPoint3x4(vertices[i]) * MapSceneScale;
-            Vector3 n = hasNormals ? normalToRoot.MultiplyVector(normals[i]) : Vector3.up;
-            float ax = Mathf.Abs(n.x), ay = Mathf.Abs(n.y), az = Mathf.Abs(n.z);
-            if (ay >= ax && ay >= az) uvs[i] = new Vector2(p.x, p.z);
-            else if (ax >= az) uvs[i] = new Vector2(p.z, p.y);
-            else uvs[i] = new Vector2(p.x, p.y);
-        }
-        mesh.uv = uvs;
+        Matrix4x4 toMetres = Matrix4x4.Scale(Vector3.one * MapSceneScale) * root.worldToLocalMatrix
+            * filter.transform.localToWorldMatrix;
+        mesh.uv = SidewalkSpill.MetreUVs(mesh, toMetres);
         // The imported tangents followed the old UVs; the normal map needs them to follow these.
         mesh.RecalculateTangents();
     }

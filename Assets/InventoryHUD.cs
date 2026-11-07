@@ -77,12 +77,14 @@ public class InventoryHUD : MonoBehaviour
         {
             Vector2 position = mouse.position.ReadValue();
             position = new Vector2(position.x, Screen.height - position.y);
-            // Clicking the lantern's slot holds it up or puts it away, like its number key.
+            // Clicking the lantern's or the clue letter's slot holds it up or puts it away, like its number key.
             if (visible && mouse.leftButton.wasPressedThisFrame && !InventoryInspection.IsOpen &&
-                !Interactables.Busy && !PauseMenu.IsPaused && !TitleScreen.IsOpen && PlayerLantern.Current != null)
+                !Interactables.Busy && !PauseMenu.IsPaused && !TitleScreen.IsOpen)
             {
                 int slot = SlotAt(position);
-                if (slot >= 0 && PlayerLantern.Handles(inventory.GetItem(slot))) PlayerLantern.Current.Toggle();
+                string item = slot >= 0 ? inventory.GetItem(slot) : null;
+                if (PlayerLantern.Current != null && PlayerLantern.Handles(item)) PlayerLantern.Current.Toggle();
+                else if (ClueMinigame.Current != null && item != null && ClueMinigame.Current.Handles(item)) ClueMinigame.Current.ToggleHeld();
             }
             bool pointerActivity = mouse.delta.ReadValue().sqrMagnitude > 0f
                 || mouse.leftButton.wasPressedThisFrame || mouse.rightButton.wasPressedThisFrame
@@ -142,7 +144,8 @@ private int PixelScale()
 private void OnGUI()
     {
         if (inventory == null || opacity <= 0f || InventoryInspection.IsOpen ||
-            MagicianEncounter.IsOpen || CachudCallout.IsOpen || TwentyOneGame.IsOpen || Event.current.type != EventType.Repaint)
+            MagicianEncounter.IsOpen || AlchemistEncounter.IsOpen || CachudCallout.IsOpen || TwentyOneGame.IsOpen ||
+            Event.current.type != EventType.Repaint)
         {
             return;
         }
@@ -168,11 +171,12 @@ private void OnGUI()
             // The well inside the frame, one pixel in from its shadowed edge.
             var well = new Rect(x + InventoryPixelArt.SlotBorder.left + 1, top + InventoryPixelArt.SlotBorder.top + 1,
                 SlotWidth - InventoryPixelArt.SlotBorder.horizontal - 2, SlotHeight - InventoryPixelArt.SlotBorder.vertical - 2);
-            bool held = occupied && PlayerLantern.Current != null && PlayerLantern.Current.Equipped &&
-                PlayerLantern.Handles(inventory.GetItem(i));
+            string item = occupied ? inventory.GetItem(i) : null;
+            bool held = occupied && ((PlayerLantern.Current != null && PlayerLantern.Current.Equipped && PlayerLantern.Handles(item)) ||
+                (ClueMinigame.Current != null && ClueMinigame.Current.IsHeld && ClueMinigame.Current.Handles(item)));
             if (held)
             {
-                // A gold rim round the well marks the lantern being held.
+                // A gold rim round the well marks the lantern or the clue letter being held.
                 Color tint = GUI.color;
                 GUI.color = new Color(Gold.r, Gold.g, Gold.b, tint.a);
                 GUI.DrawTexture(new Rect(well.x - 1, well.y - 1, well.width + 2, 1), Texture2D.whiteTexture);
@@ -184,7 +188,7 @@ private void OnGUI()
             if (occupied)
             {
                 DrawIcon(well, inventory.GetSprite(i));
-                DrawName(x, top + SlotHeight + NameGap, inventory.GetItem(i), held ? Gold : Parchment);
+                DrawName(x, top + SlotHeight + NameGap, item, held ? Gold : Parchment);
             }
 
             Color number = occupied ? Gold : new Color(ParchmentDim.r, ParchmentDim.g, ParchmentDim.b, 0.55f);

@@ -1,6 +1,6 @@
 using UnityEngine;
 
-// Shared by the walk-out and the nearby character's call-out.
+// Shared by the opening boat ride and the nearby character's call-out.
 public static class CinematicOverlay
 {
     private static readonly Color Ink = new Color32(59, 36, 22, 255);

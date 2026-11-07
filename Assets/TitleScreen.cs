@@ -6,8 +6,9 @@ using UnityEngine.SceneManagement;
 // Title screen shown when the game starts. The camera circles high above the island while a
 // parchment "ORCA PLACEHOLDER" scroll floats over the island, the orca leaps
 // out from behind it and wooden PLAY and EXIT buttons (the pause menu's buttons) wait below.
-// PLAY flies down to the starting house, watches the player walk out, then eases into gameplay;
-// EXIT quits the game. It opens on every load of a gameplay scene, including the pause menu's HOME.
+// PLAY flies out to the player's boat and rides with it in to the dock (OpeningVoyage); SPACE
+// jumps onto the dock, then the camera eases into gameplay. EXIT quits the game. It opens on
+// every load of a gameplay scene, including the pause menu's HOME.
 // Runs after CameraFollow so LateUpdate can blend from the title view into the follow view.
 [DefaultExecutionOrder(100)]
 public class TitleScreen : MonoBehaviour
@@ -41,9 +42,11 @@ public class TitleScreen : MonoBehaviour
     private const float FadeInDuration = 1.2f;
     private const float UIFadeDuration = 0.4f;
     private const float HandoffDuration = 1.2f;
+    // The opening message shows this long after the boat sets off, for MessageDuration.
+    private const float MessageStart = 1.2f;
     private const float MessageDuration = 2.8f;
     private const float MessageFadeDuration = 0.2f;
-    private const float HandoffStart = OpeningWalkout.Duration + MessageDuration;
+    private const string JumpKey = "SPACE";
     private const int MaxTitleScale = 3;
     private const int CornerScale = 2;
     private const int CornerMargin = 3;
@@ -98,7 +101,10 @@ public class TitleScreen : MonoBehaviour
     private float flightTime;
     private Vector3 flightStartPosition;
     private Quaternion flightStartRotation;
-    private OpeningWalkout opening;
+    private OpeningVoyage opening;
+    // Seconds since the boat set off, and since the hand-off to gameplay began.
+    private float voyageTime;
+    private float handoffTime;
     private bool handingOff;
     private Vector3 handoffPosition;
     private Quaternion handoffRotation;
@@ -270,23 +276,28 @@ public class TitleScreen : MonoBehaviour
                 if (flightTime >= arrival) Finish();
                 return;
             }
-            float time = flightTime - arrival;
-            if (time < 0f) return;
+            if (flightTime < arrival) return;
             if (!handingOff)
             {
-                opening.Tick(Mathf.Min(time, OpeningWalkout.Duration));
-                if (time >= HandoffStart)
+                // The boat sets off once the camera has reached it; SPACE jumps ashore once it is in.
+                voyageTime += dt;
+                Keyboard jumpKeys = Keyboard.current;
+                opening.Tick(dt, jumpKeys != null && jumpKeys.spaceKey.wasPressedThisFrame);
+                if (opening.HasLanded)
                 {
                     opening.Dispose();
                     foreach (Behaviour rig in cameraRigs)
-                        if (rig is CameraFollow follow) follow.LookTowards(opening.DoorGround);
+                        if (rig is CameraFollow follow) follow.LookTowards(opening.Inland);
                     handoffPosition = cam.transform.position;
                     handoffRotation = cam.transform.rotation;
                     handingOff = true;
+                    handoffTime = 0f;
                     Thaw(cameraRigs);
                 }
+                return;
             }
-            if (handingOff && time >= HandoffStart + HandoffDuration) Finish();
+            handoffTime += dt;
+            if (handoffTime >= HandoffDuration) Finish();
             return;
         }
 
@@ -374,8 +385,7 @@ public class TitleScreen : MonoBehaviour
         float arrival = Mathf.Max(0.01f, flightDuration);
         if (opening != null && !handingOff)
         {
-            opening.GetCameraPose((flightTime - arrival) / OpeningWalkout.Duration,
-                out Vector3 position, out Quaternion rotation);
+            opening.GetCameraPose(out Vector3 position, out Quaternion rotation);
             float approach = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(flightTime / arrival));
             view.SetPositionAndRotation(Vector3.Lerp(flightStartPosition, position, approach),
                 Quaternion.Slerp(flightStartRotation, rotation, approach));
@@ -384,9 +394,7 @@ public class TitleScreen : MonoBehaviour
         }
 
         // CameraFollow has placed this frame's gameplay view; blend into it without a cut.
-        float blend = handingOff
-            ? (flightTime - arrival - HandoffStart) / HandoffDuration
-            : flightTime / arrival;
+        float blend = handingOff ? handoffTime / HandoffDuration : flightTime / arrival;
         blend = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(blend));
         view.SetPositionAndRotation(
             Vector3.Lerp(handingOff ? handoffPosition : flightStartPosition, view.position, blend),
@@ -403,9 +411,11 @@ public class TitleScreen : MonoBehaviour
         flightTime = 0f;
         flightStartPosition = cam.transform.position;
         flightStartRotation = cam.transform.rotation;
+        voyageTime = 0f;
         GameObject map = GameObject.Find(MapName);
         PlayerController player = FindAnyObjectByType<PlayerController>();
-        if (!OpeningWalkout.TryCreate(map != null ? map.transform : null, player, out opening))
+        // Without a dock to sail to, PLAY just flies down to the player where they stand.
+        if (!OpeningVoyage.TryCreate(map != null ? map.transform : null, player, out opening))
             Thaw(cameraRigs);
     }
 
@@ -522,12 +532,12 @@ public class TitleScreen : MonoBehaviour
         if (starting && opening != null)
         {
             GUI.matrix = previousMatrix;
-            float arrival = Mathf.Max(0.01f, flightDuration);
-            float time = flightTime - arrival;
             float bars = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(flightTime / UIFadeDuration)) *
-                CinematicBarsAmount(time);
+                CinematicBarsAmount(handingOff ? handoffTime : -1f);
             CinematicOverlay.DrawBars(bars);
-            CinematicOverlay.DrawMessage(OpeningMessage, OpeningMessageOpacity(time), pixelSize);
+            CinematicOverlay.DrawMessage(OpeningMessage, OpeningMessageOpacity(voyageTime), pixelSize);
+            if (!handingOff)
+                InteractPrompt.Draw(opening.JumpPromptAnchor, 10f, JumpKey, null, 3, opening.PromptAlpha);
         }
 
         if (veil > 0f)
@@ -548,19 +558,20 @@ public class TitleScreen : MonoBehaviour
         GUI.DrawTexture(art, Texture2D.whiteTexture);
     }
 
-    // Hold the reveal with the bars fully in place. Only after it has been read and
-    // faded out does the camera hand off and the letterbox open up for gameplay.
+    // The message shows while the boat crosses, MessageStart seconds after it sets off (time).
     private static float OpeningMessageOpacity(float time)
     {
-        float elapsed = time - OpeningWalkout.Duration;
+        float elapsed = time - MessageStart;
         float fadeIn = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / MessageFadeDuration));
         float fadeOut = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((MessageDuration - elapsed) / MessageFadeDuration));
         return fadeIn * fadeOut;
     }
 
-    private static float CinematicBarsAmount(float time)
+    // The letterbox stays for the whole opening and opens up over the hand-off to gameplay
+    // (handoff: seconds into it, negative before it starts).
+    private static float CinematicBarsAmount(float handoff)
     {
-        return 1f - Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((time - HandoffStart) / HandoffDuration));
+        return 1f - Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(handoff / HandoffDuration));
     }
 
     private void DrawSprite(Texture2D texture, float x, float y, int scale, Rect uv, float alpha = 1f)

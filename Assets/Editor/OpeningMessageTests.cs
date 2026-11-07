@@ -14,39 +14,33 @@ public class OpeningMessageTests
 
     [TestCase(-1f)]
     [TestCase(0f)]
-    [TestCase(3.7f)]
-    public void MessageWaitsUntilThePlayerHasWalkedOut(float time)
+    [TestCase(1f)]
+    public void MessageWaitsUntilTheBoatIsUnderWay(float time)
     {
         Assert.AreEqual(0f, MessageOpacity(time));
-        Assert.AreEqual(1f, BarsAmount(time));
     }
 
     [Test]
-    public void MessageRemainsReadableBeforeTheBarsStartToFade()
+    public void MessageStaysReadableAWhileThenFadesOut()
     {
+        float start = Constant("MessageStart");
         float duration = Constant("MessageDuration");
+        float fade = Constant("MessageFadeDuration");
         Assert.GreaterOrEqual(duration, 2.5f);
         foreach (float fraction in new[] { 0.15f, 0.5f, 0.85f })
-        {
-            float time = OpeningWalkout.Duration + duration * fraction;
-            Assert.AreEqual(1f, MessageOpacity(time), 0.001f);
-            Assert.AreEqual(1f, BarsAmount(time));
-        }
+            Assert.AreEqual(1f, MessageOpacity(start + duration * fraction), 0.001f);
+        Assert.AreEqual(0.5f, MessageOpacity(start + duration - fade * 0.5f), 0.001f);
+        Assert.AreEqual(0f, MessageOpacity(start + duration), 0.001f);
     }
 
     [Test]
-    public void MessageFadesOutBeforeTheBarsAndCameraHandoff()
+    public void BarsStayForTheWholeOpeningAndOpenOverTheHandoff()
     {
-        float start = Constant("HandoffStart");
-        float fade = Constant("MessageFadeDuration");
-        Assert.AreEqual(0.5f, MessageOpacity(start - fade * 0.5f), 0.001f);
-        Assert.AreEqual(1f, BarsAmount(start - fade * 0.5f));
-        Assert.AreEqual(0f, MessageOpacity(start), 0.001f);
-        Assert.AreEqual(1f, BarsAmount(start));
-        float halfway = start + Constant("HandoffDuration") * 0.5f;
-        Assert.AreEqual(0f, MessageOpacity(halfway));
-        Assert.AreEqual(0.5f, BarsAmount(halfway), 0.001f);
-        Assert.AreEqual(0f, BarsAmount(start + Constant("HandoffDuration")));
+        float handoff = Constant("HandoffDuration");
+        Assert.AreEqual(1f, BarsAmount(-1f));
+        Assert.AreEqual(1f, BarsAmount(0f));
+        Assert.AreEqual(0.5f, BarsAmount(handoff * 0.5f), 0.001f);
+        Assert.AreEqual(0f, BarsAmount(handoff));
     }
 
     private static float Constant(string name)
@@ -55,7 +49,7 @@ public class OpeningMessageTests
     }
 
     private static float MessageOpacity(float time) => Invoke("OpeningMessageOpacity", time);
-    private static float BarsAmount(float time) => Invoke("CinematicBarsAmount", time);
+    private static float BarsAmount(float handoff) => Invoke("CinematicBarsAmount", handoff);
 
     private static float Invoke(string method, float time)
     {

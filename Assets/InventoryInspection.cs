@@ -23,7 +23,6 @@ public class InventoryInspection : MonoBehaviour
     private PixelText controls;
     private ClueMinigame minigame;
     private ShellMinigame shellMinigame;
-    private bool puzzleOpen;
     private bool shellPuzzleOpen;
 
     private void Awake()
@@ -108,8 +107,8 @@ public class InventoryInspection : MonoBehaviour
             }
         }
 
-        // Puzzles handle their own input instead of rotating the letter.
-        if (!IsOpen || puzzleOpen)
+        // The puzzle handles its own input instead of rotating the letter.
+        if (!IsOpen || shellPuzzleOpen)
         {
             return;
         }
@@ -128,12 +127,12 @@ public class InventoryInspection : MonoBehaviour
 
     private void LateUpdate()
     {
-        if (IsOpen && puzzleOpen)
+        if (IsOpen && shellPuzzleOpen)
         {
-            // Update the controls as the active puzzle changes phase.
-            controls.text = shellPuzzleOpen ? shellMinigame.Controls : minigame.Controls;
+            // Update the controls as the puzzle changes phase.
+            controls.text = shellMinigame.Controls;
         }
-        if (!IsOpen || puzzleOpen)
+        if (!IsOpen || shellPuzzleOpen)
         {
             return;
         }
@@ -154,11 +153,17 @@ public class InventoryInspection : MonoBehaviour
             if (PlayerLantern.Current != null) PlayerLantern.Current.Toggle();
             return;
         }
+        if (minigame.Handles(itemName))
+        {
+            // The clue letter's number holds its map up in the corner or puts it away; the
+            // potion hunt is played on the island, not in this view.
+            Close();
+            minigame.ToggleHeld();
+            return;
+        }
         Sprite sprite = inventory.GetSprite(slot);
-        bool cluePuzzle = minigame.Handles(itemName);
         bool shellPuzzle = shellMinigame.Handles(itemName);
-        bool puzzle = cluePuzzle || shellPuzzle;
-        if (sprite == null && !puzzle)
+        if (sprite == null && !shellPuzzle)
         {
             return; // Empty slots and items without artwork have nothing to inspect.
         }
@@ -167,29 +172,21 @@ public class InventoryInspection : MonoBehaviour
         {
             BuildView();
         }
-        // Each clue letter opens its own puzzle in place of the inspected sprite.
-        puzzleOpen = puzzle;
+        // The magician's letter opens its puzzle in place of the inspected sprite.
         shellPuzzleOpen = shellPuzzle;
-        itemImage.gameObject.SetActive(!puzzle);
-        if (cluePuzzle)
+        itemImage.gameObject.SetActive(!shellPuzzle);
+        if (shellPuzzle)
         {
-            shellMinigame.Hide();
-            minigame.Show((RectTransform)canvas.transform, sprite);
-        }
-        else if (shellPuzzle)
-        {
-            minigame.Hide();
             shellMinigame.Show((RectTransform)canvas.transform, sprite);
         }
         else
         {
-            minigame.Hide();
             shellMinigame.Hide();
             itemImage.sprite = sprite;
             itemImage.rectTransform.localRotation = Quaternion.identity;
             rotation = Vector2.zero;
         }
-        controls.text = cluePuzzle ? minigame.Controls : shellPuzzle ? shellMinigame.Controls : InspectControls;
+        controls.text = shellPuzzle ? shellMinigame.Controls : InspectControls;
         title.text = itemName;
         inspectedSlot = slot;
         IsOpen = true;
@@ -204,9 +201,7 @@ public class InventoryInspection : MonoBehaviour
         }
         IsOpen = false;
         inspectedSlot = -1;
-        puzzleOpen = false;
         shellPuzzleOpen = false;
-        minigame.Hide();
         shellMinigame.Hide();
         canvas.gameObject.SetActive(false);
         inventory.NotifyInteraction();

@@ -94,6 +94,29 @@ public static class SidewalkSpill
         return toMetres.determinant < 0f ? -1f : 1f;
     }
 
+    // Box-projected UVs in metres: tops and bottoms take X/Z, walls whichever vertical plane they
+    // face most, so the pebbles keep one size everywhere and line up across separate faces.
+    // toMetres maps the mesh into a frame scaled to metres; the spill's UVs use the same X/Z.
+    public static Vector2[] MetreUVs(Mesh mesh, Matrix4x4 toMetres)
+    {
+        // Normals need the inverse transpose, or a squashed slab (pCube86) tilts its walls.
+        Matrix4x4 normalToMetres = toMetres.inverse.transpose;
+        Vector3[] vertices = mesh.vertices;
+        Vector3[] normals = mesh.normals;
+        bool hasNormals = normals != null && normals.Length == vertices.Length;
+        var uvs = new Vector2[vertices.Length];
+        for (int i = 0; i < vertices.Length; i++)
+        {
+            Vector3 p = toMetres.MultiplyPoint3x4(vertices[i]);
+            Vector3 n = hasNormals ? normalToMetres.MultiplyVector(normals[i]) : Vector3.up;
+            float ax = Mathf.Abs(n.x), ay = Mathf.Abs(n.y), az = Mathf.Abs(n.z);
+            if (ay >= ax && ay >= az) uvs[i] = new Vector2(p.x, p.z);
+            else if (ax >= az) uvs[i] = new Vector2(p.z, p.y);
+            else uvs[i] = new Vector2(p.x, p.y);
+        }
+        return uvs;
+    }
+
     // sidewalkToMetres and each ground's matrix map that mesh into root space scaled to metres.
     // The gravel slopes down onto the highest ground surface below each edge.
     public static Mesh Build(Mesh sidewalk, Matrix4x4 sidewalkToMetres,

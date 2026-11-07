@@ -126,7 +126,8 @@ public class PauseMenu : MonoBehaviour
                 Resume();
             }
             else if (!InventoryInspection.IsOpen && !TitleScreen.IsOpen &&
-                     !DolphinWordPuzzle.IsOpen && !MagicianEncounter.IsOpen && !CachudCallout.IsOpen && !TwentyOneGame.IsOpen)
+                     !DolphinWordPuzzle.IsOpen && !MagicianEncounter.IsOpen && !AlchemistEncounter.IsOpen &&
+                     !CachudCallout.IsOpen && !TwentyOneGame.IsOpen)
             {
                 Pause();
             }

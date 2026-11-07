@@ -8,18 +8,20 @@ Each section names the files involved, so you can jump straight to the code.
 - [3. Inventory UI pixel art](#3-inventory-ui-pixel-art) - `InventoryPixelArt.cs`, `InventoryHUD.cs`
 - [4. Pickup prompt](#4-pickup-prompt) - `PickupItem.cs`, `InteractPrompt.cs`
 - [5. Letter burn animation](#5-letter-burn-animation) - `LetterBurn.cs`, `ClueMinigame.cs`
-- [5b. Minigame painted onto the letter](#5b-minigame-painted-onto-the-letter) - `ClueMinigame.cs`
+- [5b. The potion hunt on the island](#5b-the-potion-hunt-on-the-island) - `ClueMinigame.cs`, `ClueMap.cs`, `ClueMapArt.cs`
 - [5c. Cursive clue writing itself](#5c-cursive-clue-writing-itself) - `CursiveWriter.cs`
 - [6. Night sky](#6-night-sky) - `Materials/NightSkySkybox.shader`
 - [7. Lighting the sprite player](#7-lighting-the-sprite-player) - `SpriteLightTint.cs`
 - [8. Fixing the map on import](#8-fixing-the-map-on-import) - `Editor/IslandLampLights.cs`
-- [8c. Glowing windows](#8c-glowing-windows) - `WindowGlow.cs`, `Materials/WindowLightRays.shader`
+- [8c. Glowing windows](#8c-glowing-windows) - `WindowLamp.cs`, `WindowGlow.cs`, `Materials/WindowLightRays.shader`
 - [9. Fixing the FBX itself](#9-fixing-the-fbx-itself) - one-off scripts
-- [10. Title screen](#10-title-screen) - `TitleScreen.cs`, `PixelButton.cs`
+- [10. Title screen](#10-title-screen) - `TitleScreen.cs`, `PixelButton.cs`, `OpeningVoyage.cs`
 - [11. Talking to the gravestone](#11-talking-to-the-gravestone) - `TalkInteractable.cs`, `InteractPrompt.cs`
 - [12. Dig site skill checks](#12-dig-site-skill-checks) - `DigSite.cs`, `DigSparkles.cs`, `Interactables.cs`
 - [15. Dolphin statue letter puzzle](#15-dolphin-statue-letter-puzzle) - `DolphinWordPuzzle.cs`
 - [16. The magician's lantern](#16-the-magicians-lantern) - `PlayerLantern.cs`, `MagicianEncounter.cs`
+- [17. The alchemist's letter](#17-the-alchemists-letter) - `AlchemistEncounter.cs`
+- [18. Al Cachud comes out of his door](#18-al-cachud-comes-out-of-his-door) - `CachudCallout.cs`, `CachudDoorway.cs`
 - [Shared rules for crisp pixel art](#shared-rules-for-crisp-pixel-art)
 
 ---
@@ -192,9 +194,9 @@ item name wrapped to two lines under the slot. Fading is just `GUI.color.a`.
 
 **Files:** `Assets/LetterBurn.cs`, `Assets/ClueMinigame.cs`
 
-Plays when the minigame is restarted (`E`), re-rolled (`R`) or lost (immediately on the step
-that runs out, with the fire starting at the board's centre and a flame headline). The letter burns away, the game resets while it's ash, and the letter
-re-forms showing the new game.
+Plays on the held clue letter when the potion hunt runs out of steps or is restarted with `R`
+(two random fires near the bottom, no headline; see 5b). The letter burns away, the hunt is
+cleared while it's ash, and the letter re-forms showing the cleared map.
 
 ### Flatten the UI into one bitmap (`Capture`)
 
@@ -290,8 +292,8 @@ offset in time, and the whole sheet is guaranteed done at the end.
 
 1. `Play(midpoint)` captures the current letter, hides the real UI, starts **burn** (1.1 s).
 2. **Pause** (0.3 s): only embers.
-3. Run `midpoint` - `ClueMinigame` resets or regenerates the board and calls `Redraw()`,
-   which updates the board texture and labels while they're invisible.
+3. Run `midpoint` - `ClueMinigame` clears the hunt (potions, marks, trail) and, for `R`,
+   starts a new one where the player stands, while the letter is invisible.
 4. Capture again (now the new game), start **rebuild** (1 s).
 5. Hide the overlay, restore `CanvasGroup` alpha.
 
@@ -305,61 +307,82 @@ offset in time, and the whole sheet is guaranteed done at the end.
 
 ---
 
-## 5b. Minigame painted onto the letter
+## 5b. The potion hunt on the island
 
-**File:** `Assets/ClueMinigame.cs` (`Redraw` and the drawing helpers below it)
+**Files:** `Assets/ClueMinigame.cs` (the hunt and the held letter), `Assets/ClueMap.cs`
+(survey, routes, potion placement), `Assets/ClueMapArt.cs` (map art, potions, meshes),
+`Assets/Resources/ClueMap/ClueGridLight.shader` (light walls and beams)
 
-The board used to be a flat slate-blue panel with saturated rainbow squares, so it looked
-pasted on. It's now painted into the same 770x770 pixel buffer as before, but styled as
-pigment and pen ink on the letter's paper.
+The clue letter used to open a 20x20 colour maze in the inspection view. Now the board is the
+island: the letter holds a map of it, and the hunt is walked.
 
-- **No background at all:** the buffer starts fully transparent, so the board's background
-  *is* the letter's paper. `Blend` is a proper alpha-over that keeps the canvas's own
-  transparency (shadows and ink stay translucent over the paper), and `Fill` goes through it.
-- **Grid running out onto the paper** (`BuildPaperLines`): instead of a picture border, a
-  second texture over the whole letter (4 texels per letter pixel, under the board)
-  continues the grid past the play area. Per texel: distance to the play area -> squared
-  fade over `PaperLineFade` tiles; anti-aliased distance to the nearest grid line; ink
-  density noise along each line. Lines are masked to *plain paper*: the letter sprite is read
-  back through the GPU, the paper colour is averaged under the board, and texels whose letter
-  pixel differs from it (edges, decoration) get no ink. Built once per letter sprite.
-- **Paper grain** (`Grain`): one static field built once - large soft blotches, finer
-  mottling, horizontally stretched noise for fibres, rare dark flecks. Paint granulation,
-  shadows and ink density all sample it, which ties the layers together.
-- **Muted pigments:** vermilion, orange ochre, saffron, verdigris, lapis, murex purple,
-  chalk. Desaturated enough to look like period paint, still clearly distinct for play.
-- **Colour hints reuse the board painter** (`EnsureSwatches`): each colour is painted with
-  `PaintTile` into the board buffer and copied out into its own small texture, so the
-  "Next / then" stamps match the board tiles exactly. Built lazily at the start of
-  `Redraw` (the buffer is repainted right after) and rebuilt if missing.
-- **Surviving play-mode script reloads:** Unity restores private runtime arrays as *empty*
-  arrays, not null. Runtime caches (`pixels`, `grain`, `swatchTextures`) are
-  `[NonSerialized]` and every lazy build checks length/nulls; `EnsureCanvas` recreates the
-  buffer and board texture if they went missing.
-- **Painted tiles** (`PaintTile`): soft cast shadow down-right, *ragged edges* (pixels near
-  the edge randomly skipped by a hash), granulation from the grain, light from the top-left
-  (gradient across the tile plus bright upper/left rim and dark lower/right rim), and an
-  uneven inked outline.
-- **Pen grid** (`InkLine`): drawn *over* the paint. Each line drifts sideways by a pixel
-  along slow noise (hand wobble) and its density follows grain + noise (ink running
-  thin). Outer lines are thicker.
-- **Player as a wax seal:** AA disc in the current colour with drop shadow, darker pressed
-  rim, a stamped inner ring that's dark top-left / light bottom-right (reads as debossed),
-  top-left shading and a small glint.
-- **Static lighting** (`ApplyLighting`, last pass every redraw): brighter and warmer
-  top-left falling off to the bottom-right and darker toward the edges. It only scales
-  colour, never alpha, so empty paper stays untouched.
-- **No end screen:** running out of steps draws the final position and burns straight
-  away; "OUT OF STEPS" is part of the burn (see 5)..
+- **Holding the letter:** its inventory number (or a click on its slot, which gets the gold
+  rim like the lantern) toggles `IsHeld`; `InventoryInspection` never opens it. The letter
+  (`Letter_screen.png` with the map on it) covers about a fifth of the screen in the
+  bottom-right corner and slides up from below it (ease-out cubic, 0.35 s). It ducks away
+  while a conversation, the inspection view, the title or the pause menu is up, and comes back.
+- **Surveying the island** (`ClueMap`): the ground block `IslandDemo:pCube1` is cut into
+  `CellsAcross` (24) cells along its longer side, and each cell into 8 x 8 spots. Per spot: is
+  there ground under it (`Collider.Raycast` on the ground only) - if not it's sea, or a pier
+  when something flat sits just above sea level; what a ray from the sky meets first (trees,
+  buildings and the sea by their names/parents, low wide surfaces are paths and slabs, the
+  rest is "structure"); the height the player stands at; whether the player's capsule fits
+  there; and whether the sky is open above it. Then, per pair of neighbouring spots, whether
+  they're walkable between: height difference under 1 m and nothing hit by rays at 0.5 m and
+  1.3 m (with `queriesHitBackfaces` on, so single-sided walls block too). The player's own
+  collider is ignored. It runs 1500 spots a frame after the title screen closes (by then the
+  opening's boat is moored and solid), about 30 frames in all.
+- **Steps are cells:** a 0-1 breadth-first search over the spots, free inside a cell and one
+  step across a border, gives the fewest cells crossed between any two spots, walking round
+  fences and houses.
+- **Placing potions** (`PlanHunt`): candidates are spots reachable from the player, open to
+  the sky, with a clear 2.2 x 1.7 x 2.2 m box above them and all eight neighbours walkable -
+  so nothing spawns inside, under or against a structure. Five are picked farthest-first: each
+  scores its distance (in cells) to the start and the potions so far, and one is drawn at
+  random from those scoring at least 65% of the best, in a cell of its own and at least 4 cells
+  from the rest (relaxed if the island runs out of room). They spread over the whole island.
+- **Budget:** the shortest route from the start through all five in the best order (all 120
+  orders tried), plus 25% (at least 4). Walking isn't stepping, so it's roomier than the paper
+  board's 10%.
+- **Playing:** `R` with the letter up starts a hunt where the player stands (refused off
+  the ground, on the pier or in the sea). A cell only counts as left 0.6 m past its border, so
+  walking along a line doesn't eat steps; crossing with no steps left burns the letter (see 5,
+  no "OUT OF STEPS" headline) and the hunt is cleared, to start again anywhere. `R` mid-hunt
+  burns and starts a new one. A potion is collected by walking within 1.3 m of it. The player
+  walks 60% faster while a hunt is on (`PlayerController.SpeedMultiplier`).
+- **On the island:** each potion is a billboard sprite of the flask art with a point light in
+  its colour and a 9 m beam (two crossed additive cards). Light walls stand on every cell
+  border over walkable land: one mesh of quads following the surveyed ground, brightest at
+  the foot and fading upwards, faint (intensity 0.23). Only the borders round the player
+  light: the shader works out from each fragment's position (and UV1, which way its border
+  runs) which two cells it parts, and glows 100% on the four sides of the player's cell, 40% on
+  the rest of the 3 x 3 cells round it, nothing beyond; a move to another cell cross-fades over
+  0.25 s. They fade in with a hunt and out when it ends.
+- **The map** (`ClueMapArt.DrawMap`, drawn once from the survey): up is world +x and right is
+  world -z, as the island looks from above in the editor (pier at the bottom). Washes of sea
+  (with wave dashes), grass, paths, the pier's planks, tree canopies, shingled roofs; ink on
+  the coast and around houses and trees; the cells as a checkerboard with pen lines; the
+  fountain and every lamp post as landmarks; an inked frame. Washes are slightly see-through
+  so the paper shows. On top: potions and crosses for collected ones, a ring at the start, a
+  crayon trail (rough dabs every half letter pixel, gaps where the paper's tooth misses) and a
+  blinking "you are here" ring. Status line: steps left and potions found.
+- **Finishing:** with all five, the letter comes up with a pulsing glow over `building3`.
+  Talking to the alchemist then (`AlchemistEncounter`) plays placeholder lines and calls
+  `Deliver()`: "Fell" is revealed to the word bank and, once the room closes, the letter comes
+  up and writes it in cursive on a cleared patch (see 5c). Before that the door just says to
+  keep looking.
+- **Script reloads:** the survey, potions and pixel buffers are `[NonSerialized]` and
+  rebuilt; a reload in Play mode surveys again.
 
 ---
 
 ## 5c. Cursive clue writing itself
 
-**Files:** `Assets/CursiveWriter.cs`, `Assets/ClueMinigame.cs` (`EnsureClueWriter`)
+**Files:** `Assets/CursiveWriter.cs`, `Assets/ClueMinigame.cs` (`ShowClue`), `Assets/ShellMinigame.cs`
 
-When the puzzle is solved, "Fell, Jerk, Thief" is written onto the letter in cursive,
-stroke by stroke in real writing order, with drops of ink flicking off the nib.
+When the alchemist finishes the potion hunt, "Fell" is written onto the clue letter in
+cursive (the magician's letter writes its keyword the same way), stroke by stroke in real
+writing order, with drops of ink flicking off the nib.
 
 - **Glyphs are pen paths, not bitmaps.** Each glyph is a list of strokes (pen down ... pen
   up); each stroke is a list of *pieces*, each a Catmull-Rom spline through hand-placed
@@ -380,10 +403,10 @@ stroke by stroke in real writing order, with drops of ink flicking off the nib.
   each pen lift. Ink drops spawn at the tip (~220/s, 3-6 texel squares, some double size), shoot backwards/sideways from the
   motion, slow down, fall slightly and fade in 0.2-0.55 s; drawn as small square pixels.
 - **Showing it:** a `RawImage` on the letter, sized from the layout's bounds. Writing plays
-  on the winning move; reopening a solved letter (or closing mid-write) shows it finished
-  (`Complete()`). The writer is `[NonSerialized]` and rebuilt on demand.
-- **Adding letters:** only the glyphs this clue needs exist (F J T e f h i k l r ,). Add more
-  in `BuildGlyphs()`; missing characters log a warning and leave a gap.
+  when the letter comes up after the alchemist's room closes; rebuilding the letter later
+  shows it finished (`Complete()`). The writer is `[NonSerialized]` and rebuilt on demand.
+- **Adding letters:** only the glyphs the clues need exist (F J T e f h i k l r ,). Add
+  more in `BuildGlyphs()`; missing characters log a warning and leave a gap.
 
 ---
 
@@ -547,6 +570,20 @@ Maya and follow the map into any scene.
     from a position hash so reimports give the same result.
   - Same metre UVs as the top, so pebbles carry on over the edge. Built as a `Sidewalk Spill`
     object in the model with a `MeshCollider`, so the player walks up the slope.
+- **Paved scene slabs** (`Assets/Editor/ScenePaving.cs`): the `sideWalkAlch` group in SampleScene
+  is plain Unity cubes, not part of the model, so the importer never sees them. An editor
+  script does the same job in the scene: every child gets the material of `IslandDemo:sideWalk`,
+  a copy of its mesh with metre box UVs (`SidewalkSpill.MetreUVs`, shared with the importer,
+  measured in the group's frame) and a `Sidewalk Spill (<slab>)` sibling with a `MeshCollider`,
+  sloping onto `IslandDemo:pCube1`, the map's paved slabs or another slab in the group.
+  - **Baked, not built at runtime:** the map's meshes aren't Read/Write, so a build couldn't
+    read the ground. The meshes are saved to `Assets/Generated/sideWalkAlch/` and rebuilt in
+    place (`EditorUtility.CopySerialized`), so the scene's references survive; meshes and spills
+    of removed slabs are deleted.
+  - **Rebuilt when slabs change:** a poll every 0.5 s in edit mode hashes the group (slab names,
+    poses, sizes, active state) and repaves when it differs from the last paving this session,
+    waiting for a scene-view drag to finish. `Tools/Orca/Repave Scene Sidewalks` forces it. Add
+    another group by name to `GroupNames`.
 - **Fountain water** (`IslandDemo:pCylinder3`, a single mesh: basin, tapered column, spout
   pipe): measured from its own surface, the same barycentric query as the spill. Walking in
   from the outer edge, the top stays at rim height across the rim, drops at the inner wall
@@ -607,9 +644,37 @@ Maya and follow the map into any scene.
 
 ## 8c. Glowing windows
 
-**Files:** `Assets/WindowGlow.cs` (on `glowWindow1` and `glowWindow2`, the FBX's
-`world/building1/pCube79` and `pCube56`, renamed in the scene), `Assets/Materials/WindowLightRays.shader`
-and `.mat` (the rays), `Assets/Materials/WindowGlow.mat` (emissive glass template)
+**Files:** `Assets/WindowLamp.cs` (every lit window), `Assets/WindowGlow.cs` (the older rays
+effect, now switched off), `Assets/Materials/WindowLightRays.shader` and `.mat` (the rays),
+`Assets/Materials/WindowGlow.mat` (emissive glass template)
+
+### Lamp-lit windows (`WindowLamp`)
+
+- **Which windows:** every renderer named `magHW...`, `alHW...` or `chudHW...` (the magician's,
+  the alchemist's and Al Cachud's houses, named in the scene) plus `glowWindow1` and
+  `glowWindow2`. They are found on every scene load (`sceneLoaded`, plus `AfterSceneLoad` for the
+  first), so a renamed window needs nothing else. It runs before the windows' `Start`, so the
+  `WindowGlow` on `glowWindow1/2` is switched off before it builds and all windows look alike.
+- **Glass:** a copy of the lamp heads' material (`LampHeadGlow`, which the map import puts on
+  `maplamp:pCube1`, borrowed from whichever renderer in the scene wears it) in a warmer, softer
+  colour: base (1, 0.72, 0.4), emission (1.35, 0.78, 0.3) against the lamps' (2.7, 2.23, 1). A
+  whole pane at the lamps' brightness stood out too hard against the dark walls and felt blinding.
+  Only the glass glows, the way the lamp heads keep their black stripes: a slot glows when its
+  colour is at least 60% as light as the window's lightest slot (and not near-black), so the
+  dark bars, stripes and supports keep their own material; so does any slot the rest of the
+  house also uses (frames, walls). A window of one material glows whole; if nothing qualifies,
+  its lightest slot does. Glass painted with a texture gets a copy of the lamp material with
+  that texture as base and emission map, so painted stripes stay dark too. Without a lamp head
+  loaded, a stand-in with the same colours. The originals come back when it's disabled.
+- **Light:** a shadowless spot (amber (1, 0.68, 0.3), intensity 10, range 10 m, 130 degree cone, tipped down
+  0.2 m per m) just outside the glass, on its own root object. Out is the thinnest axis of the
+  window's box, on the side away from the rest of the house, as below. The PC renderer is
+  Forward+, so the extra lights aren't limited per object.
+
+### The older rays effect (`WindowGlow`)
+
+Still on `glowWindow1` and `glowWindow2` (the FBX's `world/building1/pCube79` and `pCube56`,
+renamed in the scene) but switched off by `WindowLamp`. How it worked:
 
 - **Which way is out:** each window is a thin box. Its thinnest axis is the glass normal, and of
   its two faces the one away from the centre of the rest of the house is the outside, so the
@@ -674,7 +739,39 @@ One-off Python scripts (not in the repo) read and rewrote the binary FBX directl
 **Files:** `Assets/TitleScreen.cs`, `Assets/PixelButton.cs`, art maps in `Assets/InventoryPixelArt.cs`,
 orca sheet in `Assets/Resources/TitleScreen/Orca Sprite.png`
 
-Shown once when play starts; no extra scene. PLAY flies the camera down to the player.
+Shown once when play starts; no extra scene. PLAY flies the camera out to the player's boat
+for the opening (below).
+
+### Opening: arriving by boat
+
+**File:** `Assets/OpeningVoyage.cs` (TitleScreen owns the timing, the shot and the input lock)
+
+- **Where from and to:** the dock is `IslandDemo:Dock` in the map, an L whose leg runs out to
+  sea along x at the island's -x edge (the bottom of the editor's top view). The boat comes in
+  along x from the side away from the middle of the island block (`IslandDemo:pCube1`), so it
+  never crosses land, and moors 0.5 m off the leg's end, lined up with where the jump lands:
+  1.6 m in from the end, 1 m to the right of the walkway's middle (found scanning across z for
+  the dock's own upward surface), kept 0.6 m in from its edge. If the follow camera would be
+  blocked there (`CameraFollow.HasClearView`, the same sphere cast it uses; a post such as
+  `IslandDemo:pCylinder2` pulled it in for an awkward close-up), the landing moves further right
+  in 0.2 m steps until the view is clear or the walkway ends. It sets off on that
+  line 20 m inside the edge of the `ocean` object's bounds (kept between 60 and 400 m out), and
+  the crossing takes distance / 9 m/s, held to 10-20 s, easing out so it slows as it comes in.
+- **The boat:** a placeholder cube (2.4 x 0.8 x 4.2 m, wood-brown copy of the default material)
+  riding 0.35 m above the water, bobbing and rocking a little. The player is placed on its deck
+  each frame with the CharacterController off; the cube's collider stays off until it moors.
+- **The shot:** right behind the player, 5.5 m back, 1.4 m to their right and 2.6 m above their
+  feet, looking 8 m ahead the way the boat goes; it follows them through the jump (along the
+  jump's line, not its arc, so it doesn't bounce). The player stands with their back to the
+  camera (`PlayerController.FaceAway`, then the idle frame). The letterbox stays up;
+  "SOMEONE'S BEEN MURDERED!" shows 1.2 s after it sets off, for 2.8 s.
+- **Getting off:** once it's in, "[SPACE]" fades in over the player. SPACE jumps them in a
+  0.75 s arc (1.4 m above the straight line, back-walk frames away from the camera) onto the
+  landing spot, its height read from the dock's own collider (not a post or lamp on it).
+  Landing ends the opening: the follow camera faces up the dock towards the island
+  and the view blends into it over 1.2 s while the letterbox opens. The boat stays moored, solid.
+- **Interrupted** (scene reload mid-crossing): the boat moors and the player is put on the dock,
+  their controller back as it was. No dock in the map: PLAY just flies down to the player.
 
 ### Bootstrapping into the gameplay scene
 
@@ -937,6 +1034,56 @@ cascades, plus a full re-render for SSAO's depth-normals prepass.
 - **Lighting the holder:** `SpriteLightTint` would otherwise see a light a few centimetres from the
   sprite and burn it white. Lights inside the player count as at least 1 m away and at 40%
   (`heldLightShare`), so the lantern brightens the player without washing them out.
+
+---
+
+## 17. The alchemist's letter
+
+**Files:** `Assets/AlchemistEncounter.cs`, `Assets/PickupItem.cs` (`Collect`)
+
+- **Same cinematic as the magician:** E at `alchDoor` ("Knock") fades into the room
+  (`Magician/Room`), the portrait bobs while each line types, Enter finishes typing then
+  continues, Esc leaves, and it fades back out. The portrait is the magician's art and the lines
+  (`Introduction`, `LetterGift`, `Farewell`) are placeholders until the alchemist's own exist.
+- **Sets itself up:** nothing is placed in the scene. On every scene load (`sceneLoaded`, plus
+  `AfterSceneLoad` for the first) it finds the object named `alchDoor` and puts an
+  `AlchemistEntrance` at the bottom centre of what it renders (FBX nodes keep their pivot at the
+  model's origin), so renaming any door to `alchDoor` moves the encounter there.
+- **The letter changes hands:** the world's `Clue Letter` pickup is switched off when the entrance
+  is set up, and after the introduction `PickupItem.Collect()` puts it in the bag with its own
+  sprite, exactly as picking it up would, so its number holds up the hunt's map (see 5b). A full
+  bag gets `LetterNoRoom`; the next visit skips the introduction and offers it again.
+- **Later visits:** while potions are still out there, one line (`KeepLooking`); with all five
+  found, `PotionsFound` then `ClueGift`, which has `ClueMinigame.Deliver()` write "Fell" on the
+  letter; after that `Farewell`. Each visit plays a short script of lines and an action after
+  its last (`Play`).
+- **Blocking:** `AlchemistEncounter.IsOpen` joins the others in `Interactables.Busy` and
+  `BlocksMovement`, hides the inventory strip, stops Esc from pausing and holds the camera.
+
+---
+
+## 18. Al Cachud comes out of his door
+
+**Files:** `Assets/CachudCallout.cs` (the meeting and conversation), `Assets/CachudDoorway.cs`
+(the door and the walk out; it was the old opening's walk-out)
+
+- **Waiting indoors:** on `Start` he finds his door (`pasted__building2/pasted__pCube54` in
+  `IslanddemoV3`) and, until he has come out, hides his sprite and turns his colliders off, so he
+  isn't an invisible obstacle where he was placed. The door is the interactable: "[E] KNOCK"
+  over it within 3 m. There is no longer a "HEY, YOU!" call-out by distance.
+- **Knocking:** the camera pans to a shot from out in front of the door (1.25 s, as before),
+  and the player is set down 4.2 m out and 1.4 m to the side, back to the camera, if that spot is
+  clear. Then the door swings 105 degrees about its hinge edge (it has a centre pivot, so it is
+  rotated about a world-space hinge without touching the model), a dark unlit quad covers the
+  solid facade behind it, he walks from 0.9 m inside to 2 m outside with a small lift on each
+  step (he has no walking frames), and the door shuts behind him (3.8 s). Which face is the
+  outside comes from where the player knocked.
+- **Then the same conversation:** greeting, missing dice, the one question, the fountain clue,
+  the dice hand-in and the twenty-one invitation, in the shot the entrance ended on. Escape or
+  a cancel mid-entrance finishes it at once: door shut, him outside.
+- **Afterwards:** he stays where he stopped outside the door and E talks to him again, with the
+  usual side-on shot. Without the door in the scene (tests), knocking just starts the
+  conversation where he stands.
 
 ---
 

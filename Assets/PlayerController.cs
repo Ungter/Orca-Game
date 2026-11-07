@@ -54,6 +54,9 @@ public class PlayerController : MonoBehaviour
     private bool debugFly;
     private const float DebugSpeedMultiplier = 5f;
 
+    // Scales walking speed; the clue letter's potion hunt sets it while a hunt is on.
+    public float SpeedMultiplier { get; set; } = 1f;
+
     private void Awake()
     {
         characterController = GetComponent<CharacterController>();
@@ -146,7 +149,7 @@ public class PlayerController : MonoBehaviour
         verticalVelocity += gravity * Time.deltaTime;
 
         Vector2 input = GetMovementInput();
-        Vector3 motion = (CameraRight() * input.x + CameraForward() * input.y) * moveSpeed;
+        Vector3 motion = (CameraRight() * input.x + CameraForward() * input.y) * (moveSpeed * SpeedMultiplier);
         motion.y = verticalVelocity;
 
         characterController.Move(motion * Time.deltaTime);
@@ -191,6 +194,9 @@ public class PlayerController : MonoBehaviour
     {
         AnimateSprite(input, Time.deltaTime);
     }
+
+    // Scripted shots: the player's back is to the camera until they next walk towards it.
+    public void FaceAway() => facingBack = true;
 
     // A scripted walk uses the same sprites, lantern hand and shadow as normal movement,
     // but never reads input. The title owns the player until the camera has settled.

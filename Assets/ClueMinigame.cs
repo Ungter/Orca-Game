@@ -3,1091 +3,665 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
-// The colour maze written on the clue letter, ported from references/minigameOne.js and
-// grown into a random 20 x 20 board. InventoryInspection shows it in place of the letter's
-// sprite. Step onto tiles in rainbow order, red to white: any tile of the next colour
-// counts, every other colour is a wall, and clearing white reveals the clue. Each board is
-// built around a carved route so it is always solvable, and the step budget sits just
-// above the best route the generator could find.
+// The clue letter's potion hunt, played on the island itself. The letter holds a hand-drawn
+// map of the island cut into the hunt's checkerboard; its inventory number (or a click on its
+// slot) slides it up into the bottom-right corner and puts it away again. [R] starts a hunt
+// from wherever the player stands on the island: five potions, one of each colour, are set out
+// across the map, faint light walls rise from the cell borders round the player, and every
+// border crossed costs a step. A crayon trail follows the player on the map. Out of steps, the
+// letter burns and rebuilds with the hunt cleared, ready to start again anywhere. With all five
+// found the alchemist's house glows on the map, and the alchemist writes the clue word on the
+// letter (Deliver). The survey and routes are ClueMap; the art and meshes ClueMapArt.
 public class ClueMinigame : MonoBehaviour
 {
-    private const string PlayControls = "[WASD] STEP    [E] RESTART    [R] NEW BOARD    [ESC] CLOSE";
-    private const string SolvedControls = "[ESC] CLOSE";
+    public enum HuntState { Idle, Playing, Found, Delivered }
 
-    private const int GridSize = 20;
-    private const int BorderSize = GridSize + 2;
-    private const int TileSize = 35;
-    private const int CanvasSize = BorderSize * TileSize;
-    // The sketch measured tiles in 14 px; TilePx rescales those sizes to this board.
-    private const float SketchTile = 14f;
-    private const int Floor = -1;
+    public const int PotionCount = 5;
+    public const string ClueWord = "Fell";
+    public const string GroundName = "IslandDemo:pCube1";
+    public const string HouseName = "building3";
 
-    // Where the board, step counter and colour hint sit on Letter_screen.png (384 x 240,
-    // measured from the top-left). Its blank paper spans x 6-359, y 12-196; the board is
-    // centred on it, the counter and hint fill the margins either side.
-    private const float BoardSide = 168f;
-    private static readonly Vector2 LetterSize = new Vector2(384f, 240f);
-    private static readonly Vector2 BoardCentre = new Vector2(182f, 115f);
-    private static readonly Vector2 StepsCentre = new Vector2(313f, 104f);
-    private const float HintX = 52f;
-    private const float HintSwatch = 30f;
-    private static readonly Color32 Ink = new Color32(80, 68, 56, 255);
-
-    // Walls take the colour of their nearest target, so each colour gathers in its own
-    // patch of the map, with a share of strays. Legs between targets keep routes long.
-    private const float WallDensity = 0.65f;
-    private const float StrayColours = 0.15f;
-    private const int MinLeg = 10;
-    private const int MaxLeg = 18;
-    // The budget search tries the nearest few tiles of each colour, then adds 10%, at least 3.
-    private const int SearchBranches = 5;
-    private const float BudgetSlack = 0.1f;
-    private const int MinBudgetSlack = 3;
-
-    private enum Outcome { Playing, Won, OutOfSteps }
-
-    private static readonly Vector2Int Start = new Vector2Int(GridSize / 2, GridSize / 2);
-
-    private static readonly Vector2Int[] Directions =
-    {
-        new Vector2Int(1, 0),
-        new Vector2Int(-1, 0),
-        new Vector2Int(0, 1),
-        new Vector2Int(0, -1),
-    };
-
-    // Muted pigments, so the tiles read as paint on parchment yet stay easy to tell apart.
-    private static readonly Color32[] Colors =
-    {
-        new Color32(176, 52, 38, 255),   // vermilion
-        new Color32(204, 114, 40, 255),  // orange ochre
-        new Color32(218, 174, 58, 255),  // saffron
-        new Color32(70, 132, 84, 255),   // verdigris
-        new Color32(44, 80, 154, 255),   // lapis
-        new Color32(94, 56, 120, 255),   // murex purple
-        new Color32(238, 230, 206, 255), // chalk
-    };
-
-    // Pen ink for grid lines, tile and swatch outlines.
-    private static readonly Color32 Outline = new Color32(52, 36, 24, 255);
-
-    // Every coloured tile is a hand-drawn potion holding its colour. Legend: o ink outline,
-    // c cork, g empty glass, h glint, s liquid surface, l liquid, d liquid in shadow.
-    private static readonly string[] PotionArt =
-    {
-        "..ooooo..",
-        "..occco..",
-        "...ooo...",
-        "...ogo...",
-        "..ohggo..",
-        ".ohsssso.",
-        "ohllllldo",
-        "olllslldo",
-        ".olllddo.",
-        "..ooooo..",
-    };
-    // Canvas pixels per potion art pixel.
-    private const int PotionPixel = 3;
-    private static readonly int PotionWidth = PotionArt[0].Length * PotionPixel;
-    private static readonly int PotionHeight = PotionArt.Length * PotionPixel;
-    private static readonly Color32 Cork = new Color32(150, 102, 60, 255);
-    private static readonly Color32 Glass = new Color32(222, 234, 230, 255);
-    private static readonly Color32 Glint = new Color32(255, 251, 238, 255);
-    // The grid keeps going past the board onto the paper and fades out over this many tiles.
-    private const float PaperLineFade = 3.5f;
-    // Paper-lines texture resolution, in texels per letter pixel.
-    private const int PaperLineScale = 4;
+    // Spots surveyed per frame, a few milliseconds of physics queries.
+    private const int SurveySlice = 1500;
+    private const float SlideDuration = 0.35f;
+    // Share of the screen's area the held letter covers, and its gap to the screen's edges.
+    private const float ScreenShare = 0.2f;
+    private const float EdgeGap = 14f;
+    // Letter pixels per font pixel for the status line.
+    private const float StatusFontPixels = 1.6f;
+    // A cell only counts as left once the player is this far past its border, so walking along
+    // a border doesn't eat steps.
+    private const float BorderGrace = 0.6f;
+    private const float CollectRadius = 1.3f;
+    // Walk speed while a hunt is on.
+    private const float HuntSpeedBoost = 1.6f;
+    private const float WallHeight = 3f;
+    // The light walls: full strength on the player's cell, NearGlow on the rest of the 3 x 3 round
+    // it, cross-fading over CellFadeSeconds when the player moves to another cell.
+    private const float WallIntensity = 0.23f;
+    private const float NearGlow = 0.4f;
+    private const float CellFadeSeconds = 0.25f;
+    private const float WallFadeSeconds = 0.6f;
+    private const float PotionPixelsPerUnit = 11f;
+    private const float PopSeconds = 0.35f;
+    private const float MessageSeconds = 2.5f;
+    private static readonly Vector2 ClueCentre = new Vector2(80f, 46f);
+    private static readonly Color HouseGlow = new Color(1f, 0.84f, 0.4f, 1f);
+    private static readonly Color32 StatusInk = new Color32(80, 68, 56, 255);
 
     [SerializeField]
     private string triggerItem = "Clue Letter";
 
+    // The player's clue letter, for the inventory to hold up and the alchemist to finish.
+    public static ClueMinigame Current { get; private set; }
 
-    private readonly System.Random random = new System.Random();
-    private readonly int[,] layout = new int[GridSize, GridSize];
-    private readonly int[,] board = new int[GridSize, GridSize];
-    // Breadth-first scratch for the generator.
-    private readonly int[] distance = new int[GridSize * GridSize];
-    private readonly int[] queue = new int[GridSize * GridSize];
-    private int stepBudget;
-    private int stepsLeft;
-    private Vector2Int player;
-    private int currentColor;
-    private Outcome outcome;
+    public HuntState State { get; private set; }
+    public bool IsHeld { get; private set; }
+    public int StepsLeft { get; private set; }
+    public int StepBudget { get; private set; }
+    public bool IsFound => State == HuntState.Found;
+    public bool IsDelivered => State == HuntState.Delivered;
+    public bool IsBurning => burn != null && burn.IsPlaying;
+    public ClueMap Map => map;
 
+    public int PotionsLeft
+    {
+        get
+        {
+            int left = 0;
+            foreach (Potion potion in potions) if (!potion.Collected) left++;
+            return left;
+        }
+    }
+
+    // Where the uncollected potions stand, for tests and debugging.
+    public List<Vector3> PotionPositions
+    {
+        get
+        {
+            var positions = new List<Vector3>();
+            foreach (Potion potion in potions) if (!potion.Collected) positions.Add(potion.Rest);
+            return positions;
+        }
+    }
+
+    private sealed class Potion
+    {
+        public int Colour;
+        public Vector3 Rest;
+        public GameObject Body;
+        public SpriteRenderer Sprite;
+        public Light Glow;
+        public bool Collected;
+        public float Pop = -1f;
+        public float Phase;
+    }
+
+    // Runtime state, rebuilt rather than restored after a script reload in Play mode.
+    [System.NonSerialized] private ClueMap map;
+    [System.NonSerialized] private ClueMapArt.Frame frame;
+    [System.NonSerialized] private readonly List<Potion> potions = new List<Potion>();
+    [System.NonSerialized] private Color32[] marksPixels;
+    [System.NonSerialized] private Color32[] trailPixels;
+    [System.NonSerialized] private Sprite[] potionSprites;
+    [System.NonSerialized] private Mesh[] beamMeshes;
+    [System.NonSerialized] private CursiveWriter clueWriter;
+    private bool surveyFailed;
+    private Transform player;
+    private InventorySystem inventory;
+    private Vector2Int currentCell;
+    private Vector3 startPosition;
+    private bool hasStart;
+    private Vector2 lastTrail;
+    private bool hasTrail;
+    private bool trailDirty;
+    private bool pendingClue;
+    private float slide;
+    private string message;
+    private float messageUntil;
+
+    private Canvas canvas;
     private RectTransform surface;
-    private RectTransform boardRoot;
-    private Image letterImage;
-    private Texture2D texture;
-    // Runtime caches. NonSerialized so a script reload in Play mode resets them to null
-    // (Unity would otherwise restore them as empty arrays) and they get rebuilt.
-    [System.NonSerialized]
-    private Color32[] pixels;
-    [System.NonSerialized]
-    private float[] grain;
-    // The paper lines: the board grid continued onto the letter (hidden on the end screen).
-    private GameObject border;
-    private Texture2D paperLinesTexture;
-    private Sprite paperLinesFor;
-    private PixelText stepsLabel;
-    // The clue, written out in cursive once the puzzle is solved.
-    private const string ClueText = "Fell, Jerk, Thief";
+    private Image paper;
+    private Sprite fallbackPaper;
+    private RawImage glowImage;
+    private RawImage marksImage;
+    private RawImage trailImage;
+    private RawImage cluePatch;
     private RawImage clueInk;
+    private RawImage markerImage;
+    private PixelText stepsLabel;
+    private PixelText statusLabel;
+    private Texture2D mapTexture;
+    private Texture2D marksTexture;
+    private Texture2D trailTexture;
+    private Texture2D glowTexture;
+    private Texture2D markerTexture;
+    private bool mapDrawn;
+    private Rect house;
     private LetterBurn burn;
-    [System.NonSerialized]
-    private CursiveWriter clueWriter;
-    private GameObject hint;
-    private PixelText hintHeading;
-    private PixelText hintThen;
-    private RawImage nextSwatch;
-    private RawImage afterSwatch;
-    // One small potion per colour, matching the pieces on the board.
-    [System.NonSerialized]
-    private Texture2D[] swatchTextures;
-    private bool clueRecorded;
 
-
-    public bool IsShowing => surface != null && surface.gameObject.activeSelf;
-
-    // Once solved, the clue stays revealed for good: no restart, no new board.
-    public bool IsSolved => outcome == Outcome.Won;
-
-    public string Controls => IsSolved ? SolvedControls : PlayControls;
+    private GameObject walls;
+    private Material wallMaterial;
+    private Material beamMaterial;
+    private Mesh wallMesh;
+    private float wallFade;
+    private Vector2Int glowCell;
+    private Vector2Int glowPrevious;
+    private float glowBlend = 1f;
+    private PlayerController mover;
+    private bool boosted;
 
     public bool Handles(string itemName)
     {
         return itemName == triggerItem;
     }
 
-    // Progress survives closing the letter; only E or R start over.
-    public void Show(RectTransform parent, Sprite letter)
-    {
-        if (surface == null)
-        {
-            BuildView(parent);
-        }
-        letterImage.sprite = letter;
-        letterImage.enabled = letter != null;
-        if (paperLinesTexture == null || paperLinesFor != letter)
-        {
-            BuildPaperLines(letter);
-        }
-        surface.gameObject.SetActive(true);
-        Redraw();
-    }
+    private bool Owned => inventory != null && inventory.Contains(triggerItem);
 
-public void Hide()
+    private static bool Blocked => PauseMenu.IsPaused || TitleScreen.IsOpen || InventoryInspection.IsOpen || Interactables.Busy;
+
+    // Holds the letter up or puts it away. False when there is no letter to hold.
+    public bool ToggleHeld() => SetHeld(!IsHeld);
+
+    public bool SetHeld(bool held)
     {
-        // Closing mid-animation finishes the reset (or the writing) at once.
-        burn?.Cancel();
-        if (clueWriter != null && clueWriter.IsPlaying)
-        {
-            clueWriter.Complete();
-        }
-        RememberClue();
-        if (surface != null)
-        {
-            surface.gameObject.SetActive(false);
-        }
+        if (held && !Owned) return false;
+        if (IsHeld == held) return true;
+        IsHeld = held;
+        if (held) EnsureView();
+        if (inventory != null) inventory.NotifyInteraction();
+        return true;
     }
 
     private void Awake()
     {
-        NewBoard();
-        Restart();
+        inventory = GetComponent<InventorySystem>();
+    }
+
+    private void OnEnable() => Current = this;
+
+    private void OnDisable()
+    {
+        if (Current == this) Current = null;
+        Boost(false);
+    }
+
+    // The hunt's walk speed boost, on while potions are being hunted.
+    private void Boost(bool on)
+    {
+        if (mover == null && player != null) mover = player.GetComponent<PlayerController>();
+        if (mover == null || boosted == on) return;
+        mover.SpeedMultiplier = on ? HuntSpeedBoost : 1f;
+        boosted = on;
     }
 
     private void OnDestroy()
     {
-        if (texture != null)
+        ClearPotions();
+        Release(walls);
+        Release(wallMaterial);
+        Release(beamMaterial);
+        Release(wallMesh);
+        if (beamMeshes != null) foreach (Mesh mesh in beamMeshes) Release(mesh);
+        if (potionSprites != null)
         {
-            ReleaseTexture(texture);
-        }
-        if (paperLinesTexture != null)
-        {
-            ReleaseTexture(paperLinesTexture);
-        }
-        if (swatchTextures != null)
-        {
-            foreach (Texture2D swatch in swatchTextures)
+            foreach (Sprite sprite in potionSprites)
             {
-                ReleaseTexture(swatch);
+                if (sprite == null) continue;
+                Release(sprite.texture);
+                Release(sprite);
             }
         }
-        burn?.Dispose();
-        if (clueWriter != null)
+        Release(mapTexture);
+        Release(marksTexture);
+        Release(trailTexture);
+        Release(glowTexture);
+        Release(markerTexture);
+        if (fallbackPaper != null)
         {
-            if (Application.isPlaying) clueWriter.Dispose();
-            else ReleaseTexture(clueWriter.Texture);
+            Release(fallbackPaper.texture);
+            Release(fallbackPaper);
         }
+        if (Application.isPlaying) burn?.Dispose();
+        if (clueWriter != null) Release(clueWriter.Texture);
     }
 
-    private static void ReleaseTexture(Texture2D owned)
+    private static void Release(Object owned)
     {
         if (owned == null) return;
         if (Application.isPlaying) Destroy(owned);
         else DestroyImmediate(owned);
     }
 
-    // Lays the cursive clue out once and points the clue image at its texture.
-    private void EnsureClueWriter()
+    private void Update()
     {
-        if (clueWriter == null)
-        {
-            clueWriter = new CursiveWriter(ClueText, 300f, 18.2f, 4);
-        }
-        if (clueInk != null && clueInk.texture != clueWriter.Texture)
-        {
-            clueInk.texture = clueWriter.Texture;
-            PlaceOnLetter(clueInk.rectTransform, BoardCentre, clueWriter.SizeInLetterPixels);
-        }
-    }
+        if (inventory == null) inventory = InventorySystem.instance;
+        if (player == null) player = Interactables.FindPlayer();
+        SurveyStep();
+        if (IsHeld && !Owned) SetHeld(false);
 
-private void Update()
-    {
-        if (!IsShowing)
+        bool blocked = Blocked;
+        if (IsBurning)
         {
-            return;
+            // Put away or covered mid-burn: the reset happens at once.
+            if (!IsHeld || blocked) burn.Cancel();
+            else burn.Tick(Time.unscaledDeltaTime);
         }
-        if (burn != null && burn.IsPlaying)
+        if (clueWriter != null && clueWriter.IsPlaying) clueWriter.Tick(Time.unscaledDeltaTime);
+        if (pendingClue && !blocked && Owned)
         {
-            burn.Tick(Time.unscaledDeltaTime);
-            return; // Input waits for the letter to rebuild.
+            pendingClue = false;
+            SetHeld(true);
+            ShowClue(true);
         }
-        if (clueWriter != null && clueWriter.IsPlaying)
-        {
-            clueWriter.Tick(Time.unscaledDeltaTime);
-        }
-        RememberClue();
 
         Keyboard keyboard = Keyboard.current;
-        if (keyboard == null || IsSolved)
+        if (IsHeld && !blocked && !IsBurning && keyboard != null && keyboard.rKey.wasPressedThisFrame)
         {
-            return;
+            if (State == HuntState.Playing) Burn(true);
+            else if (State == HuntState.Idle && player != null) StartHunt(player.position);
         }
 
-        if (keyboard.rKey.wasPressedThisFrame)
+        if (player != null && !PauseMenu.IsPaused) Track(player.position);
+        Boost(State == HuntState.Playing);
+        AnimateWorld(Time.deltaTime);
+    }
+
+    // ---- Survey ------------------------------------------------------------------------
+
+    private void SurveyStep()
+    {
+        if (map == null)
         {
-            BurnAndReset(true);
+            // The opening sails the player in and moors its boat; survey the island once it is over.
+            if (TitleScreen.IsOpen || !BeginSurvey()) return;
         }
-        else if (keyboard.eKey.wasPressedThisFrame)
-        {
-            BurnAndReset(false);
-        }
-        else if (Step(keyboard))
-        {
-            if (outcome == Outcome.Won)
-            {
-                EnsureClueWriter();
-                clueWriter.Play();
-            }
-            Redraw();
-            if (outcome == Outcome.OutOfSteps)
-            {
-                // The last step is drawn, then the letter goes up in flames from the board's
-                // centre while "OUT OF STEPS" burns into view.
-                BurnAndReset(false, true);
-            }
-        }
+        if (!map.IsReady && map.Advance(SurveySlice)) OnSurveyed();
     }
 
-    private void RememberClue()
+    // Surveys the whole island at once (the hunt can't wait for the slices).
+    public void SurveyNow()
     {
-        if (clueRecorded || !IsSolved || clueWriter == null || !clueWriter.HasStarted ||
-            clueWriter.IsPlaying || InventorySystem.instance == null) return;
-        InventorySystem.instance.RevealClueWords(ClueText);
-        clueRecorded = true;
+        if (map == null && !BeginSurvey()) return;
+        if (!map.IsReady && map.Advance(int.MaxValue)) OnSurveyed();
     }
 
-    // The letter burns up; while it is ash the board resets (or is replaced), and
-    // the letter rebuilds showing the fresh game.
-// The letter burns up; while it is ash the board resets (or is replaced), and
-    // the letter rebuilds showing the fresh game. Running out of steps always burns from
-    // the board's centre and writes the flame headline; E and R start random fires.
-    private void BurnAndReset(bool newBoard, bool outOfSteps = false)
+    private bool BeginSurvey()
     {
-        burn ??= new LetterBurn(surface, letterImage);
-        burn.Play(() =>
+        if (surveyFailed) return false;
+        GameObject groundObject = GameObject.Find(GroundName);
+        Collider ground = groundObject != null ? groundObject.GetComponent<Collider>() : null;
+        if (ground == null)
         {
-            if (newBoard)
-            {
-                NewBoard();
-            }
-            Restart();
-            Redraw();
-        }, outOfSteps ? OnLetter(BoardCentre) : (Vector2?)null, outOfSteps ? "OUT OF STEPS" : null);
-    }
-
-    private void LateUpdate()
-    {
-        if (!IsShowing)
-        {
-            return;
-        }
-
-        // The letter takes an inspected sprite's footprint; the board keeps its place on the paper.
-        Rect bounds = ((RectTransform)surface.parent).rect;
-        Sprite letter = letterImage.sprite;
-        float aspect = letter != null ? letter.rect.width / letter.rect.height : LetterSize.x / LetterSize.y;
-        float height = Mathf.Min(bounds.height * 0.76f, bounds.width * 0.84f / aspect);
-        surface.sizeDelta = new Vector2(height * aspect, height);
-        float side = height * BoardSide / LetterSize.y;
-        boardRoot.sizeDelta = new Vector2(side, side);
-        // Sizes are cap heights; PixelText rounds them to whole screen pixels per font pixel.
-        float inkSize = height * 0.035f;
-        stepsLabel.fontSize = inkSize;
-        hintHeading.fontSize = inkSize;
-        hintThen.fontSize = height * 0.028f;
-    }
-
-    private void Restart()
-    {
-        System.Array.Copy(layout, board, layout.Length);
-        player = Start;
-        currentColor = 0;
-        stepsLeft = stepBudget;
-        outcome = Outcome.Playing;
-    }
-
-    // One step per key press, so every move is deliberate. Bumping a wall is free.
-    private bool Step(Keyboard keyboard)
-    {
-        if (outcome != Outcome.Playing)
-        {
+            surveyFailed = true;
+            Debug.LogWarning("[ClueMinigame] No " + GroundName + " collider to map the island from; the potion hunt is off.");
             return false;
         }
-
-        Vector2Int step;
-        if (keyboard.aKey.wasPressedThisFrame) step = new Vector2Int(-1, 0);
-        else if (keyboard.dKey.wasPressedThisFrame) step = new Vector2Int(1, 0);
-        else if (keyboard.wKey.wasPressedThisFrame) step = new Vector2Int(0, -1);
-        else if (keyboard.sKey.wasPressedThisFrame) step = new Vector2Int(0, 1);
-        else return false;
-
-        Vector2Int next = player + step;
-        if (next.x < 0 || next.x >= GridSize || next.y < 0 || next.y >= GridSize)
-        {
-            return false;
-        }
-
-        int tile = board[next.y, next.x];
-        if (tile != Floor && tile != currentColor)
-        {
-            return false; // Only the next colour in the sequence can be stepped on.
-        }
-        if (tile != Floor)
-        {
-            board[next.y, next.x] = Floor;
-            currentColor += 1;
-        }
-        player = next;
-        stepsLeft -= 1;
-
-        if (currentColor >= Colors.Length)
-        {
-            outcome = Outcome.Won;
-        }
-        else if (stepsLeft <= 0)
-        {
-            // Walling off the next colour is never announced; the player finds out by
-            // running out of steps.
-            outcome = Outcome.OutOfSteps;
-        }
+        GameObject oceanObject = GameObject.Find("ocean");
+        Collider ocean = oceanObject != null ? oceanObject.GetComponent<Collider>() : null;
+        if (player == null) player = Interactables.FindPlayer();
+        Collider[] ignore = player != null ? player.GetComponentsInChildren<Collider>(true) : new Collider[0];
+        map = new ClueMap(ground, ocean, ignore);
+        frame = new ClueMapArt.Frame(ground.bounds, ClueMapArt.MapArea);
         return true;
     }
 
-    private void NewBoard()
+    private void OnSurveyed()
     {
-        // Lay out the route first: a target per colour, each one leg from the last,
-        // joined by corridors that are never filled in.
-        var reserved = new bool[GridSize, GridSize];
-        var targets = new Vector2Int[Colors.Length];
-        Vector2Int at = Start;
-        reserved[at.y, at.x] = true;
-        for (int colour = 0; colour < Colors.Length; colour++)
+        DrawMapIfReady();
+        Shader light = Resources.Load<Shader>("ClueMap/ClueGridLight");
+        if (light == null)
         {
-            Vector2Int target = PickTarget(at, reserved);
-            CarveCorridor(at, target, reserved);
-            reserved[target.y, target.x] = true;
-            targets[colour] = target;
-            at = target;
-        }
-
-        for (int y = 0; y < GridSize; y++)
-        {
-            for (int x = 0; x < GridSize; x++)
-            {
-                if (reserved[y, x] || random.NextDouble() >= WallDensity)
-                {
-                    layout[y, x] = Floor;
-                }
-                else
-                {
-                    layout[y, x] = random.NextDouble() < StrayColours ? random.Next(Colors.Length) : NearestTarget(targets, x, y);
-                }
-            }
-        }
-        for (int colour = 0; colour < Colors.Length; colour++)
-        {
-            layout[targets[colour].y, targets[colour].x] = colour;
-        }
-
-        // The carved route is always walkable, so its length caps the search.
-        System.Array.Copy(layout, board, layout.Length);
-        int planned = 0;
-        at = Start;
-        for (int colour = 0; colour < Colors.Length; colour++)
-        {
-            Vector2Int target = targets[colour];
-            FindTiles(at, colour, int.MaxValue, null, null);
-            planned += distance[target.y * GridSize + target.x];
-            board[target.y, target.x] = Floor;
-            at = target;
-        }
-
-        System.Array.Copy(layout, board, layout.Length);
-        int best = Search(Start, 0, 0, planned);
-        stepBudget = best + Mathf.Max(MinBudgetSlack, Mathf.CeilToInt(best * BudgetSlack));
-    }
-
-    private Vector2Int PickTarget(Vector2Int from, bool[,] reserved)
-    {
-        var inRange = new List<Vector2Int>();
-        var free = new List<Vector2Int>();
-        for (int y = 0; y < GridSize; y++)
-        {
-            for (int x = 0; x < GridSize; x++)
-            {
-                if (reserved[y, x])
-                {
-                    continue;
-                }
-                var cell = new Vector2Int(x, y);
-                free.Add(cell);
-                int leg = Mathf.Abs(x - from.x) + Mathf.Abs(y - from.y);
-                if (leg >= MinLeg && leg <= MaxLeg)
-                {
-                    inRange.Add(cell);
-                }
-            }
-        }
-        List<Vector2Int> pool = inRange.Count > 0 ? inRange : free;
-        return pool[random.Next(pool.Count)];
-    }
-
-    // A random staircase from one target to the cell beside the next.
-    private void CarveCorridor(Vector2Int from, Vector2Int to, bool[,] reserved)
-    {
-        int stepX = System.Math.Sign(to.x - from.x);
-        int stepY = System.Math.Sign(to.y - from.y);
-        int remainingX = Mathf.Abs(to.x - from.x);
-        int remainingY = Mathf.Abs(to.y - from.y);
-        Vector2Int at = from;
-        while (remainingX + remainingY > 1)
-        {
-            if (random.Next(remainingX + remainingY) < remainingX)
-            {
-                at.x += stepX;
-                remainingX -= 1;
-            }
-            else
-            {
-                at.y += stepY;
-                remainingY -= 1;
-            }
-            reserved[at.y, at.x] = true;
-        }
-    }
-
-    private static int NearestTarget(Vector2Int[] targets, int x, int y)
-    {
-        int nearest = 0;
-        int nearestDistance = int.MaxValue;
-        for (int i = 0; i < targets.Length; i++)
-        {
-            int dx = targets[i].x - x;
-            int dy = targets[i].y - y;
-            if (dx * dx + dy * dy < nearestDistance)
-            {
-                nearestDistance = dx * dx + dy * dy;
-                nearest = i;
-            }
-        }
-        return nearest;
-    }
-
-    // Depth-first over the cheapest few tiles of each colour, pruned by the best total so far.
-    private int Search(Vector2Int at, int colour, int spent, int best)
-    {
-        if (colour >= Colors.Length)
-        {
-            return spent;
-        }
-
-        var tiles = new Vector2Int[SearchBranches];
-        var costs = new int[SearchBranches];
-        int count = FindTiles(at, colour, SearchBranches, tiles, costs);
-        for (int i = 0; i < count && spent + costs[i] < best; i++)
-        {
-            Vector2Int tile = tiles[i];
-            board[tile.y, tile.x] = Floor;
-            best = Mathf.Min(best, Search(tile, colour + 1, spent + costs[i], best));
-            board[tile.y, tile.x] = colour;
-        }
-        return best;
-    }
-
-    // Walks the floor outward from `from` and returns up to `limit` tiles of `colour`
-    // with the steps needed to stand on them, cheapest first. Leaves every reached
-    // cell's step count in `distance`.
-    private int FindTiles(Vector2Int from, int colour, int limit, Vector2Int[] tiles, int[] costs)
-    {
-        for (int i = 0; i < distance.Length; i++)
-        {
-            distance[i] = -1;
-        }
-
-        int head = 0;
-        int tail = 0;
-        int found = 0;
-        int origin = from.y * GridSize + from.x;
-        distance[origin] = 0;
-        queue[tail++] = origin;
-        while (head < tail)
-        {
-            int cell = queue[head++];
-            int cx = cell % GridSize;
-            int cy = cell / GridSize;
-            foreach (Vector2Int direction in Directions)
-            {
-                int nx = cx + direction.x;
-                int ny = cy + direction.y;
-                if (nx < 0 || nx >= GridSize || ny < 0 || ny >= GridSize)
-                {
-                    continue;
-                }
-                int next = ny * GridSize + nx;
-                if (distance[next] >= 0)
-                {
-                    continue;
-                }
-
-                int tile = board[ny, nx];
-                if (tile == Floor)
-                {
-                    distance[next] = distance[cell] + 1;
-                    queue[tail++] = next;
-                }
-                else if (tile == colour)
-                {
-                    distance[next] = distance[cell] + 1;
-                    if (tiles != null)
-                    {
-                        tiles[found] = new Vector2Int(nx, ny);
-                        costs[found] = distance[next];
-                    }
-                    found += 1;
-                    if (found == limit)
-                    {
-                        return found;
-                    }
-                }
-            }
-        }
-        return found;
-    }
-
-    private void Redraw()
-    {
-        EnsureCanvas();
-        EnsureSwatches();
-        // Running out of steps still shows the board: the burn takes it from there. Once
-        // solved the board is hidden (and the player has no colour left to wear).
-        DrawPaper();
-        if (!IsSolved)
-        {
-            DrawBoard();
-            DrawPlayer();
-        }
-        ApplyLighting();
-        texture.SetPixels32(pixels);
-        texture.Apply();
-
-        stepsLabel.text = "Steps left\n" + stepsLeft;
-
-        // Solving wipes the puzzle off the letter and leaves only the clue written on it.
-        boardRoot.gameObject.SetActive(!IsSolved);
-        border.SetActive(!IsSolved); // The grid running out onto the paper goes with the board.
-        stepsLabel.gameObject.SetActive(!IsSolved);
-        clueInk.gameObject.SetActive(IsSolved);
-        if (IsSolved)
-        {
-            EnsureClueWriter();
-            if (!clueWriter.HasStarted)
-            {
-                clueWriter.Complete(); // Solved earlier: show it already written.
-            }
-            RememberClue();
-        }
-
-        // The player wears the colour it is on; the hint shows the two that follow it.
-        int next = currentColor + 1;
-        int after = currentColor + 2;
-        hint.SetActive(!IsSolved && next < Colors.Length);
-        if (hint.activeSelf)
-        {
-            nextSwatch.texture = swatchTextures[next];
-            bool hasAfter = after < Colors.Length;
-            afterSwatch.gameObject.SetActive(hasAfter);
-            hintThen.gameObject.SetActive(hasAfter);
-            if (hasAfter)
-            {
-                afterSwatch.texture = swatchTextures[after];
-            }
-        }
-    }
-
-private void DrawBoard()
-    {
-        int insetX = (TileSize - PotionWidth) / 2;
-        int insetY = (TileSize - PotionHeight) / 2;
-        for (int y = 0; y < GridSize; y++)
-        {
-            for (int x = 0; x < GridSize; x++)
-            {
-                int tile = board[y, x];
-                if (tile != Floor)
-                {
-                    PaintPotion((x + 1) * TileSize + insetX, (y + 1) * TileSize + insetY, Colors[tile]);
-                }
-            }
-        }
-
-        // Pen grid over the paint, wobbling and fading like ink from a nib.
-        int start = TileSize;
-        int end = TileSize * (GridSize + 1);
-        for (int k = 0; k <= GridSize; k++)
-        {
-            int at = TileSize * (k + 1);
-            int width = k == 0 || k == GridSize ? 3 : 2;
-            InkLine(start, at, end - start, true, width, k * 7 + 1);
-            InkLine(at, start, end - start, false, width, k * 7 + 3);
-        }
-    }
-
-    // A small corked flask of the tile's colour, painted pixel by pixel from PotionArt with a
-    // soft drop shadow. x0, y0 is its top-left corner on the canvas.
-    private void PaintPotion(int x0, int y0, Color32 color)
-    {
-        int shadow = PotionPixel;
-        for (int row = 0; row < PotionArt.Length; row++)
-        {
-            for (int col = 0; col < PotionArt[row].Length; col++)
-            {
-                if (PotionArt[row][col] == '.') continue;
-                FillArtPixel(x0 + col * PotionPixel + shadow, y0 + row * PotionPixel + shadow, Outline, 0.28f, false);
-            }
-        }
-
-        for (int row = 0; row < PotionArt.Length; row++)
-        {
-            // The liquid darkens a little toward the bottom of the flask.
-            float depth = 1.08f - 0.14f * row / (PotionArt.Length - 1);
-            for (int col = 0; col < PotionArt[row].Length; col++)
-            {
-                int x = x0 + col * PotionPixel;
-                int y = y0 + row * PotionPixel;
-                switch (PotionArt[row][col])
-                {
-                    case 'o': FillArtPixel(x, y, Outline, 0.92f, true); break;
-                    case 'c': FillArtPixel(x, y, Cork, 1f, true); break;
-                    case 'g': FillArtPixel(x, y, Glass, 0.6f, true); break;
-                    case 'h': FillArtPixel(x, y, Glint, 0.95f, false); break;
-                    case 's': FillArtPixel(x, y, Shade(Color32.Lerp(color, Glint, 0.35f), 1f), 1f, true); break;
-                    case 'l': FillArtPixel(x, y, Shade(color, depth), 1f, true); break;
-                    case 'd': FillArtPixel(x, y, Shade(color, 0.68f), 1f, true); break;
-                }
-            }
-        }
-    }
-
-    // One art pixel of the potion: a PotionPixel square, mottled by the paper grain when inked.
-    private void FillArtPixel(int x0, int y0, Color32 color, float alpha, bool grained)
-    {
-        for (int y = y0; y < y0 + PotionPixel; y++)
-        {
-            for (int x = x0; x < x0 + PotionPixel; x++)
-            {
-                Color32 ink = grained ? Shade(color, 0.94f + 0.12f * Grain(x, y)) : color;
-                Blend(x, y, ink, alpha);
-            }
-        }
-    }
-
-    private static Color32 Shade(Color32 color, float light)
-    {
-        return new Color32(
-            (byte)Mathf.Clamp(color.r * light, 0f, 255f),
-            (byte)Mathf.Clamp(color.g * light, 0f, 255f),
-            (byte)Mathf.Clamp(color.b * light, 0f, 255f), 255);
-    }
-
-    // A pen stroke along one grid line. Ink density follows the paper grain and the line
-    // drifts sideways by a pixel now and then.
-    private void InkLine(int x, int y, int length, bool horizontal, int width, int seed)
-    {
-        for (int t = 0; t < length; t++)
-        {
-            int wobble = Mathf.RoundToInt((Noise(t / 46f, seed) - 0.5f) * 2.4f);
-            for (int w = 0; w < width; w++)
-            {
-                int px = horizontal ? x + t : x + wobble + w - width / 2;
-                int py = horizontal ? y + wobble + w - width / 2 : y + t;
-                float density = 0.5f + 0.35f * Grain(px, py) + 0.15f * Noise(t / 9f, seed + 5);
-                Blend(px, py, Outline, density * (w == 0 || w == width - 1 ? 0.75f : 1f));
-            }
-        }
-    }
-
-    // The player is a wax seal in the colour it carries: drop shadow, darker pressed rim,
-    // a stamped inner ring, shading from the top-left and a small glint.
-    private void DrawPlayer()
-    {
-        float cx = (player.x + 1) * TileSize + TileSize * 0.5f;
-        float cy = (player.y + 1) * TileSize + TileSize * 0.5f;
-        float r = TileSize * 0.36f;
-        float shadowOffset = TilePx(1.4f);
-        Color32 wax = Colors[currentColor];
-
-        int x0 = Mathf.FloorToInt(cx - r - 2f);
-        int y0 = Mathf.FloorToInt(cy - r - 2f);
-        int span = Mathf.CeilToInt(r * 2f + 4f + shadowOffset);
-        for (int y = y0; y < y0 + span; y++)
-        {
-            for (int x = x0; x < x0 + span; x++)
-            {
-                float sx = x + 0.5f - cx - shadowOffset;
-                float sy = y + 0.5f - cy - shadowOffset;
-                float shadowCover = Mathf.Clamp01(r + 1.5f - Mathf.Sqrt(sx * sx + sy * sy));
-                Blend(x, y, Outline, shadowCover * 0.35f);
-            }
-        }
-
-        for (int y = y0; y < y0 + span; y++)
-        {
-            for (int x = x0; x < x0 + span; x++)
-            {
-                float dx = x + 0.5f - cx;
-                float dy = y + 0.5f - cy;
-                float d = Mathf.Sqrt(dx * dx + dy * dy);
-                float cover = Mathf.Clamp01(r + 0.5f - d);
-                if (cover <= 0f)
-                {
-                    continue;
-                }
-
-                float light = 1f - 0.28f * (dx + dy) / (r * 1.41f);
-                if (d > r * 0.78f) light *= 0.72f;
-                float ring = Mathf.Abs(d - r * 0.48f);
-                if (ring < 1.2f) light *= dx + dy < 0f ? 0.8f : 1.2f; // Stamp edge catches light below-right.
-                else if (d < r * 0.48f) light *= 0.9f;
-                light *= 0.94f + 0.12f * Grain(x, y);
-
-                var body = new Color32(
-                    (byte)Mathf.Clamp(wax.r * light, 0f, 255f),
-                    (byte)Mathf.Clamp(wax.g * light, 0f, 255f),
-                    (byte)Mathf.Clamp(wax.b * light, 0f, 255f),
-                    255);
-                Blend(x, y, body, cover);
-
-                float gx = dx + r * 0.38f;
-                float gy = dy + r * 0.38f;
-                float glint = Mathf.Clamp01(r * 0.16f - Mathf.Sqrt(gx * gx + gy * gy) + 0.5f);
-                Blend(x, y, new Color32(255, 248, 230, 255), glint * 0.6f);
-
-                float edgeInk = Mathf.Clamp01(1.4f - Mathf.Abs(d - r));
-                Blend(x, y, Outline, edgeInk * 0.7f);
-            }
-        }
-    }
-
-
-    // Thin aged wash over the board area; the letter's paper shows through it.
-// The board has no background of its own: the letter's paper shows straight through.
-    private void DrawPaper()
-    {
-        System.Array.Clear(pixels, 0, pixels.Length);
-    }
-
-    // Static candle light over the finished board: brighter and warmer at the top-left,
-    // falling off toward the bottom-right, darker toward the edges.
-    private void ApplyLighting()
-    {
-        float inv = 1f / CanvasSize;
-        for (int y = 0; y < CanvasSize; y++)
-        {
-            for (int x = 0; x < CanvasSize; x++)
-            {
-                float nx = x * inv;
-                float ny = y * inv;
-                float ex = nx - 0.5f;
-                float ey = ny - 0.5f;
-                float vignette = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.42f, 0.74f, Mathf.Sqrt(ex * ex + ey * ey)));
-                float light = (1.07f - 0.17f * (nx + ny) * 0.5f) * (1f - 0.3f * vignette);
-
-                int i = Index(x, y);
-                Color32 c = pixels[i];
-                c.r = (byte)Mathf.Clamp(c.r * light * 1.04f, 0f, 255f);
-                c.g = (byte)Mathf.Clamp(c.g * light, 0f, 255f);
-                c.b = (byte)Mathf.Clamp(c.b * light * 0.9f, 0f, 255f);
-                pixels[i] = c;
-            }
-        }
-    }
-
-    private static int TilePx(float sketchPixels)
-    {
-        return Mathf.FloorToInt(sketchPixels * TileSize / SketchTile + 0.5f);
-    }
-
-    // Alpha-blends a rectangle measured from the top-left, like p5's rect().
-private void Fill(int x, int y, int width, int height, Color32 color)
-    {
-        float alpha = color.a / 255f;
-        color.a = 255;
-        for (int row = y; row < y + height; row++)
-        {
-            for (int col = x; col < x + width; col++)
-            {
-                Blend(col, row, color, alpha);
-            }
-        }
-    }
-
-    // Paints color over one canvas pixel (top-left origin), keeping the canvas's own
-    // transparency so the letter shows through thin washes.
-    private void Blend(int x, int y, Color32 color, float alpha)
-    {
-        if (x < 0 || y < 0 || x >= CanvasSize || y >= CanvasSize || alpha <= 0f)
-        {
+            Debug.LogWarning("[ClueMinigame] Missing Resources/ClueMap/ClueGridLight; no light walls or potion beams.");
             return;
         }
-        int i = Index(x, y);
-        Color32 under = pixels[i];
-        float a = Mathf.Clamp01(alpha);
-        float ua = under.a / 255f;
-        float outA = a + ua * (1f - a);
-        if (outA <= 0f)
+        wallMaterial = new Material(light) { name = "Clue grid walls", hideFlags = HideFlags.HideAndDontSave };
+        beamMaterial = new Material(light) { name = "Clue potion beams", hideFlags = HideFlags.HideAndDontSave };
+        beamMaterial.SetFloat("_Intensity", 0.7f);
+        beamMaterial.SetFloat("_FadePower", 1.3f);
+        beamMaterial.SetFloat("_EdgeSoftness", 0.9f);
+        beamMaterial.SetColor("_Color", Color.white);
+        wallMaterial.SetFloat("_Intensity", WallIntensity);
+        wallMaterial.SetFloat("_UseCells", 1f);
+        wallMaterial.SetFloat("_NearGlow", NearGlow);
+        wallMaterial.SetVector("_Grid", new Vector4(map.Origin.x, map.Origin.y, map.CellSize, 0f));
+        wallMesh = ClueMapArt.GridWalls(map, WallHeight);
+        walls = new GameObject("Clue grid walls");
+        walls.AddComponent<MeshFilter>().sharedMesh = wallMesh;
+        MeshRenderer renderer = walls.AddComponent<MeshRenderer>();
+        renderer.sharedMaterial = wallMaterial;
+        renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+        walls.SetActive(false);
+    }
+
+    // ---- The hunt ----------------------------------------------------------------------
+
+    // Starts a hunt from where the player stands: false (with a note on the letter) off the
+    // island, mid-hunt or when the potions can't be placed.
+    public bool StartHunt(Vector3 at)
+    {
+        if (State != HuntState.Idle || IsBurning) return false;
+        SurveyNow();
+        if (map == null || !map.IsReady) return false;
+        int start = map.IsLand(map.SampleAt(at)) ? map.NearestWalkable(at, 3) : -1;
+        var plan = new List<int>();
+        if (start < 0 || !map.PlanHunt(start, PotionCount, new System.Random(), plan, out int budget))
         {
+            Say(start < 0 ? "STAND ON THE ISLAND TO START" : "NO ROOM FOR POTIONS HERE");
+            return false;
+        }
+
+        // Each potion takes a different colour, shuffled.
+        var colours = new List<int>();
+        for (int c = 0; c < ClueMapArt.PotionColors.Length; c++) colours.Add(c);
+        var random = new System.Random();
+        for (int k = 0; k < plan.Count; k++)
+        {
+            int pick = random.Next(colours.Count);
+            SpawnPotion(map.SamplePosition(plan[k]), colours[pick]);
+            colours.RemoveAt(pick);
+        }
+        StepBudget = budget;
+        StepsLeft = budget;
+        currentCell = map.CellAt(at);
+        glowCell = glowPrevious = currentCell;
+        glowBlend = 1f;
+        startPosition = at;
+        hasStart = true;
+        ClearTrail();
+        State = HuntState.Playing;
+        DrawTrail(at);
+        RedrawMarks();
+        return true;
+    }
+
+    // Each frame of a hunt: collects potions the player reaches, draws the trail and charges a
+    // step for every cell border crossed. Running out of steps burns the letter.
+    public void Track(Vector3 position)
+    {
+        if (State != HuntState.Playing || IsBurning || map == null) return;
+        foreach (Potion potion in potions)
+        {
+            if (potion.Collected) continue;
+            Vector3 d = position - potion.Rest;
+            if (d.x * d.x + d.z * d.z <= CollectRadius * CollectRadius && Mathf.Abs(d.y) < 2.5f) Collect(potion);
+        }
+        if (State != HuntState.Playing) return;
+        DrawTrail(position);
+
+        Rect cell = map.CellRect(currentCell);
+        if (position.x >= cell.xMin - BorderGrace && position.x <= cell.xMax + BorderGrace &&
+            position.z >= cell.yMin - BorderGrace && position.z <= cell.yMax + BorderGrace) return;
+        Vector2Int next = map.CellAt(position);
+        int crossed = Mathf.Abs(next.x - currentCell.x) + Mathf.Abs(next.y - currentCell.y);
+        currentCell = next;
+        if (crossed > StepsLeft)
+        {
+            // No steps left to cross with: the letter goes up in flames.
+            StepsLeft = 0;
+            Burn(false);
             return;
         }
-        pixels[i] = new Color32(
-            (byte)((color.r * a + under.r * ua * (1f - a)) / outA),
-            (byte)((color.g * a + under.g * ua * (1f - a)) / outA),
-            (byte)((color.b * a + under.b * ua * (1f - a)) / outA),
-            (byte)(outA * 255f));
+        StepsLeft -= crossed;
     }
 
-    // Texture rows run bottom-up; the canvas is drawn top-down.
-    private static int Index(int x, int y)
+    private void Collect(Potion potion)
     {
-        return (CanvasSize - 1 - y) * CanvasSize + x;
+        potion.Collected = true;
+        potion.Pop = 0f;
+        RedrawMarks();
+        if (PotionsLeft > 0) return;
+        State = HuntState.Found;
+        // Up comes the letter, with the alchemist's house glowing on it.
+        if (!Blocked) SetHeld(true);
     }
 
-    // Static paper grain, 0..1: soft blotches, finer mottling, horizontal fibres and the
-    // odd dark fleck. Built once, so every redraw shares the same paper.
-    private float Grain(int x, int y)
+    // The alchemist writes the clue word on the letter once every potion is found.
+    public bool Deliver()
     {
-        if (grain == null || grain.Length != CanvasSize * CanvasSize)
+        if (State != HuntState.Found) return false;
+        State = HuntState.Delivered;
+        if (inventory != null) inventory.RevealClueWords(ClueWord);
+        pendingClue = true;
+        return true;
+    }
+
+    // The letter burns up from the bottom; while it is ash the hunt is cleared (and a new one
+    // starts where the player stands when regenerate is set), then the letter rebuilds.
+    private void Burn(bool regenerate)
+    {
+        void Rebuild()
         {
-            grain = new float[CanvasSize * CanvasSize];
-            for (int gy = 0; gy < CanvasSize; gy++)
+            ResetHunt();
+            if (regenerate && player != null) StartHunt(player.position);
+        }
+
+        if (Blocked || !SetHeld(true) || surface == null)
+        {
+            Rebuild();
+            return;
+        }
+        canvas.gameObject.SetActive(true);
+        Canvas.ForceUpdateCanvases();
+        burn ??= new LetterBurn(surface, paper);
+        burn.Play(Rebuild);
+    }
+
+    private void ResetHunt()
+    {
+        ClearPotions();
+        hasStart = false;
+        StepsLeft = 0;
+        StepBudget = 0;
+        State = HuntState.Idle;
+        ClearTrail();
+        RedrawMarks();
+    }
+
+    private void Say(string text)
+    {
+        message = text;
+        messageUntil = Time.unscaledTime + MessageSeconds;
+    }
+
+    // ---- Potions and walls on the island -----------------------------------------------
+
+    private void SpawnPotion(Vector3 rest, int colour)
+    {
+        EnsurePotionArt();
+        var body = new GameObject("Clue potion (" + colour + ")");
+        body.transform.position = rest;
+        SpriteRenderer sprite = body.AddComponent<SpriteRenderer>();
+        sprite.sprite = potionSprites[colour];
+        body.AddComponent<GrassBillboard>();
+
+        var glowObject = new GameObject("Glow");
+        glowObject.transform.SetParent(body.transform, false);
+        glowObject.transform.localPosition = Vector3.up * 0.5f;
+        Light glow = glowObject.AddComponent<Light>();
+        glow.type = LightType.Point;
+        glow.color = ClueMapArt.PotionColors[colour];
+        glow.intensity = 2.5f;
+        glow.range = 4.5f;
+        glow.shadows = LightShadows.None;
+
+        if (beamMaterial != null)
+        {
+            var beam = new GameObject("Beam");
+            beam.transform.SetParent(body.transform, false);
+            beam.AddComponent<MeshFilter>().sharedMesh = beamMeshes[colour];
+            MeshRenderer renderer = beam.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = beamMaterial;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+        }
+
+        potions.Add(new Potion
+        {
+            Colour = colour,
+            Rest = rest,
+            Body = body,
+            Sprite = sprite,
+            Glow = glow,
+            Phase = Random.value * Mathf.PI * 2f,
+        });
+    }
+
+    private void EnsurePotionArt()
+    {
+        int count = ClueMapArt.PotionColors.Length;
+        if (potionSprites != null && potionSprites.Length == count && System.Array.TrueForAll(potionSprites, s => s != null)) return;
+        potionSprites = new Sprite[count];
+        beamMeshes = new Mesh[count];
+        for (int c = 0; c < count; c++)
+        {
+            Texture2D texture = ClueMapArt.PotionTexture(ClueMapArt.PotionColors[c], 1, "Clue potion " + c);
+            potionSprites[c] = Sprite.Create(texture, new Rect(0, 0, texture.width, texture.height), new Vector2(0.5f, 0f), PotionPixelsPerUnit);
+            potionSprites[c].name = "Clue potion " + c;
+            Color32 beam = ClueMapArt.PotionColors[c];
+            beamMeshes[c] = ClueMapArt.Beam(beam, 0.8f, 9f);
+        }
+    }
+
+    private void ClearPotions()
+    {
+        foreach (Potion potion in potions) Release(potion.Body);
+        potions.Clear();
+    }
+
+    // Potions bob and pop when collected; the walls fade in for a hunt and light the cells round the player.
+    private void AnimateWorld(float deltaTime)
+    {
+        for (int k = potions.Count - 1; k >= 0; k--)
+        {
+            Potion potion = potions[k];
+            if (potion.Body == null) continue;
+            if (potion.Pop >= 0f)
             {
-                for (int gx = 0; gx < CanvasSize; gx++)
+                potion.Pop += deltaTime;
+                float t = Mathf.Clamp01(potion.Pop / PopSeconds);
+                potion.Body.transform.localScale = Vector3.one * (1f + 0.8f * t);
+                potion.Sprite.color = new Color(1f, 1f, 1f, 1f - t);
+                potion.Glow.intensity = 2.5f * (1f - t);
+                if (t >= 1f)
                 {
-                    float n = ValueNoise(gx / 60f, gy / 60f, 1) * 0.45f
-                        + ValueNoise(gx / 14f, gy / 14f, 2) * 0.3f
-                        + ValueNoise(gx / 24f, gy / 2.5f, 3) * 0.25f;
-                    if (Hash01(gx, gy, 4) < 0.003f) n -= 0.4f;
-                    grain[gy * CanvasSize + gx] = Mathf.Clamp01(n);
+                    Release(potion.Body);
+                    potion.Body = null;
                 }
+                continue;
             }
+            float bob = 0.12f + Mathf.Sin(Time.time * 2f + potion.Phase) * 0.08f;
+            potion.Body.transform.position = potion.Rest + Vector3.up * bob;
         }
-        x = Mathf.Clamp(x, 0, CanvasSize - 1);
-        y = Mathf.Clamp(y, 0, CanvasSize - 1);
-        return grain[y * CanvasSize + x];
-    }
 
-    private static float Noise(float t, int seed)
-    {
-        return ValueNoise(t, seed * 3.7f, seed);
-    }
-
-    private static float ValueNoise(float x, float y, int seed)
-    {
-        int xi = Mathf.FloorToInt(x);
-        int yi = Mathf.FloorToInt(y);
-        float fx = x - xi;
-        float fy = y - yi;
-        fx = fx * fx * (3f - 2f * fx);
-        fy = fy * fy * (3f - 2f * fy);
-        float top = Mathf.Lerp(Hash01(xi, yi, seed), Hash01(xi + 1, yi, seed), fx);
-        float bottom = Mathf.Lerp(Hash01(xi, yi + 1, seed), Hash01(xi + 1, yi + 1, seed), fx);
-        return Mathf.Lerp(top, bottom, fy);
-    }
-
-    private static float Hash01(int x, int y, int seed)
-    {
-        unchecked
+        if (walls == null) return;
+        wallFade = Mathf.MoveTowards(wallFade, State == HuntState.Playing ? 1f : 0f, deltaTime / WallFadeSeconds);
+        if (walls.activeSelf != wallFade > 0f) walls.SetActive(wallFade > 0f);
+        wallMaterial.SetFloat("_Fade", wallFade);
+        if (currentCell != glowCell)
         {
-            uint h = (uint)(x * 374761393 + y * 668265263 + seed * 982451653);
-            h = (h ^ (h >> 13)) * 1274126177u;
-            h ^= h >> 16;
-            return h / (float)uint.MaxValue;
+            glowPrevious = glowCell;
+            glowCell = currentCell;
+            glowBlend = 0f;
         }
+        glowBlend = Mathf.MoveTowards(glowBlend, 1f, deltaTime / CellFadeSeconds);
+        wallMaterial.SetVector("_Cells", new Vector4(glowCell.x, glowCell.y, glowPrevious.x, glowPrevious.y));
+        wallMaterial.SetFloat("_CellBlend", glowBlend);
     }
 
-    // Recreates the board buffer and texture if they were lost (e.g. a script reload while
-    // playing), and hands the texture back to the board image.
-    private void EnsureCanvas()
+    // ---- The letter --------------------------------------------------------------------
+
+    private void EnsureView()
     {
-        if (pixels == null || pixels.Length != CanvasSize * CanvasSize)
+        if (canvas != null)
         {
-            pixels = new Color32[CanvasSize * CanvasSize];
+            DrawMapIfReady();
+            return;
         }
-        if (texture == null)
-        {
-            texture = new Texture2D(CanvasSize, CanvasSize, TextureFormat.RGBA32, true)
-            {
-                name = "Clue minigame",
-                filterMode = FilterMode.Trilinear,
-                wrapMode = TextureWrapMode.Clamp,
-            };
-            Transform image = boardRoot != null ? boardRoot.Find("Board image") : null;
-            if (image != null)
-            {
-                image.GetComponent<RawImage>().texture = texture;
-            }
-        }
-    }
 
-    private void BuildView(RectTransform parent)
-    {
-        surface = new GameObject("Clue minigame", typeof(RectTransform)).GetComponent<RectTransform>();
-        surface.SetParent(parent, false);
-        surface.anchorMin = surface.anchorMax = new Vector2(0.5f, 0.5f);
-        surface.anchoredPosition = Vector2.zero;
+        var root = new GameObject("Clue letter", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler));
+        root.transform.SetParent(transform, false);
+        canvas = root.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        // Under the inspection view and the doorway rooms, over the world.
+        canvas.sortingOrder = 90;
+        var scaler = root.GetComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1280f, 720f);
+        scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.Expand;
 
-        letterImage = new GameObject("Letter", typeof(RectTransform), typeof(Image)).GetComponent<Image>();
-        letterImage.transform.SetParent(surface, false);
-        letterImage.raycastTarget = false;
-        letterImage.rectTransform.anchorMin = Vector2.zero;
-        letterImage.rectTransform.anchorMax = Vector2.one;
-        letterImage.rectTransform.offsetMin = letterImage.rectTransform.offsetMax = Vector2.zero;
+        surface = new GameObject("Held letter", typeof(RectTransform)).GetComponent<RectTransform>();
+        surface.SetParent(root.transform, false);
+        surface.anchorMin = surface.anchorMax = surface.pivot = new Vector2(1f, 0f);
+        surface.sizeDelta = new Vector2(ClueMapArt.LetterWidth, ClueMapArt.LetterHeight);
 
-        boardRoot = new GameObject("Board", typeof(RectTransform)).GetComponent<RectTransform>();
-        boardRoot.SetParent(surface, false);
-        boardRoot.anchorMin = boardRoot.anchorMax = OnLetter(BoardCentre);
-        boardRoot.anchoredPosition = Vector2.zero;
-
-        pixels = new Color32[CanvasSize * CanvasSize];
-        // Mipmaps keep the thin grid lines even when the view is shrunk on small screens.
-        texture = new Texture2D(CanvasSize, CanvasSize, TextureFormat.RGBA32, true)
-        {
-            name = "Clue minigame",
-            filterMode = FilterMode.Trilinear,
-            wrapMode = TextureWrapMode.Clamp,
-        };
-        CreateTile("Board image", boardRoot, 0, 0, BorderSize).texture = texture;
-
-        // Drawn on the paper under the board (see BuildPaperLines).
-        RawImage lines = new GameObject("Paper lines", typeof(RectTransform), typeof(RawImage)).GetComponent<RawImage>();
-        lines.transform.SetParent(surface, false);
-        lines.transform.SetSiblingIndex(letterImage.transform.GetSiblingIndex() + 1);
-        lines.raycastTarget = false;
-        lines.rectTransform.anchorMin = Vector2.zero;
-        lines.rectTransform.anchorMax = Vector2.one;
-        lines.rectTransform.offsetMin = lines.rectTransform.offsetMax = Vector2.zero;
-        border = lines.gameObject;
-
-
-        // Written on the paper beside the board.
-        stepsLabel = CreateLabel("Steps left", surface, Ink);
-        RectTransform steps = stepsLabel.rectTransform;
-        steps.anchorMin = steps.anchorMax = OnLetter(StepsCentre);
-        steps.sizeDelta = Vector2.zero;
-
-        // Written on the paper's other margin: the next two colours in the sequence.
-        hint = new GameObject("Colour hint", typeof(RectTransform));
-        RectTransform hintRect = (RectTransform)hint.transform;
-        hintRect.SetParent(surface, false);
-        hintRect.anchorMin = Vector2.zero;
-        hintRect.anchorMax = Vector2.one;
-        hintRect.offsetMin = hintRect.offsetMax = Vector2.zero;
-        hintHeading = CreateLabel("Next", hintRect, Ink);
-        hintHeading.text = "Next";
-        PlaceOnLetter(hintHeading.rectTransform, new Vector2(HintX, 58f), Vector2.zero);
-        nextSwatch = CreateSwatch("Next colour", hintRect, new Vector2(HintX, 86f));
-        hintThen = CreateLabel("Then", hintRect, Ink);
-        hintThen.text = "then";
-        PlaceOnLetter(hintThen.rectTransform, new Vector2(HintX, 114f), Vector2.zero);
-        afterSwatch = CreateSwatch("Colour after", hintRect, new Vector2(HintX, 142f));
-
-        // Revealed on the paper once the puzzle is solved.
-        clueInk = new GameObject("Clue", typeof(RectTransform), typeof(RawImage)).GetComponent<RawImage>();
-        clueInk.transform.SetParent(surface, false);
-        clueInk.raycastTarget = false;
+        paper = Layer<Image>("Paper");
+        paper.sprite = LetterSprite();
+        mapTexture = ClueMapArt.NewTexture("Clue map", ClueMapArt.LetterWidth, ClueMapArt.LetterHeight);
+        mapTexture.SetPixels32(new Color32[ClueMapArt.LetterWidth * ClueMapArt.LetterHeight]);
+        mapTexture.Apply();
+        Layer<RawImage>("Map").texture = mapTexture;
+        glowTexture = ClueMapArt.GlowTexture();
+        glowImage = Layer<RawImage>("House glow");
+        glowImage.texture = glowTexture;
+        glowImage.color = HouseGlow;
+        glowImage.gameObject.SetActive(false);
+        marksPixels = new Color32[ClueMapArt.LetterWidth * ClueMapArt.LetterHeight];
+        marksTexture = ClueMapArt.NewTexture("Clue marks", ClueMapArt.LetterWidth, ClueMapArt.LetterHeight);
+        marksImage = Layer<RawImage>("Marks");
+        marksImage.texture = marksTexture;
+        trailPixels = new Color32[ClueMapArt.LetterWidth * ClueMapArt.LetterHeight];
+        trailTexture = ClueMapArt.NewTexture("Clue trail", ClueMapArt.LetterWidth, ClueMapArt.LetterHeight);
+        trailImage = Layer<RawImage>("Crayon trail");
+        trailImage.texture = trailTexture;
+        trailDirty = true;
+        cluePatch = Layer<RawImage>("Clue patch");
+        cluePatch.texture = glowTexture;
+        cluePatch.color = new Color32(236, 222, 186, 235);
+        cluePatch.gameObject.SetActive(false);
+        clueInk = Layer<RawImage>("Clue");
         clueInk.gameObject.SetActive(false);
+        markerTexture = ClueMapArt.MarkerTexture();
+        markerImage = Layer<RawImage>("You are here");
+        markerImage.texture = markerTexture;
+        stepsLabel = Label("Steps", TextAnchor.MiddleLeft);
+        Place(stepsLabel.rectTransform, new Vector2(100f, ClueMapArt.StatusY), new Vector2(172f, 14f));
+        statusLabel = Label("Status", TextAnchor.MiddleRight);
+        Place(statusLabel.rectTransform, new Vector2(266f, ClueMapArt.StatusY), new Vector2(168f, 14f));
+        root.SetActive(false);
+
+        DrawMapIfReady();
+        RedrawMarks();
+        if (State == HuntState.Delivered && !pendingClue) ShowClue(false);
     }
 
-    // A colour hint on the letter: shows a painted tile, the same as on the board.
-    private static RawImage CreateSwatch(string name, Transform parent, Vector2 centre)
+    private T Layer<T>(string name) where T : Graphic
     {
-        RawImage swatch = new GameObject(name, typeof(RectTransform), typeof(RawImage)).GetComponent<RawImage>();
-        swatch.transform.SetParent(parent, false);
-        swatch.raycastTarget = false;
-        PlaceOnLetter(swatch.rectTransform, centre, new Vector2(HintSwatch, HintSwatch));
-        return swatch;
+        T graphic = new GameObject(name, typeof(RectTransform), typeof(T)).GetComponent<T>();
+        graphic.transform.SetParent(surface, false);
+        graphic.raycastTarget = false;
+        RectTransform rect = graphic.rectTransform;
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = rect.offsetMax = Vector2.zero;
+        return graphic;
     }
 
-    // Paints each colour's potion into the board buffer and copies it out into
-    // its own texture. Runs at the start of Redraw, which repaints the buffer right after.
-    // Rebuilt whenever the textures are missing (first use, or a script reload while playing).
-    private void EnsureSwatches()
+    private PixelText Label(string name, TextAnchor alignment)
     {
-        if (swatchTextures != null && swatchTextures.Length == Colors.Length && System.Array.TrueForAll(swatchTextures, t => t != null))
-        {
-            return;
-        }
-
-        int size = Mathf.Max(PotionWidth, PotionHeight) + PotionPixel + 2;
-        swatchTextures = new Texture2D[Colors.Length];
-        for (int colour = 0; colour < Colors.Length; colour++)
-        {
-            System.Array.Clear(pixels, 0, pixels.Length);
-            PaintPotion(1 + (size - 2 - PotionPixel - PotionWidth) / 2, 1 + (size - 2 - PotionPixel - PotionHeight) / 2, Colors[colour]);
-            var swatch = new Color32[size * size];
-            for (int y = 0; y < size; y++)
-            {
-                for (int x = 0; x < size; x++)
-                {
-                    swatch[(size - 1 - y) * size + x] = pixels[Index(x, y)];
-                }
-            }
-            var tex = new Texture2D(size, size, TextureFormat.RGBA32, true)
-            {
-                name = "Clue swatch " + colour,
-                filterMode = FilterMode.Point,
-                wrapMode = TextureWrapMode.Clamp,
-            };
-            tex.SetPixels32(swatch);
-            tex.Apply(true);
-            swatchTextures[colour] = tex;
-        }
-        System.Array.Clear(pixels, 0, pixels.Length);
+        PixelText label = Layer<PixelText>(name);
+        label.color = StatusInk;
+        label.alignment = alignment;
+        label.uppercase = true;
+        label.highlightBrackets = true;
+        label.keyColor = new Color32(150, 40, 30, 255);
+        return label;
     }
 
-    // Spans a box measured in Letter_screen pixels, so it scales with the letter.
-    private static void PlaceOnLetter(RectTransform rect, Vector2 centre, Vector2 size)
+    // Spans a box measured in letter pixels from the top-left, so it scales with the letter.
+    private static void Place(RectTransform rect, Vector2 centre, Vector2 size)
     {
         rect.anchorMin = OnLetter(centre + new Vector2(-size.x, size.y) * 0.5f);
         rect.anchorMax = OnLetter(centre + new Vector2(size.x, -size.y) * 0.5f);
@@ -1096,150 +670,183 @@ private void Fill(int x, int y, int width, int height, Color32 color)
 
     private static Vector2 OnLetter(Vector2 letterPixels)
     {
-        return new Vector2(letterPixels.x / LetterSize.x, 1f - letterPixels.y / LetterSize.y);
+        return new Vector2(letterPixels.x / ClueMapArt.LetterWidth, 1f - letterPixels.y / ClueMapArt.LetterHeight);
     }
 
-// Continues the board's grid onto the letter, fading with distance from the play area,
-    // and only where the letter is plain paper (sampled from the letter image itself), so
-    // the lines never run over its edges or decoration. Static: built once per letter sprite.
-    private void BuildPaperLines(Sprite letter)
+    // The letter's own artwork from the inventory (Letter_screen.png), or plain parchment.
+    private Sprite LetterSprite()
     {
-        paperLinesFor = letter;
-        int lw = letter != null ? Mathf.RoundToInt(letter.rect.width) : (int)LetterSize.x;
-        int lh = letter != null ? Mathf.RoundToInt(letter.rect.height) : (int)LetterSize.y;
-        Color32[] paper = letter != null ? ReadSprite(letter, lw, lh) : null;
-
-        float tile = BoardSide / BorderSize;
-        float left = BoardCentre.x - BoardSide * 0.5f + tile;
-        float top = BoardCentre.y - BoardSide * 0.5f + tile;
-        float play = GridSize * tile;
-        float fadeDistance = PaperLineFade * tile;
-        float halfWidth = tile / TileSize * PaperLineScale; // One board-canvas pixel, in texels.
-
-        // The paper's own colour, averaged under the board where the letter is blank.
-        Vector3 reference = new Vector3(214f, 196f, 156f);
-        if (paper != null)
+        if (inventory != null)
         {
-            Vector3 sum = Vector3.zero;
-            int count = 0;
-            for (int y = Mathf.Max(0, (int)top); y < Mathf.Min(lh, (int)(top + play)); y += 2)
+            for (int i = 0; i < inventory.ItemCount(); i++)
             {
-                for (int x = Mathf.Max(0, (int)left); x < Mathf.Min(lw, (int)(left + play)); x += 2)
-                {
-                    Color32 c = paper[(lh - 1 - y) * lw + x];
-                    if (c.a > 200)
-                    {
-                        sum += new Vector3(c.r, c.g, c.b);
-                        count++;
-                    }
-                }
-            }
-            if (count > 0) reference = sum / count;
-        }
-
-        int w = lw * PaperLineScale;
-        int h = lh * PaperLineScale;
-        var texels = new Color32[w * h];
-        for (int ty = 0; ty < h; ty++)
-        {
-            float ly = (ty + 0.5f) / PaperLineScale; // Letter pixels from the top.
-            for (int tx = 0; tx < w; tx++)
-            {
-                float lx = (tx + 0.5f) / PaperLineScale;
-                float dx = Mathf.Max(Mathf.Max(left - lx, lx - (left + play)), 0f);
-                float dy = Mathf.Max(Mathf.Max(top - ly, ly - (top + play)), 0f);
-                float d = Mathf.Sqrt(dx * dx + dy * dy);
-                if (d <= 0f || d >= fadeDistance)
-                {
-                    continue; // The board draws inside the play area itself.
-                }
-
-                float gx = (lx - left) / tile;
-                float gy = (ly - top) / tile;
-                int kx = Mathf.RoundToInt(gx);
-                int ky = Mathf.RoundToInt(gy);
-                float vertical = Mathf.Clamp01(halfWidth + 0.5f - Mathf.Abs(gx - kx) * tile * PaperLineScale);
-                float horizontal = Mathf.Clamp01(halfWidth + 0.5f - Mathf.Abs(gy - ky) * tile * PaperLineScale);
-                // Ink density varies along each line, like the pen grid on the board.
-                vertical *= 0.6f + 0.4f * ValueNoise(gy * 0.7f, kx * 3.1f, 21);
-                horizontal *= 0.6f + 0.4f * ValueNoise(gx * 0.7f, ky * 3.1f, 22);
-                float ink = Mathf.Max(vertical, horizontal);
-                if (ink <= 0f)
-                {
-                    continue;
-                }
-
-                float fade = 1f - d / fadeDistance;
-                fade *= fade;
-
-                float paperness = 1f;
-                if (paper != null)
-                {
-                    Color32 c = paper[(lh - 1 - Mathf.Min(lh - 1, (int)ly)) * lw + Mathf.Min(lw - 1, (int)lx)];
-                    float diff = (Mathf.Abs(c.r - reference.x) + Mathf.Abs(c.g - reference.y) + Mathf.Abs(c.b - reference.z)) / 3f;
-                    paperness = c.a < 128 ? 0f : 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(18f, 45f, diff));
-                }
-
-                Color32 line = Outline;
-                line.a = (byte)(255f * Mathf.Clamp01(ink * fade * paperness * 0.85f));
-                texels[(h - 1 - ty) * w + tx] = line;
+                if (Handles(inventory.GetItem(i)) && inventory.GetSprite(i) != null) return inventory.GetSprite(i);
             }
         }
+        if (fallbackPaper == null) fallbackPaper = ClueMapArt.PaperSprite();
+        return fallbackPaper;
+    }
 
-        if (paperLinesTexture == null || paperLinesTexture.width != w || paperLinesTexture.height != h)
+    private void DrawMapIfReady()
+    {
+        if (mapDrawn || mapTexture == null || map == null || !map.IsReady) return;
+        GameObject fountainObject = GameObject.Find("IslandDemo:pCylinder3");
+        Renderer fountain = fountainObject != null ? fountainObject.GetComponent<Renderer>() : null;
+        var lamps = new List<Vector3>();
+        foreach (LampGlow lamp in FindObjectsByType<LampGlow>()) lamps.Add(lamp.transform.position);
+        mapTexture.SetPixels32(ClueMapArt.DrawMap(map, frame, fountain != null ? fountain.bounds.center : (Vector3?)null, lamps));
+        mapTexture.Apply();
+        mapDrawn = true;
+        LocateHouse();
+    }
+
+    // The alchemist's house on the letter, for its glow: building3's footprint, or the
+    // alchemist's door when the house can't be found.
+    private void LocateHouse()
+    {
+        GameObject building = GameObject.Find(HouseName);
+        Renderer[] renderers = building != null ? building.GetComponentsInChildren<Renderer>() : new Renderer[0];
+        Bounds bounds;
+        if (renderers.Length > 0)
         {
-            ReleaseTexture(paperLinesTexture);
-            paperLinesTexture = new Texture2D(w, h, TextureFormat.RGBA32, true)
-            {
-                name = "Clue paper lines",
-                filterMode = FilterMode.Trilinear,
-                wrapMode = TextureWrapMode.Clamp,
-            };
+            bounds = renderers[0].bounds;
+            for (int i = 1; i < renderers.Length; i++) bounds.Encapsulate(renderers[i].bounds);
         }
-        paperLinesTexture.SetPixels32(texels);
-        paperLinesTexture.Apply(true);
-        border.GetComponent<RawImage>().texture = paperLinesTexture;
+        else
+        {
+            AlchemistEncounter door = FindAnyObjectByType<AlchemistEncounter>();
+            if (door == null)
+            {
+                house = Rect.zero;
+                return;
+            }
+            bounds = new Bounds(door.transform.position, Vector3.one * 8f);
+        }
+        Vector2 a = frame.ToLetter(bounds.min);
+        Vector2 b = frame.ToLetter(bounds.max);
+        house = Rect.MinMaxRect(Mathf.Min(a.x, b.x), Mathf.Min(a.y, b.y), Mathf.Max(a.x, b.x), Mathf.Max(a.y, b.y));
     }
 
-    // Reads a sprite's pixels through the GPU, so the texture needs no Read/Write flag.
-    private static Color32[] ReadSprite(Sprite sprite, int width, int height)
+    private void RedrawMarks()
     {
-        Texture source = sprite.texture;
-        Rect r = sprite.textureRect;
-        RenderTexture target = RenderTexture.GetTemporary(width, height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
-        Graphics.Blit(source, target, new Vector2(r.width / source.width, r.height / source.height),
-            new Vector2(r.x / source.width, r.y / source.height));
-        RenderTexture previous = RenderTexture.active;
-        RenderTexture.active = target;
-        var readback = new Texture2D(width, height, TextureFormat.RGBA32, false);
-        readback.ReadPixels(new Rect(0, 0, width, height), 0, 0, false);
-        Color32[] pixels = readback.GetPixels32();
-        RenderTexture.active = previous;
-        RenderTexture.ReleaseTemporary(target);
-        ReleaseTexture(readback);
-        return pixels;
+        if (marksPixels == null) return;
+        System.Array.Clear(marksPixels, 0, marksPixels.Length);
+        if (hasStart) ClueMapArt.DrawRing(marksPixels, frame.ToLetter(startPosition), 3, ClueMapArt.Ink);
+        foreach (Potion potion in potions)
+        {
+            Vector2 at = frame.ToLetter(potion.Rest);
+            if (potion.Collected) ClueMapArt.DrawCross(marksPixels, at);
+            else ClueMapArt.DrawPotion(marksPixels, at, ClueMapArt.PotionColors[potion.Colour]);
+        }
+        marksTexture.SetPixels32(marksPixels);
+        marksTexture.Apply();
     }
 
-    // Places a square image on the tile grid, counted from the top-left.
-    private static RawImage CreateTile(string name, Transform parent, int x, int y, int size)
+    private void ClearTrail()
     {
-        RawImage image = new GameObject(name, typeof(RectTransform), typeof(RawImage)).GetComponent<RawImage>();
-        image.transform.SetParent(parent, false);
-        image.raycastTarget = false;
-        RectTransform rect = image.rectTransform;
-        rect.anchorMin = new Vector2((float)x / BorderSize, 1f - (float)(y + size) / BorderSize);
-        rect.anchorMax = new Vector2((float)(x + size) / BorderSize, 1f - (float)y / BorderSize);
-        rect.offsetMin = rect.offsetMax = Vector2.zero;
-        return image;
+        hasTrail = false;
+        if (trailPixels == null) return;
+        System.Array.Clear(trailPixels, 0, trailPixels.Length);
+        trailDirty = true;
     }
 
-private static PixelText CreateLabel(string name, Transform parent, Color color)
+    // Crayon along the player's path, in dabs half a letter pixel apart.
+    private void DrawTrail(Vector3 position)
     {
-        PixelText label = new GameObject(name, typeof(RectTransform), typeof(PixelText)).GetComponent<PixelText>();
-        label.transform.SetParent(parent, false);
-        label.color = color;
-        label.alignment = TextAnchor.MiddleCenter;
-        label.raycastTarget = false;
-        return label;
+        if (trailPixels == null) return;
+        Vector2 at = frame.ToLetter(position);
+        if (hasTrail && Vector2.Distance(at, lastTrail) < 0.5f) return;
+        Vector2 from = hasTrail ? lastTrail : at;
+        int dabs = Mathf.Max(1, Mathf.CeilToInt(Vector2.Distance(from, at) / 0.5f));
+        for (int i = 1; i <= dabs; i++) ClueMapArt.StampCrayon(trailPixels, Vector2.Lerp(from, at, i / (float)dabs));
+        lastTrail = at;
+        hasTrail = true;
+        trailDirty = true;
+    }
+
+    // The clue word written in cursive on a cleared patch of the map; animate writes it out.
+    private void ShowClue(bool animate)
+    {
+        EnsureView();
+        if (clueWriter == null) clueWriter = new CursiveWriter(ClueWord, 150f, 17f, 4);
+        clueInk.texture = clueWriter.Texture;
+        Place(clueInk.rectTransform, ClueCentre, clueWriter.SizeInLetterPixels);
+        Place(cluePatch.rectTransform, ClueCentre, clueWriter.SizeInLetterPixels * 1.4f);
+        clueInk.gameObject.SetActive(true);
+        cluePatch.gameObject.SetActive(true);
+        if (animate) clueWriter.Play();
+        else if (!clueWriter.HasStarted) clueWriter.Complete();
+    }
+
+    private void LateUpdate()
+    {
+        if (canvas == null) return;
+        bool show = IsHeld && !Blocked;
+        slide = Mathf.MoveTowards(slide, show ? 1f : 0f, Time.unscaledDeltaTime / SlideDuration);
+        bool active = slide > 0f || IsBurning;
+        if (canvas.gameObject.activeSelf != active) canvas.gameObject.SetActive(active);
+        if (!active) return;
+
+        // About a fifth of the screen, in the bottom-right corner, sliding up from below it.
+        Rect bounds = ((RectTransform)canvas.transform).rect;
+        float aspect = paper.sprite != null ? paper.sprite.rect.width / paper.sprite.rect.height : 1.6f;
+        float height = Mathf.Sqrt(ScreenShare * bounds.width * bounds.height / aspect);
+        height = Mathf.Min(height, bounds.height * 0.9f, bounds.width * 0.9f / aspect);
+        surface.sizeDelta = new Vector2(height * aspect, height);
+        float eased = 1f - Mathf.Pow(1f - slide, 3f);
+        surface.anchoredPosition = new Vector2(-EdgeGap, Mathf.Lerp(-height - EdgeGap, EdgeGap, eased));
+
+        float unit = height / ClueMapArt.LetterHeight;
+        stepsLabel.fontSize = PixelFont.CapHeight * StatusFontPixels * unit;
+        statusLabel.fontSize = stepsLabel.fontSize;
+        UpdateLabels();
+        UpdateMarker();
+        UpdateGlow();
+        if (trailDirty)
+        {
+            trailTexture.SetPixels32(trailPixels);
+            trailTexture.Apply();
+            trailDirty = false;
+        }
+    }
+
+    private void UpdateLabels()
+    {
+        string steps = "";
+        string status;
+        if (Time.unscaledTime < messageUntil) status = message;
+        else if (map == null || !map.IsReady) status = surveyFailed ? "NO MAP OF THIS PLACE" : "MAPPING THE ISLAND...";
+        else if (State == HuntState.Idle) status = "[R] START THE HUNT HERE";
+        else if (State == HuntState.Playing) status = "POTIONS " + (PotionCount - PotionsLeft) + "/" + PotionCount;
+        else if (State == HuntState.Found) status = "BACK TO THE ALCHEMIST!";
+        else status = "";
+        if (State == HuntState.Playing) steps = "STEPS LEFT " + StepsLeft;
+        else if (State == HuntState.Found) steps = "ALL FIVE FOUND";
+        stepsLabel.text = steps;
+        statusLabel.text = status;
+    }
+
+    private void UpdateMarker()
+    {
+        bool visible = player != null && map != null && !IsBurning;
+        Vector2 at = visible ? frame.ToLetter(player.position) : Vector2.zero;
+        RectInt area = ClueMapArt.MapArea;
+        visible &= at.x >= area.xMin && at.x <= area.xMax && at.y >= area.yMin && at.y <= area.yMax;
+        markerImage.gameObject.SetActive(visible);
+        if (!visible) return;
+        Place(markerImage.rectTransform, at, new Vector2(11f, 11f));
+        markerImage.color = new Color(1f, 1f, 1f, 0.65f + 0.35f * Mathf.Sin(Time.unscaledTime * 6f));
+    }
+
+    private void UpdateGlow()
+    {
+        bool glowing = State == HuntState.Found && house.width > 0f;
+        glowImage.gameObject.SetActive(glowing);
+        if (!glowing) return;
+        float size = Mathf.Max(house.width, house.height) * 2.4f + 16f;
+        Place(glowImage.rectTransform, house.center, new Vector2(size, size));
+        Color color = HouseGlow;
+        color.a = 0.55f + 0.35f * Mathf.Sin(Time.unscaledTime * 3f);
+        glowImage.color = color;
     }
 }

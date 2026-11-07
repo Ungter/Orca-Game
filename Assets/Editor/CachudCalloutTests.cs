@@ -17,6 +17,7 @@ public class CachudCalloutTests
     private Vector3 originalPosition;
     private Quaternion originalRotation;
 
+    // No map here, so there is no door: knocking starts the conversation where he stands.
     [SetUp]
     public void SetUp()
     {
@@ -27,7 +28,7 @@ public class CachudCalloutTests
         actor.transform.position = Vector3.up * 1000f;
         player = new GameObject("Test player").transform;
         player.SetParent(root.transform);
-        player.position = callout.transform.position + Vector3.forward * 8f;
+        player.position = callout.transform.position + Vector3.forward * 2f;
         previousInventory = InventorySystem.instance;
         inventory = player.gameObject.AddComponent<InventorySystem>();
         Call(inventory, "Awake");
@@ -53,44 +54,40 @@ public class CachudCalloutTests
     }
 
     [Test]
-    public void CalloutWaitsUntilPlayerIsNearbyAndOnTheSameLevel()
+    public void KnockingNeedsThePlayerCloseByAndOnTheSameLevel()
     {
-        player.position = callout.transform.position + Vector3.forward * (callout.Radius + 0.1f);
-        Assert.IsFalse(callout.TryBegin());
+        player.position = callout.transform.position + Vector3.forward * 3.1f;
+        Assert.IsFalse(callout.TryKnock());
         player.position = callout.transform.position + Vector3.up * 4f;
-        Assert.IsFalse(callout.TryBegin());
-        player.position = callout.transform.position + Vector3.forward * (callout.Radius - 0.1f);
-        Assert.IsTrue(callout.TryBegin());
-        Assert.AreEqual("HEY, YOU! OVER HERE!", callout.Text);
+        Assert.IsFalse(callout.TryKnock());
+        player.position = callout.transform.position + Vector3.forward * 2.9f;
+        Assert.IsTrue(callout.TryKnock());
     }
 
     [Test]
-    public void AnotherConversationDefersTheCallout()
+    public void AnotherConversationDefersTheMeeting()
     {
         var talk = root.AddComponent<TalkInteractable>();
         try
         {
             talk.Begin();
-            Assert.IsFalse(callout.TryBegin());
+            Assert.IsFalse(callout.TryKnock());
         }
         finally { talk.Cancel(); }
-        Assert.IsTrue(callout.TryBegin());
+        Assert.IsTrue(callout.TryKnock());
     }
 
     [Test]
     public void MovementAndInteractionsStayLockedUntilCameraHasReturned()
     {
-        Assert.IsTrue(callout.TryBegin());
+        Assert.IsTrue(callout.TryKnock());
         Assert.IsTrue(Interactables.Busy);
         Assert.IsTrue(Interactables.BlocksMovement);
         Assert.IsFalse(follow.enabled);
         callout.Tick(CachudCallout.PanDuration);
         Call(callout, "LateUpdate");
-        Assert.AreEqual(CachudCallout.Phase.Calling, callout.CurrentPhase);
-        Assert.AreEqual(1f, callout.BarsAmount);
-        Assert.AreEqual(1f, callout.MessageOpacity);
-        callout.Tick(CachudCallout.CallDuration);
         Assert.AreEqual(CachudCallout.Phase.Typing, callout.CurrentPhase);
+        Assert.AreEqual(1f, callout.BarsAmount);
         Assert.IsTrue(Interactables.BlocksMovement);
         FinishMissingDiceConversation();
         Assert.AreEqual(CachudCallout.Phase.Returning, callout.CurrentPhase);
@@ -99,20 +96,19 @@ public class CachudCalloutTests
         callout.Tick(CachudCallout.ReturnDuration * 0.5f);
         Assert.IsTrue(Interactables.BlocksMovement);
         Assert.AreEqual(0.5f, callout.BarsAmount, 0.001f);
-        Assert.AreEqual(0f, callout.MessageOpacity);
         callout.Tick(CachudCallout.ReturnDuration);
         Assert.AreEqual(CachudCallout.Phase.Complete, callout.CurrentPhase);
         Assert.IsFalse(CachudCallout.IsOpen);
         Assert.IsFalse(Interactables.Busy);
         Assert.IsFalse(Interactables.BlocksMovement);
-        Assert.IsTrue(callout.HasCalledOut);
-        Assert.IsFalse(callout.TryBegin(), "Walking back through the radius must not replay it.");
+        Assert.IsTrue(callout.HasComeOut);
+        Assert.IsFalse(callout.TryKnock(), "He only comes out once.");
     }
 
     [Test]
     public void PanStartsContinuouslyAndFramesTheCharacter()
     {
-        Assert.IsTrue(callout.TryBegin());
+        Assert.IsTrue(callout.TryKnock());
         Call(callout, "LateUpdate");
         Assert.Less(Vector3.Distance(originalPosition, view.transform.position), 0.001f);
         Assert.Less(Quaternion.Angle(originalRotation, view.transform.rotation), 0.001f);
@@ -129,7 +125,6 @@ public class CachudCalloutTests
     [Test]
     public void CloseConversationKeepsTheSpeakerInFrontOfThePlayer()
     {
-        player.position = callout.transform.position + Vector3.forward * 2f;
         Assert.IsTrue(callout.TryTalk());
         callout.Tick(CachudCallout.PanDuration);
         Call(callout, "LateUpdate");
@@ -143,11 +138,10 @@ public class CachudCalloutTests
     [Test]
     public void ReturnBlendsToTheLiveFollowViewWithoutASnap()
     {
-        Assert.IsTrue(callout.TryBegin());
+        Assert.IsTrue(callout.TryKnock());
         callout.Tick(CachudCallout.PanDuration);
         Call(callout, "LateUpdate");
         Vector3 shot = view.transform.position;
-        callout.Tick(CachudCallout.CallDuration);
         FinishMissingDiceConversation();
         Call(follow, "LateUpdate");
         Call(callout, "LateUpdate");
@@ -164,7 +158,7 @@ public class CachudCalloutTests
     public void CancellationRestoresTheOriginalCameraAndEnabledState(bool wasEnabled)
     {
         follow.enabled = wasEnabled;
-        Assert.IsTrue(callout.TryBegin());
+        Assert.IsTrue(callout.TryKnock());
         callout.Tick(CachudCallout.PanDuration);
         Call(callout, "LateUpdate");
         callout.Cancel();
@@ -175,7 +169,7 @@ public class CachudCalloutTests
     }
 
     [Test]
-    public void SceneCharacterUsesRequestedArtworkBesideTheSelectedTreeOnClearGround()
+    public void SceneCharacterUsesRequestedArtworkAndWaitsIndoorsUntilTheDoorIsKnockedOn()
     {
         var scene = EditorSceneManager.OpenScene("Assets/Scenes/SampleScene.unity", OpenSceneMode.Additive);
         try
@@ -184,24 +178,16 @@ public class CachudCalloutTests
             foreach (GameObject sceneRoot in scene.GetRootGameObjects())
                 if (sceneRoot.TryGetComponent(out CachudCallout found)) actor = found;
             Assert.IsNotNull(actor);
-            Assert.AreEqual("treemedium9", actor.Landmark.parent.name);
-            Assert.AreEqual("pCylinder1", actor.Landmark.name);
-            Assert.AreEqual("Assets/Sprites/al_cachud.png", AssetDatabase.GetAssetPath(actor.GetComponent<SpriteRenderer>().sprite));
-            Assert.AreEqual(4f, Vector2.Distance(
-                new Vector2(actor.transform.position.x, actor.transform.position.z),
-                new Vector2(actor.Landmark.position.x, actor.Landmark.position.z)), 0.1f);
+            SpriteRenderer sprite = actor.GetComponent<SpriteRenderer>();
+            Assert.AreEqual("Assets/Sprites/al_cachud.png", AssetDatabase.GetAssetPath(sprite.sprite));
             var importer = (TextureImporter)AssetImporter.GetAtPath("Assets/Sprites/al_cachud.png");
             Assert.AreEqual(FilterMode.Point, importer.filterMode);
             Assert.IsTrue(importer.alphaIsTransparency);
-            Physics.SyncTransforms();
-            Assert.IsTrue(Physics.Raycast(actor.transform.position + Vector3.up * 0.1f, Vector3.down,
-                out RaycastHit ground, 0.2f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore));
-            Assert.AreEqual(ground.point.y + 0.02f, actor.transform.position.y, 0.01f);
-            foreach (Collider collider in Physics.OverlapCapsule(actor.transform.position + Vector3.up * 0.5f,
-                         actor.transform.position + Vector3.up * 1.5f, 0.35f,
-                         Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
-                if (collider.gameObject.scene == scene)
-                    Assert.IsTrue(collider.transform.IsChildOf(actor.transform), "The character must not overlap scenery.");
+            Call(actor, "Start");
+            Assert.IsFalse(sprite.enabled, "He keeps out of sight until the player knocks.");
+            foreach (Collider body in actor.GetComponentsInChildren<Collider>(true))
+                Assert.IsFalse(body.enabled, "Nor is he in the way while he is indoors.");
+            Assert.IsFalse(actor.HasComeOut);
         }
         finally { EditorSceneManager.CloseScene(scene, true); }
     }
@@ -211,9 +197,8 @@ public class CachudCalloutTests
     {
         int games = 0;
         callout.GameRequested += () => games++;
-        Assert.IsTrue(callout.TryBegin());
+        Assert.IsTrue(callout.TryKnock());
         callout.Tick(CachudCallout.PanDuration);
-        callout.Tick(CachudCallout.CallDuration);
         Assert.AreEqual(CachudCallout.Greeting, callout.CurrentLine);
         Assert.AreEqual(0, callout.VisibleCharacters);
         ReadAndAdvance();
@@ -237,10 +222,8 @@ public class CachudCalloutTests
     [Test]
     public void FirstPressFinishesTypingWithoutSkippingTheGameInvitation()
     {
-        Assert.IsTrue(callout.TryBegin());
+        Assert.IsTrue(callout.TryKnock());
         callout.Tick(CachudCallout.PanDuration, true);
-        Assert.AreEqual(CachudCallout.Phase.Calling, callout.CurrentPhase);
-        callout.Tick(CachudCallout.CallDuration, true);
         Assert.AreEqual(CachudCallout.Phase.Typing, callout.CurrentPhase);
         Assert.AreEqual(0, callout.VisibleCharacters);
         callout.Tick(0f, true);
@@ -251,13 +234,14 @@ public class CachudCalloutTests
     }
 
     [Test]
-    public void LeavingTheQuestionListAllowsTalkingAgainWithoutAnotherAutomaticCallout()
+    public void LeavingTheQuestionListAllowsTalkingAgainWithoutAnotherEntrance()
     {
         BeginAndReadRequest();
         callout.Tick(0f, false, false, true);
         callout.Tick(CachudCallout.ReturnDuration);
         Assert.IsFalse(callout.HasLearnedLocation);
-        Assert.IsFalse(callout.TryBegin());
+        Assert.IsFalse(callout.TryKnock());
+        player.position = callout.transform.position + Vector3.forward * 8f;
         Assert.IsFalse(callout.TryTalk(), "A remote E must not start the conversation.");
         player.position = callout.transform.position + Vector3.forward * 2f;
         Assert.IsTrue(callout.TryTalk());
@@ -314,9 +298,8 @@ public class CachudCalloutTests
         Call(inventory, "Awake");
         Assert.IsNull(player.GetComponent<InventorySystem>());
         inventory.TryAdd(CachudCallout.DiceItemName);
-        Assert.IsTrue(callout.TryBegin());
+        Assert.IsTrue(callout.TryKnock());
         callout.Tick(CachudCallout.PanDuration);
-        callout.Tick(CachudCallout.CallDuration);
         Assert.AreEqual(CachudCallout.Thanks, callout.CurrentLine);
         ReadAndAdvance();
         Assert.IsTrue(callout.IsReadyForGame);
@@ -327,9 +310,8 @@ public class CachudCalloutTests
     public void FindingDiceBeforeTheFirstMeetingStillWorks()
     {
         inventory.TryAdd(CachudCallout.DiceItemName);
-        Assert.IsTrue(callout.TryBegin());
+        Assert.IsTrue(callout.TryKnock());
         callout.Tick(CachudCallout.PanDuration);
-        callout.Tick(CachudCallout.CallDuration);
         Assert.AreEqual(CachudCallout.Thanks, callout.CurrentLine);
         ReadAndAdvance();
         Assert.IsTrue(callout.HasDice);
@@ -340,9 +322,8 @@ public class CachudCalloutTests
     public void EscapingBeforeAcknowledgingTheHandInKeepsDiceInInventory()
     {
         inventory.TryAdd(CachudCallout.DiceItemName);
-        Assert.IsTrue(callout.TryBegin());
+        Assert.IsTrue(callout.TryKnock());
         callout.Tick(CachudCallout.PanDuration);
-        callout.Tick(CachudCallout.CallDuration);
         callout.Tick(0f, false, false, true);
         callout.Tick(CachudCallout.ReturnDuration);
         Assert.IsTrue(inventory.Contains(CachudCallout.DiceItemName));
@@ -355,9 +336,8 @@ public class CachudCalloutTests
         inventory.TryAdd(CachudCallout.DiceItemName);
         int games = 0;
         callout.GameRequested += () => games++;
-        Assert.IsTrue(callout.TryBegin());
+        Assert.IsTrue(callout.TryKnock());
         callout.Tick(CachudCallout.PanDuration);
-        callout.Tick(CachudCallout.CallDuration);
         ReadAndAdvance();
         ReadAndAdvance();
         callout.Cancel();
@@ -423,9 +403,8 @@ public class CachudCalloutTests
 
     private void BeginAndReadRequest()
     {
-        Assert.IsTrue(callout.TryBegin());
+        Assert.IsTrue(callout.TryKnock());
         callout.Tick(CachudCallout.PanDuration);
-        callout.Tick(CachudCallout.CallDuration);
         ReadAndAdvance();
         ReadAndAdvance();
         Assert.AreEqual(CachudCallout.Phase.Questions, callout.CurrentPhase);

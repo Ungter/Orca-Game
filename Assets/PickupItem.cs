@@ -89,6 +89,7 @@ public class PickupItem : MonoBehaviour, IInteractable
     private Renderer[] renderers;
 
     public bool IsBuried => buried;
+    public string ItemName => itemName;
 
     private void Awake()
     {
@@ -248,15 +249,27 @@ public class PickupItem : MonoBehaviour, IInteractable
         Keyboard keyboard = Keyboard.current;
         if (keyboard != null && keyboard.eKey.wasPressedThisFrame)
         {
-            SpriteRenderer spriteRenderer = GetComponent<SpriteRenderer>();
-            Sprite sprite = spriteRenderer != null ? spriteRenderer.sprite : null;
-            bool added = InventorySystem.instance != null && InventorySystem.instance.TryAdd(itemName, sprite);
-            if (added)
-            {
-                pickedUp = true;
-                gameObject.SetActive(false);
-            }
+            Collect();
         }
+    }
+
+    // Puts the item in the bag with its sprite and takes it out of the world. Also used to
+    // hand an item over (the alchemist's Clue Letter). False when the bag is full.
+    public bool Collect()
+    {
+        if (pickedUp)
+        {
+            return false;
+        }
+        SpriteRenderer spriteRenderer = GetComponent<SpriteRenderer>();
+        Sprite sprite = spriteRenderer != null ? spriteRenderer.sprite : null;
+        if (InventorySystem.instance == null || !InventorySystem.instance.TryAdd(itemName, sprite))
+        {
+            return false;
+        }
+        pickedUp = true;
+        gameObject.SetActive(false);
+        return true;
     }
 
     private void OnGUI()

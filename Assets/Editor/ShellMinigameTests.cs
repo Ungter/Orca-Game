@@ -305,7 +305,6 @@ public class ShellMinigameTests
         SetInspection(inspection, "minigame", clue);
         SetInspection(inspection, "shellMinigame", game);
         SetInspection(inspection, "canvas", root.GetComponent<Canvas>());
-        SetInspection(inspection, "puzzleOpen", true);
         SetInspection(inspection, "shellPuzzleOpen", true);
         SetInspection(inspection, "inspectedSlot", 1);
         typeof(InventoryInspection).GetProperty("IsOpen").SetValue(null, true);

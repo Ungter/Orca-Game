@@ -1,12 +1,17 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
+// Al Cachud. He keeps to his house (pasted__building2) until the player knocks on its door
+// (pasted__pCube54, E): the camera pans to the door, it swings open, he walks out
+// (CachudDoorway) and the conversation starts - the dice he lost, where he was last, the
+// fountain - and once the dice are back, a game of twenty-one. Afterwards he stays outside the
+// door and E talks to him again. Without the door in the scene he simply talks where he stands.
 [DefaultExecutionOrder(200)]
 [DisallowMultipleComponent]
 [RequireComponent(typeof(SpriteRenderer))]
 public class CachudCallout : MonoBehaviour, IInteractable
 {
-    public enum Phase { Idle, Panning, Calling, Typing, Waiting, Questions, Returning, Complete }
+    public enum Phase { Idle, Panning, Emerging, Typing, Waiting, Questions, Returning, Complete }
 
     public const string DiceItemName = "Dice";
     public const string Greeting = "Want to play a game?";
@@ -16,22 +21,19 @@ public class CachudCallout : MonoBehaviour, IInteractable
     public const string Thanks = "You found my dice! Thanks!";
     public const string Ready = "All right, let's play!";
     public const float PanDuration = 1.25f;
-    public const float CallDuration = 3f;
     public const float ReturnDuration = 1.2f;
     private const float FadeDuration = 0.25f;
 
     [SerializeField] private Transform player;
-    [SerializeField] private Transform landmark;
-    [SerializeField, Min(1f)] private float calloutRadius = 10f;
     [SerializeField, Min(1f)] private float talkRadius = 3f;
-    [SerializeField, TextArea] private string line = "HEY, YOU! OVER HERE!";
     [SerializeField, Min(1f)] private float charactersPerSecond = 40f;
     [SerializeField] private TwentyOneGame diceGame;
 
     private static CachudCallout active;
     public static bool IsOpen => active != null;
     public Phase CurrentPhase { get; private set; }
-    public bool HasCalledOut { get; private set; }
+    // He has come out of his house (or, without the door, been talked to).
+    public bool HasComeOut { get; private set; }
     public bool HasRequestedDice { get; private set; }
     public bool HasLearnedLocation { get; private set; }
     public bool HasDice { get; private set; }
@@ -40,9 +42,6 @@ public class CachudCallout : MonoBehaviour, IInteractable
     public event System.Action GameRequested;
     public static System.Collections.Generic.IReadOnlyList<string> QuestionOptions { get; } =
         System.Array.AsReadOnly(new[] { LastLocationQuestion });
-    public Transform Landmark => landmark;
-    public string Text => line;
-    public float Radius => calloutRadius;
     public string CurrentLine { get; private set; }
     public int VisibleCharacters { get; private set; }
 
@@ -50,7 +49,6 @@ public class CachudCallout : MonoBehaviour, IInteractable
     private CameraFollow follow;
     private PlayerController playerController;
     private bool followWasEnabled;
-    private bool automaticCallout;
     private bool requestGameAfterReturn;
     private float phaseTime;
     private float typed;
@@ -58,6 +56,8 @@ public class CachudCallout : MonoBehaviour, IInteractable
     private string wrappedLine;
     private Rect questionRect;
     private InventorySystem inventory;
+    private Transform door;
+    private CachudDoorway doorway;
     private Vector3 originalPosition;
     private Quaternion originalRotation;
     private Vector3 shotPosition;
@@ -66,12 +66,11 @@ public class CachudCallout : MonoBehaviour, IInteractable
     private Quaternion returnRotation;
 
     public float BarsAmount => CurrentPhase == Phase.Panning ? Ease(phaseTime / FadeDuration) :
-        CurrentPhase == Phase.Calling || IsDialogue ? 1f :
+        CurrentPhase == Phase.Emerging || IsDialogue ? 1f :
         CurrentPhase == Phase.Returning ? 1f - Ease(phaseTime / ReturnDuration) : 0f;
 
-    public float MessageOpacity => CurrentPhase == Phase.Panning ? (automaticCallout ? Ease(phaseTime / FadeDuration) : 0f) :
-        CurrentPhase == Phase.Calling ? Ease((CallDuration - phaseTime) / FadeDuration) :
-        IsDialogue ? 1f : 0f;
+    // Before he has come out, E is for knocking on his door rather than talking to him.
+    private bool AtDoor => !HasComeOut && door != null;
 
     private bool IsDialogue => CurrentPhase == Phase.Typing || CurrentPhase == Phase.Waiting ||
         CurrentPhase == Phase.Questions;
@@ -80,6 +79,20 @@ public class CachudCallout : MonoBehaviour, IInteractable
     private static void ResetStatics() => active = null;
 
     private void OnEnable() => Interactables.Add(this);
+
+    // He waits indoors, unseen and out of the way, until the door is knocked on.
+    private void Start()
+    {
+        GameObject map = GameObject.Find(CachudDoorway.MapName);
+        door = map != null ? map.transform.Find(CachudDoorway.DoorPath) : null;
+        if (AtDoor) SetPresent(false);
+    }
+
+    private void SetPresent(bool present)
+    {
+        GetComponent<SpriteRenderer>().enabled = present;
+        foreach (Collider body in GetComponentsInChildren<Collider>(true)) body.enabled = present;
+    }
 
     private void Update()
     {
@@ -98,19 +111,19 @@ public class CachudCallout : MonoBehaviour, IInteractable
             Tick(Time.unscaledDeltaTime, enter || (click && CurrentPhase != Phase.Questions), choose, escape);
             return;
         }
-        if (CurrentPhase == Phase.Idle && TryBegin()) return;
         bool canTalk = CanBegin() && Interactables.IsNearest(this);
         promptAlpha = Mathf.MoveTowards(promptAlpha, canTalk ? 1f : 0f, Time.unscaledDeltaTime * 8f);
-        if (canTalk && keyboard != null && keyboard.eKey.wasPressedThisFrame) TryTalk();
+        if (canTalk && keyboard != null && keyboard.eKey.wasPressedThisFrame)
+        {
+            if (AtDoor) TryKnock();
+            else TryTalk();
+        }
     }
 
-    public bool TryBegin()
-    {
-        if (HasCalledOut || CurrentPhase != Phase.Idle) return false;
-        return Begin(calloutRadius, true);
-    }
+    // The first meeting: knocking on his door brings him out (straight to talking without one).
+    public bool TryKnock() => !HasComeOut && Begin(true);
 
-    public bool TryTalk() => Begin(talkRadius, false);
+    public bool TryTalk() => (HasComeOut || door == null) && Begin(false);
 
     private bool CanBegin() => isActiveAndEnabled && !TitleScreen.IsOpen && !PauseMenu.IsPaused &&
         !InventoryInspection.IsOpen && !Interactables.Busy &&
@@ -121,21 +134,29 @@ public class CachudCallout : MonoBehaviour, IInteractable
         if (player == null) player = Interactables.FindPlayer();
         if (!isActiveAndEnabled || player == null || player.gameObject.scene != gameObject.scene)
             return float.MaxValue;
-        Vector3 delta = player.position - transform.position;
+        Vector3 delta = player.position - Anchor();
         if (Mathf.Abs(delta.y) > 3f) return float.MaxValue;
         float distance = delta.x * delta.x + delta.z * delta.z;
         return distance <= talkRadius * talkRadius ? distance : float.MaxValue;
     }
 
-    private bool Begin(float radius, bool callOut)
+    // Where the player has to be: by his door until he has come out, then by him.
+    private Vector3 Anchor()
+    {
+        if (!AtDoor) return transform.position;
+        Bounds bounds = door.GetComponent<Renderer>().bounds;
+        return new Vector3(bounds.center.x, bounds.min.y, bounds.center.z);
+    }
+
+    private bool Begin(bool knock)
     {
         if (!CanBegin()) return false;
         if (player == null) player = Interactables.FindPlayer();
         if (player == null || player.gameObject.scene != gameObject.scene) return false;
-        Vector3 distance = player.position - transform.position;
+        Vector3 distance = player.position - Anchor();
         if (Mathf.Abs(distance.y) > 3f) return false;
         distance.y = 0f;
-        if (distance.sqrMagnitude > radius * radius) return false;
+        if (distance.sqrMagnitude > talkRadius * talkRadius) return false;
         if (view == null) view = Camera.main;
         if (view == null) return false;
 
@@ -145,20 +166,24 @@ public class CachudCallout : MonoBehaviour, IInteractable
         follow = view.GetComponent<CameraFollow>();
         followWasEnabled = follow != null && follow.enabled;
         if (follow != null) follow.enabled = false;
-        CalculateShot(distance.normalized);
+        doorway = null;
+        if (knock && AtDoor && CachudDoorway.TryCreate(door.root, transform, player, out doorway))
+            doorway.GetCameraPose(0f, out shotPosition, out shotRotation);
+        else CalculateShot((player.position - transform.position).normalized);
+        SetPresent(true);
+        HasComeOut = true;
         inventory = InventorySystem.instance;
-        automaticCallout = callOut;
         requestGameAfterReturn = false;
         questionRect = default;
         promptAlpha = 0f;
         active = this;
-        HasCalledOut = true;
         SetPhase(Phase.Panning);
         return true;
     }
 
     private void CalculateShot(Vector3 towardsPlayer)
     {
+        towardsPlayer = Vector3.ProjectOnPlane(towardsPlayer, Vector3.up).normalized;
         if (towardsPlayer.sqrMagnitude < 0.01f)
             towardsPlayer = Vector3.ProjectOnPlane(view.transform.position - transform.position, Vector3.up).normalized;
         if (towardsPlayer.sqrMagnitude < 0.01f) towardsPlayer = Vector3.back;
@@ -199,11 +224,18 @@ public class CachudCallout : MonoBehaviour, IInteractable
         phaseTime += dt;
         if (CurrentPhase == Phase.Panning && phaseTime >= PanDuration)
         {
-            if (automaticCallout) SetPhase(Phase.Calling);
+            if (doorway != null) SetPhase(Phase.Emerging);
             else StartDialogue();
         }
-        else if (CurrentPhase == Phase.Calling && phaseTime >= CallDuration)
-            StartDialogue();
+        else if (CurrentPhase == Phase.Emerging)
+        {
+            doorway.Tick(phaseTime);
+            if (phaseTime >= CachudDoorway.Duration)
+            {
+                FinishEmerging();
+                StartDialogue();
+            }
+        }
         else if (CurrentPhase == Phase.Typing)
         {
             typed = advance ? wrappedLine.Length : Mathf.Min(wrappedLine.Length, typed + dt * charactersPerSecond);
@@ -231,6 +263,15 @@ public class CachudCallout : MonoBehaviour, IInteractable
                 if (diceGame != null) diceGame.Begin(this, player, view);
             }
         }
+    }
+
+    // He is out and the door shut: the conversation keeps the shot the entrance ended on.
+    private void FinishEmerging()
+    {
+        if (doorway == null) return;
+        doorway.GetCameraPose(1f, out shotPosition, out shotRotation);
+        doorway.Dispose();
+        doorway = null;
     }
 
     private void StartDialogue()
@@ -280,6 +321,7 @@ public class CachudCallout : MonoBehaviour, IInteractable
 
     private void BeginReturn()
     {
+        FinishEmerging();
         returnPosition = view.transform.position;
         returnRotation = view.transform.rotation;
         RestoreFollow();
@@ -297,7 +339,12 @@ public class CachudCallout : MonoBehaviour, IInteractable
                     Vector3.up * (Mathf.Sin(t * Mathf.PI) * 0.6f);
                 view.transform.SetPositionAndRotation(position, Quaternion.Slerp(originalRotation, shotRotation, t));
             }
-            else if (CurrentPhase == Phase.Calling || IsDialogue)
+            else if (CurrentPhase == Phase.Emerging && doorway != null)
+            {
+                doorway.GetCameraPose(phaseTime / CachudDoorway.Duration, out Vector3 position, out Quaternion rotation);
+                view.transform.SetPositionAndRotation(position, rotation);
+            }
+            else if (IsDialogue)
                 view.transform.SetPositionAndRotation(shotPosition, shotRotation);
             else if (CurrentPhase == Phase.Returning)
             {
@@ -308,7 +355,12 @@ public class CachudCallout : MonoBehaviour, IInteractable
                 view.transform.SetPositionAndRotation(Vector3.Lerp(returnPosition, destination, t),
                     Quaternion.Slerp(returnRotation, rotation, t));
             }
-            if (playerController != null) playerController.AnimateCinematicWalk(Vector3.zero, 0f);
+            if (playerController != null)
+            {
+                // Waiting at the door, the player watches it with their back to the camera.
+                if (doorway != null) playerController.FaceAway();
+                playerController.AnimateCinematicWalk(Vector3.zero, 0f);
+            }
         }
 
         Camera camera = view != null ? view : Camera.main;
@@ -321,7 +373,8 @@ public class CachudCallout : MonoBehaviour, IInteractable
         if (Event.current.type != EventType.Repaint) return;
         if (active != this)
         {
-            InteractPrompt.Draw(Interactables.TopCentre(gameObject), 12f, "E", "Talk", 3, promptAlpha);
+            Vector3 top = AtDoor ? Interactables.TopCentre(door.gameObject) : Interactables.TopCentre(gameObject);
+            InteractPrompt.Draw(top, 12f, "E", AtDoor ? "Knock" : "Talk", 3, promptAlpha);
             return;
         }
         int previousDepth = GUI.depth;
@@ -330,13 +383,13 @@ public class CachudCallout : MonoBehaviour, IInteractable
         if (IsDialogue)
             questionRect = CinematicOverlay.DrawDialogue(wrappedLine, VisibleCharacters,
                 CurrentPhase == Phase.Waiting, CurrentPhase == Phase.Questions ? LastLocationQuestion : null);
-        else CinematicOverlay.DrawMessage(line, MessageOpacity);
         GUI.depth = previousDepth;
     }
 
     public void Cancel()
     {
         if (active != this) return;
+        FinishEmerging();
         if (view != null) view.transform.SetPositionAndRotation(originalPosition, originalRotation);
         RestoreFollow();
         requestGameAfterReturn = false;

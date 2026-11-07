@@ -49,10 +49,31 @@ public class CameraFollow : MonoBehaviour
         framingTrick = false;
     }
 
+    // Whether the follow view of the player standing at targetPosition and facing towards a
+    // point (as LookTowards turns it) is clear, so the camera would keep its full distance
+    // rather than be pulled in close by a wall or post.
+    public bool HasClearView(Vector3 targetPosition, Vector3 towards)
+    {
+        Vector3 away = targetPosition - towards;
+        away.y = 0f;
+        if (away.sqrMagnitude < 0.001f) return true;
+        Vector3 focus = targetPosition + lookAtHeight;
+        Vector3 desiredPosition = targetPosition + away.normalized * new Vector2(offset.x, offset.z).magnitude +
+            Vector3.up * offset.y;
+        Vector3 toCamera = desiredPosition - focus;
+        int count = Physics.SphereCastNonAlloc(focus, collisionRadius, toCamera.normalized, hits, toCamera.magnitude,
+            Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+        for (int i = 0; i < count; i++)
+        {
+            if (target == null || !hits[i].collider.transform.IsChildOf(target)) return false;
+        }
+        return true;
+    }
+
     private void LateUpdate()
     {
         bool hasTrick = MagicianEncounter.TryGetGameBounds(out Bounds trickBounds);
-        if (target == null || InventoryInspection.IsOpen || (MagicianEncounter.IsOpen && !hasTrick))
+        if (target == null || InventoryInspection.IsOpen || (MagicianEncounter.IsOpen && !hasTrick) || AlchemistEncounter.IsOpen)
         {
             return;
         }
