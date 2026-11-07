@@ -46,6 +46,7 @@ public class PlayerController : MonoBehaviour
     private MaterialPropertyBlock shadowBlock;
     private Vector3 shadowBaseScale;
     private Vector3 shadowBasePosition;
+    private bool shadowBaseCaptured;
     // Set while something else owns the keyboard; Space must be released before it jumps again,
     // so the press that ends a skill check or a conversation never also jumps.
     private bool jumpLocked;
@@ -67,16 +68,19 @@ public class PlayerController : MonoBehaviour
             shadowLight = FindDirectionalLight();
         }
 
-        if (shadowCaster != null)
+        // Measured once: FitShadow narrows and lifts the quad from these.
+        if (shadowCaster != null && !shadowBaseCaptured)
         {
             shadowBaseScale = shadowCaster.transform.localScale;
             shadowBasePosition = shadowCaster.transform.localPosition;
+            shadowBaseCaptured = true;
         }
 
         if (spriteRenderer != null && spriteRenderer.sprite != null)
         {
             UpdateShadowCaster(spriteRenderer.sprite);
         }
+        FitShadow();
     }
 
     public void PlaceOnGround(Vector3 groundPosition)
@@ -198,6 +202,7 @@ public class PlayerController : MonoBehaviour
             Vector3.Dot(worldDirection, CameraForward()));
         if (Mathf.Abs(input.y) < 0.35f) input.y = 0f;
         AnimateSprite(input, deltaTime);
+        FitShadow();
     }
 
     private void AnimateSprite(Vector2 input, float deltaTime)
@@ -272,9 +277,16 @@ public class PlayerController : MonoBehaviour
         shadowCaster.SetPropertyBlock(shadowBlock);
     }
 
-    // The sprite billboards toward the camera, but the shadow quad faces the light
-    // so its shadow keeps the sprite's true width from every camera angle.
     private void LateUpdate()
+    {
+        FitShadow();
+    }
+
+    // The sprite billboards toward the camera, but the shadow quad faces the light
+    // so its shadow keeps the sprite's true width from every camera angle. Also run by
+    // Awake and AnimateCinematicWalk: the title disables this component for the opening,
+    // and a quad left facing the camera at full width casts a shadow far too wide.
+    private void FitShadow()
     {
         if (shadowCaster == null)
         {
@@ -294,7 +306,7 @@ public class PlayerController : MonoBehaviour
         lightDir.y = 0f;
         if (lightDir.sqrMagnitude > 0.0001f)
         {
-            shadowCaster.transform.rotation = Quaternion.LookRotation(lightDir.normalized, Vector3.up);
+            quad.rotation = Quaternion.LookRotation(lightDir.normalized, Vector3.up);
         }
     }
 

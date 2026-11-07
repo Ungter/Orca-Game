@@ -70,6 +70,29 @@ public class ClueMinigame : MonoBehaviour
 
     // Pen ink for grid lines, tile and swatch outlines.
     private static readonly Color32 Outline = new Color32(52, 36, 24, 255);
+
+    // Every coloured tile is a hand-drawn potion holding its colour. Legend: o ink outline,
+    // c cork, g empty glass, h glint, s liquid surface, l liquid, d liquid in shadow.
+    private static readonly string[] PotionArt =
+    {
+        "..ooooo..",
+        "..occco..",
+        "...ooo...",
+        "...ogo...",
+        "..ohggo..",
+        ".ohsssso.",
+        "ohllllldo",
+        "olllslldo",
+        ".olllddo.",
+        "..ooooo..",
+    };
+    // Canvas pixels per potion art pixel.
+    private const int PotionPixel = 3;
+    private static readonly int PotionWidth = PotionArt[0].Length * PotionPixel;
+    private static readonly int PotionHeight = PotionArt.Length * PotionPixel;
+    private static readonly Color32 Cork = new Color32(150, 102, 60, 255);
+    private static readonly Color32 Glass = new Color32(222, 234, 230, 255);
+    private static readonly Color32 Glint = new Color32(255, 251, 238, 255);
     // The grid keeps going past the board onto the paper and fades out over this many tiles.
     private const float PaperLineFade = 3.5f;
     // Paper-lines texture resolution, in texels per letter pixel.
@@ -117,7 +140,7 @@ public class ClueMinigame : MonoBehaviour
     private PixelText hintThen;
     private RawImage nextSwatch;
     private RawImage afterSwatch;
-    // One small circle per colour, matching the pieces on the board.
+    // One small potion per colour, matching the pieces on the board.
     [System.NonSerialized]
     private Texture2D[] swatchTextures;
     private bool clueRecorded;
@@ -625,8 +648,8 @@ private void Update()
 
 private void DrawBoard()
     {
-        int inset = TilePx(1.6f);
-        int face = TileSize - inset * 2;
+        int insetX = (TileSize - PotionWidth) / 2;
+        int insetY = (TileSize - PotionHeight) / 2;
         for (int y = 0; y < GridSize; y++)
         {
             for (int x = 0; x < GridSize; x++)
@@ -634,7 +657,7 @@ private void DrawBoard()
                 int tile = board[y, x];
                 if (tile != Floor)
                 {
-                    PaintCircle((x + 1) * TileSize + inset, (y + 1) * TileSize + inset, face, Colors[tile]);
+                    PaintPotion((x + 1) * TileSize + insetX, (y + 1) * TileSize + insetY, Colors[tile]);
                 }
             }
         }
@@ -651,45 +674,61 @@ private void DrawBoard()
         }
     }
 
-    // Small coloured circles with a shaded edge and a soft shadow.
-    private void PaintCircle(int x0, int y0, int size, Color32 color)
+    // A small corked flask of the tile's colour, painted pixel by pixel from PotionArt with a
+    // soft drop shadow. x0, y0 is its top-left corner on the canvas.
+    private void PaintPotion(int x0, int y0, Color32 color)
     {
-        int shadow = TilePx(1.2f);
-        float centre = size * 0.5f;
-        float radius = size * 0.44f;
-        for (int v = 0; v < size; v++)
+        int shadow = PotionPixel;
+        for (int row = 0; row < PotionArt.Length; row++)
         {
-            for (int u = 0; u < size; u++)
+            for (int col = 0; col < PotionArt[row].Length; col++)
             {
-                float dx = u + 0.5f - centre;
-                float dy = v + 0.5f - centre;
-                float distance = Mathf.Sqrt(dx * dx + dy * dy);
-                float cover = Mathf.Clamp01(radius + 0.5f - distance);
-                if (cover <= 0f) continue;
-                Blend(x0 + u + shadow, y0 + v + shadow, Outline, cover * 0.28f);
+                if (PotionArt[row][col] == '.') continue;
+                FillArtPixel(x0 + col * PotionPixel + shadow, y0 + row * PotionPixel + shadow, Outline, 0.28f, false);
             }
         }
 
-        for (int v = 0; v < size; v++)
+        for (int row = 0; row < PotionArt.Length; row++)
         {
-            for (int u = 0; u < size; u++)
+            // The liquid darkens a little toward the bottom of the flask.
+            float depth = 1.08f - 0.14f * row / (PotionArt.Length - 1);
+            for (int col = 0; col < PotionArt[row].Length; col++)
             {
-                float dx = u + 0.5f - centre;
-                float dy = v + 0.5f - centre;
-                float distance = Mathf.Sqrt(dx * dx + dy * dy);
-                float cover = Mathf.Clamp01(radius + 0.5f - distance);
-                if (cover <= 0f) continue;
-                float light = (1f - 0.25f * (dx + dy) / radius) *
-                    (0.94f + 0.12f * Grain(x0 + u, y0 + v));
-                var body = new Color32(
-                    (byte)Mathf.Clamp(color.r * light, 0f, 255f),
-                    (byte)Mathf.Clamp(color.g * light, 0f, 255f),
-                    (byte)Mathf.Clamp(color.b * light, 0f, 255f), 255);
-                Blend(x0 + u, y0 + v, body, cover);
-                float edge = Mathf.Clamp01(1.4f - Mathf.Abs(distance - radius));
-                Blend(x0 + u, y0 + v, Outline, edge * cover * 0.7f);
+                int x = x0 + col * PotionPixel;
+                int y = y0 + row * PotionPixel;
+                switch (PotionArt[row][col])
+                {
+                    case 'o': FillArtPixel(x, y, Outline, 0.92f, true); break;
+                    case 'c': FillArtPixel(x, y, Cork, 1f, true); break;
+                    case 'g': FillArtPixel(x, y, Glass, 0.6f, true); break;
+                    case 'h': FillArtPixel(x, y, Glint, 0.95f, false); break;
+                    case 's': FillArtPixel(x, y, Shade(Color32.Lerp(color, Glint, 0.35f), 1f), 1f, true); break;
+                    case 'l': FillArtPixel(x, y, Shade(color, depth), 1f, true); break;
+                    case 'd': FillArtPixel(x, y, Shade(color, 0.68f), 1f, true); break;
+                }
             }
         }
+    }
+
+    // One art pixel of the potion: a PotionPixel square, mottled by the paper grain when inked.
+    private void FillArtPixel(int x0, int y0, Color32 color, float alpha, bool grained)
+    {
+        for (int y = y0; y < y0 + PotionPixel; y++)
+        {
+            for (int x = x0; x < x0 + PotionPixel; x++)
+            {
+                Color32 ink = grained ? Shade(color, 0.94f + 0.12f * Grain(x, y)) : color;
+                Blend(x, y, ink, alpha);
+            }
+        }
+    }
+
+    private static Color32 Shade(Color32 color, float light)
+    {
+        return new Color32(
+            (byte)Mathf.Clamp(color.r * light, 0f, 255f),
+            (byte)Mathf.Clamp(color.g * light, 0f, 255f),
+            (byte)Mathf.Clamp(color.b * light, 0f, 255f), 255);
     }
 
     // A pen stroke along one grid line. Ink density follows the paper grain and the line
@@ -1010,7 +1049,7 @@ private void Fill(int x, int y, int width, int height, Color32 color)
         return swatch;
     }
 
-    // Paints each colour's circle into the board buffer and copies it out into
+    // Paints each colour's potion into the board buffer and copies it out into
     // its own texture. Runs at the start of Redraw, which repaints the buffer right after.
     // Rebuilt whenever the textures are missing (first use, or a script reload while playing).
     private void EnsureSwatches()
@@ -1020,14 +1059,12 @@ private void Fill(int x, int y, int width, int height, Color32 color)
             return;
         }
 
-        int inset = TilePx(1.6f);
-        int face = TileSize - inset * 2;
-        int size = face + TilePx(1.2f) + 2;
+        int size = Mathf.Max(PotionWidth, PotionHeight) + PotionPixel + 2;
         swatchTextures = new Texture2D[Colors.Length];
         for (int colour = 0; colour < Colors.Length; colour++)
         {
             System.Array.Clear(pixels, 0, pixels.Length);
-            PaintCircle(1, 1, face, Colors[colour]);
+            PaintPotion(1 + (size - 2 - PotionPixel - PotionWidth) / 2, 1 + (size - 2 - PotionPixel - PotionHeight) / 2, Colors[colour]);
             var swatch = new Color32[size * size];
             for (int y = 0; y < size; y++)
             {
@@ -1039,7 +1076,7 @@ private void Fill(int x, int y, int width, int height, Color32 color)
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, true)
             {
                 name = "Clue swatch " + colour,
-                filterMode = FilterMode.Trilinear,
+                filterMode = FilterMode.Point,
                 wrapMode = TextureWrapMode.Clamp,
             };
             tex.SetPixels32(swatch);

@@ -43,7 +43,8 @@ public class FountainWater : MonoBehaviour
     [SerializeField] private float drop;
     [SerializeField] private float columnRadius;
     [SerializeField] private float wallRadius;
-    // Lit, alpha-clipped material for the droplets and splashes; their sheets replace its base map.
+    // Alpha-clipped Orca/Fountain Spray material for the droplets and splashes, which keeps them
+    // blue under the warm lamps; their sheets replace its base map.
     [SerializeField] private Material sprayMaterial;
     // Lit material for the pool; its base map is replaced by the animated water.
     [SerializeField] private Material poolMaterial;
