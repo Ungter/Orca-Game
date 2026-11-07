@@ -15,7 +15,7 @@ using UnityEngine.SceneManagement;
 public static class ScenePaving
 {
     private static readonly string[] GroupNames = { "sideWalkAlch" };
-    // The paved slab whose material the groups copy (the model's pCube86, renamed in SampleScene).
+    // The paved slab whose material the groups copy (the model's IslandDemo:pCube2, renamed in SampleScene).
     private const string SourceName = "IslandDemo:sideWalk";
     private const string SpillPrefix = "Sidewalk Spill";
     private const string GeneratedFolder = "Assets/Generated";

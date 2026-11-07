@@ -28,7 +28,7 @@ public class CachudDoorwayTests
         Assert.IsNotNull(actor);
         player.GetType().GetMethod("Awake", PrivateInstance).Invoke(player, null);
         // Knocking: the player stands in front of the door.
-        Transform door = map.Find(CachudDoorway.DoorPath);
+        Transform door = CachudDoorway.FindDoor(map);
         Assert.IsNotNull(door);
         Physics.SyncTransforms();
     }
@@ -68,7 +68,7 @@ public class CachudDoorwayTests
     public void DoorSwingsOnAHingeThenClosesBehindHim()
     {
         StandAtTheDoor();
-        Transform door = map.Find(CachudDoorway.DoorPath);
+        Transform door = CachudDoorway.FindDoor(map);
         Vector3 position = door.position;
         Quaternion rotation = door.rotation;
         Assert.IsTrue(CachudDoorway.TryCreate(map, actor, player.transform, out doorway));
@@ -102,7 +102,7 @@ public class CachudDoorwayTests
     public void AnInterruptedEntranceShutsTheDoorAndLeavesHimOutside()
     {
         StandAtTheDoor();
-        Transform door = map.Find(CachudDoorway.DoorPath);
+        Transform door = CachudDoorway.FindDoor(map);
         Vector3 position = door.position;
         Quaternion rotation = door.rotation;
         Assert.IsTrue(CachudDoorway.TryCreate(map, actor, player.transform, out doorway));
@@ -125,7 +125,7 @@ public class CachudDoorwayTests
     // As if the player had walked up and knocked: just outside the door.
     private void StandAtTheDoor()
     {
-        Transform door = map.Find(CachudDoorway.DoorPath);
+        Transform door = CachudDoorway.FindDoor(map);
         Bounds bounds = door.GetComponent<Renderer>().bounds;
         MeshFilter filter = door.GetComponent<MeshFilter>();
         Vector3 x = door.TransformVector(Vector3.right * filter.sharedMesh.bounds.size.x);

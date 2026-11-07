@@ -22,6 +22,7 @@ Each section names the files involved, so you can jump straight to the code.
 - [16. The magician's lantern](#16-the-magicians-lantern) - `PlayerLantern.cs`, `MagicianEncounter.cs`
 - [17. The alchemist's letter](#17-the-alchemists-letter) - `AlchemistEncounter.cs`
 - [18. Al Cachud comes out of his door](#18-al-cachud-comes-out-of-his-door) - `CachudCallout.cs`, `CachudDoorway.cs`
+- [19. Door beacons](#19-door-beacons) - `DoorBeacon.cs`
 - [Shared rules for crisp pixel art](#shared-rules-for-crisp-pixel-art)
 
 ---
@@ -514,12 +515,23 @@ Maya and follow the map into any scene.
   - **Stable choice:** FNV-1a hash of the name picks the shade - stable across sessions,
     unlike `string.GetHashCode`. Trees hash the tree's name (one tone per tree); shrubs and
     hedges hash name + index of each sphere (speckled bushes), because sphere names repeat.
-- **Inverted normals (sidewalk not showing shadows):** the sidewalk slab
-  (`IslandDemo:pCube2`) came out of Maya with every normal facing opposite its triangle
-  winding. It still drew (culling uses winding), but lighting uses normals, so lights saw its
-  back: only ambient lit it and shadows had nothing to darken. `FixInvertedNormals` does an
-  area-weighted vote per mesh (triangle `Cross(b-a, c-a)` vs. its vertex normals) and flips
-  normals + tangents when disagreement outweighs agreement 3:1. Only that slab trips it.
+- **Inverted normals (sidewalk not showing shadows, then black patches):** the sidewalk slab
+  (`IslandDemo:pCube2`, renamed `IslandDemo:sideWalk` in SampleScene) came out of Maya with a mix
+  of faces: most with normals facing opposite their triangle winding, some (the ramp along the
+  south edge and other sections) correct. Faces still draw (culling uses winding), but lighting
+  uses normals, so lights see the back of a flipped face: at night it renders pure black. The
+  old fix voted per mesh and flipped all normals, which repaired the majority and broke the
+  rest. `FixInvertedNormals` now works per vertex: it sums the area-weighted face directions
+  (`Cross(b-a, c-a)`) of the triangles using each vertex and flips that vertex's normal and
+  tangent when they disagree. Vertices that already agree stay as they are.
+- **Transparent map material (dock's far sides showing through its top):** the FBX has one
+  Maya material, `openPBR_shader1` (opacity 1, no transmission), on 96 objects including
+  `IslandDemo:Dock` and its posts. Unity imports it as URP Transparent (premultiplied, queue 3000,
+  no depth write), so triangles draw in mesh order, and on the L-shaped dock the far walls drew
+  over the top from some angles. `MakeImportedMaterialsOpaque` runs first in the import, while
+  every material on the map is still one the import made. It sets any Transparent material whose
+  base colour alpha is 1 back to Opaque, the same way URP's inspector does (surface, blend,
+  depth write, keywords, `RenderType` tag, Geometry queue, depth and shadow passes).
 - **Inside-out slab (player stuck in `pCube86`):** `pCube86` is mirrored by a negative Y scale
   and its faces are stored pointing inward. Unity flips culling for mirrored objects and PhysX
   flips their collider triangles, so the stored direction wins: the slab rendered and collided
@@ -1067,8 +1079,9 @@ cascades, plus a full re-render for SSAO's depth-normals prepass.
 **Files:** `Assets/CachudCallout.cs` (the meeting and conversation), `Assets/CachudDoorway.cs`
 (the door and the walk out; it was the old opening's walk-out)
 
-- **Waiting indoors:** on `Start` he finds his door (`pasted__building2/pasted__pCube54` in
-  `IslanddemoV3`) and, until he has come out, hides his sprite and turns his colliders off, so he
+- **Waiting indoors:** on `Start` he finds his door (`CachudDoorway.FindDoor`: the object named
+  `chudDoor` in `IslanddemoV3`, as SampleScene renames it, else the model's
+  `pasted__building2/pasted__pCube54`) and, until he has come out, hides his sprite and turns his colliders off, so he
   isn't an invisible obstacle where he was placed. The door is the interactable: "[E] KNOCK"
   over it within 3 m. There is no longer a "HEY, YOU!" call-out by distance.
 - **Knocking:** the camera pans to a shot from out in front of the door (1.25 s, as before),
@@ -1084,6 +1097,33 @@ cascades, plus a full re-render for SSAO's depth-normals prepass.
 - **Afterwards:** he stays where he stopped outside the door and E talks to him again, with the
   usual side-on shot. Without the door in the scene (tests), knocking just starts the
   conversation where he stands.
+
+---
+
+## 19. Door beacons
+
+**Files:** `Assets/DoorBeacon.cs`, `Assets/Resources/DoorBeacon/DoorBeacon.shader`
+
+- **Which doors:** after every scene load (same `BeforeSceneLoad` + `AfterSceneLoad` bootstrap as
+  the alchemist) it looks up `alchDoor`, `magDoor` and `chudDoor` by name and stands a
+  `Door Beacon (<door>)` object at the bottom centre of what each door renders. Renaming another
+  object to one of those names moves its beacon there.
+- **The beam:** one quad, `1.2 x` the door's width and `4 x` its height, sized from the door's
+  bounds so it fits any map scale. The shader (`Orca/Door Beacon`, additive, no depth write)
+  turns it to the camera about the vertical axis, so it never shows edge-on. It is brightest at
+  the ground and fades out upwards (`pow(1 - v, _FadePower)`), has a bright core with a soft halo
+  across its width, a slow pulse and faint bands drifting up. It is pulled `0.75 x` the door
+  width towards the camera so the wall behind the door doesn't cut it in half. No shadows, no
+  real light. It lives in `Resources` so builds include it.
+- **When it shows:** it fades in and out over 0.6 s. It's hidden while `Interactables.Busy` (any
+  conversation, cinematic or the magician's outdoor trick) or while its door is inactive.
+  Al Cachud's goes out for good once he has come out, since from then on E talks to him, not the door.
+- **Fades as you walk up:** on top of that, its brightness follows the player's ground distance
+  from its foot: full beyond 14 m, eased (`SmoothStep`) down to nothing at 4 m, just before the
+  door's own "[E]" prompt shows at 3 m. Walking away brings it back.
+- **Renamed doors:** the scene renames the model's doors for this (`chudDoor` was
+  `pasted__pCube54`, `magDoor` was `building1/pCylinder1`), so `CachudDoorway.FindDoor` and
+  `MagicianEncounter.FindDoor` look for the new name first and fall back to the model's.
 
 ---
 

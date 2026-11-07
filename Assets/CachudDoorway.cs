@@ -12,6 +12,8 @@ public sealed class CachudDoorway : IDisposable
 {
     public const string MapName = "IslanddemoV3";
     public const string DoorPath = "world/group/pasted__building2/pasted__pCube54";
+    // What SampleScene renames that door to (it also gets a DoorBeacon by this name).
+    public const string DoorName = "chudDoor";
     public const float Duration = 3.8f;
     private const float WalkStart = 0.65f;
     private const float WalkDuration = 2.6f;
@@ -94,12 +96,23 @@ public sealed class CachudDoorway : IDisposable
         }
     }
 
+    // His door in the map: whatever the scene has named DoorName, else the model's own node.
+    public static Transform FindDoor(Transform map)
+    {
+        if (map == null) return null;
+        foreach (Transform child in map.GetComponentsInChildren<Transform>(true))
+        {
+            if (child.name == DoorName) return child;
+        }
+        return map.Find(DoorPath);
+    }
+
     // The door in the map; false (touching nothing) without it or without someone to come out.
     // visitor: whoever knocked, which also says which face of the door is the outside.
     public static bool TryCreate(Transform map, Transform actor, Transform visitor, out CachudDoorway doorway)
     {
         doorway = null;
-        Transform door = map != null ? map.Find(DoorPath) : null;
+        Transform door = FindDoor(map);
         if (door == null || actor == null || visitor == null || door.GetComponent<Renderer>() == null) return false;
         MeshFilter filter = door.GetComponent<MeshFilter>();
         if (filter == null || filter.sharedMesh == null) return false;

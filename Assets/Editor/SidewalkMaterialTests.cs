@@ -101,6 +101,47 @@ public class SidewalkMaterialTests
             Assert.Greater(normal.y, 0f, "Gravel faces up so it can be seen and walked on.");
     }
 
+    // Maya stored some of the sidewalk's faces with normals pointing down; lit from behind,
+    // those parts rendered pure black at night.
+    [Test]
+    public void SidewalkNormalsFaceTheSameWayAsTheirFaces()
+    {
+        GameObject map = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/IslanddemoV3.fbx");
+        MeshRenderer sidewalk = FindRenderer(map, "IslandDemo:pCube2");
+        Assert.IsNotNull(sidewalk);
+        Mesh mesh = sidewalk.GetComponent<MeshFilter>().sharedMesh;
+        Vector3[] vertices = mesh.vertices;
+        Vector3[] normals = mesh.normals;
+        int[] triangles = mesh.triangles;
+        for (int t = 0; t + 2 < triangles.Length; t += 3)
+        {
+            int a = triangles[t], b = triangles[t + 1], c = triangles[t + 2];
+            Vector3 face = Vector3.Cross(vertices[b] - vertices[a], vertices[c] - vertices[a]);
+            if (face.sqrMagnitude < 1e-12f) continue;
+            Assert.Greater(Vector3.Dot(normals[a] + normals[b] + normals[c], face), 0f, "Triangle " + t / 3 + "'s normals face away from it.");
+        }
+    }
+
+    // The map's Maya material imported as Transparent (no depth write), so the dock's far sides
+    // drew over its top from some angles.
+    [Test]
+    public void DockMaterialIsOpaqueAndWritesDepth()
+    {
+        GameObject map = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/IslanddemoV3.fbx");
+        MeshRenderer dock = FindRenderer(map, "IslandDemo:Dock");
+        Assert.IsNotNull(dock);
+        foreach (Material material in dock.sharedMaterials)
+        {
+            Assert.IsNotNull(material);
+            Assert.AreEqual(0f, material.GetFloat("_Surface"), material.name + " is Opaque.");
+            Assert.AreEqual(1f, material.GetFloat("_ZWrite"), material.name + " writes depth.");
+            Assert.AreEqual((int)UnityEngine.Rendering.RenderQueue.Geometry, material.renderQueue);
+            Assert.IsFalse(material.IsKeywordEnabled("_SURFACE_TYPE_TRANSPARENT"));
+            Assert.IsFalse(material.IsKeywordEnabled("_ALPHAPREMULTIPLY_ON"));
+            Assert.AreEqual("Opaque", material.GetTag("RenderType", false));
+        }
+    }
+
     private static MeshRenderer FindRenderer(GameObject map, string name)
     {
         foreach (MeshRenderer renderer in map.GetComponentsInChildren<MeshRenderer>(true))

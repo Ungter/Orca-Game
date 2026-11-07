@@ -84,7 +84,7 @@ public class CachudCallout : MonoBehaviour, IInteractable
     private void Start()
     {
         GameObject map = GameObject.Find(CachudDoorway.MapName);
-        door = map != null ? map.transform.Find(CachudDoorway.DoorPath) : null;
+        door = CachudDoorway.FindDoor(map != null ? map.transform : null);
         if (AtDoor) SetPresent(false);
     }
 

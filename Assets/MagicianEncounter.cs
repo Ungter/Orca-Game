@@ -12,6 +12,10 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
         LeavingForTrick, EnteringTrick, Playing, LeavingRoom, Returning
     }
 
+    // The round door of world/building1: the model's pCylinder1, renamed magDoor in SampleScene
+    // (which also gives it a DoorBeacon).
+    public const string DoorName = "magDoor";
+    private const string ModelDoorName = "pCylinder1";
     public const string WandItemName = "Magic Wand";
     public const string Greeting = "Want to see a magic trick?";
     public const string MissingWand = "Oh no! Im missing my magic wand!, Please find it for me, it should leak magic";
@@ -66,6 +70,14 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
     private ShellMinigame game;
     private WorldHatStage worldStage;
     private Transform house;
+
+    // The door among the house's children, under either name.
+    public static Transform FindDoor(Transform house)
+    {
+        if (house == null) return null;
+        Transform door = house.Find(DoorName);
+        return door != null ? door : house.Find(ModelDoorName);
+    }
 
     public static bool TryGetGameBounds(out Bounds bounds)
     {

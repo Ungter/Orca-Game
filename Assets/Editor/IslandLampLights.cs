@@ -22,15 +22,16 @@ public class IslandLampLights : AssetPostprocessor
     {
         // Bump when the lamp setup or LampGlow defaults change, so the map reimports.
         // Editing the sidewalk pixel art changes the hash, which reimports it too.
-        return 20u ^ (SidewalkGravelArt.ContentHash() << 8);
+        return 22u ^ (SidewalkGravelArt.ContentHash() << 8);
     }
 
     // The slab gets a matte copy of this template, using its supplied texture when set.
     // UVs are laid out in scene metres, so the template's tiling reads as tiles per metre
     // (0.5 = one tile every 2 m). Hand-drawn gravel is a fallback for untextured templates.
+    // SampleScene renames it IslandDemo:sideWalk.
     private const string SidewalkName = "IslandDemo:pCube2";
-    // Loose slabs paved like the sidewalk (named IslandDemo:sideWalk in SampleScene). They
-    // share its material and metre UVs and spill gravel over their edges the same way.
+    // Loose slabs paved like the sidewalk. They share its material and metre UVs and spill
+    // gravel over their edges the same way.
     private static readonly string[] ExtraSidewalkNames = { "pCube86" };
     // The island's ground block, which the spilled gravel slopes down onto.
     internal const string GroundName = "IslandDemo:pCube1";
@@ -66,6 +67,9 @@ public class IslandLampLights : AssetPostprocessor
         {
             return;
         }
+
+        // First, while every material on the map is still one this import made.
+        MakeImportedMaterialsOpaque(root);
 
         context.DependsOnSourceAsset(LampHeadMaterialPath);
         Material headGlow = AssetDatabase.LoadAssetAtPath<Material>(LampHeadMaterialPath);
@@ -398,9 +402,56 @@ public class IslandLampLights : AssetPostprocessor
         return count;
     }
 
-    // Some meshes come out of Maya with every normal pointing the opposite way to its face
-    // (the sidewalk slab, IslandDemo:pCube2). The surface still draws, but lights see its
-    // back, so it only gets ambient light and shadows can't darken it. Flip those back.
+    // Unity imports the map's one Maya material (openPBR_shader1: opacity 1, no transmission) as
+    // URP Transparent, which doesn't write depth. Triangles then draw in mesh order, so on the
+    // L-shaped dock the far sides showed through its top from some angles. Anything this import
+    // made see-through while fully opaque (base colour alpha 1) is set back to Opaque.
+    private static void MakeImportedMaterialsOpaque(GameObject root)
+    {
+        var seen = new HashSet<Material>();
+        var fixedNames = new List<string>();
+        foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+        {
+            foreach (Material material in renderer.sharedMaterials)
+            {
+                if (material == null || !seen.Add(material)) continue;
+                if (!material.HasProperty("_Surface") || material.GetFloat("_Surface") < 0.5f) continue;
+                if (material.HasProperty("_BaseColor") && material.GetColor("_BaseColor").a < 0.999f) continue;
+                MakeOpaque(material);
+                fixedNames.Add(material.name);
+            }
+        }
+        if (fixedNames.Count > 0)
+        {
+            Debug.Log("[IslandLampLights] Made imported materials opaque: " + string.Join(", ", fixedNames));
+        }
+    }
+
+    // What URP's material inspector sets for Surface Type: Opaque.
+    internal static void MakeOpaque(Material material)
+    {
+        material.SetFloat("_Surface", 0f);
+        if (material.HasProperty("_Blend")) material.SetFloat("_Blend", 0f);
+        if (material.HasProperty("_ZWrite")) material.SetFloat("_ZWrite", 1f);
+        if (material.HasProperty("_SrcBlend")) material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One);
+        if (material.HasProperty("_DstBlend")) material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.Zero);
+        if (material.HasProperty("_SrcBlendAlpha")) material.SetFloat("_SrcBlendAlpha", (float)UnityEngine.Rendering.BlendMode.One);
+        if (material.HasProperty("_DstBlendAlpha")) material.SetFloat("_DstBlendAlpha", (float)UnityEngine.Rendering.BlendMode.Zero);
+        material.DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+        material.DisableKeyword("_ALPHAMODULATE_ON");
+        material.DisableKeyword("_ALPHABLEND_ON");
+        material.SetOverrideTag("RenderType", "Opaque");
+        material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
+        material.SetShaderPassEnabled("DepthOnly", true);
+        material.SetShaderPassEnabled("DepthNormals", true);
+        material.SetShaderPassEnabled("ShadowCaster", true);
+    }
+
+    // Maya leaves some faces with their normals pointing the opposite way to the face (the
+    // sidewalk, IslandDemo:pCube2, has a mix of both). Those faces still draw, but lights see
+    // their back, so they only get ambient light and render black at night. Each vertex
+    // normal is turned to agree with the faces that use it; vertices that already agree stay.
     private static void FixInvertedNormals(GameObject root)
     {
         var seen = new HashSet<Mesh>();
@@ -419,9 +470,8 @@ public class IslandLampLights : AssetPostprocessor
                 continue;
             }
 
-            // Area-weighted vote: does each triangle's winding agree with its vertex normals?
-            float agree = 0f;
-            float disagree = 0f;
+            // Area-weighted face direction (from the winding) round each vertex.
+            var faces = new Vector3[vertices.Length];
             for (int sub = 0; sub < mesh.subMeshCount; sub++)
             {
                 int[] triangles = mesh.GetTriangles(sub);
@@ -429,28 +479,38 @@ public class IslandLampLights : AssetPostprocessor
                 {
                     int a = triangles[t], b = triangles[t + 1], c = triangles[t + 2];
                     Vector3 face = Vector3.Cross(vertices[b] - vertices[a], vertices[c] - vertices[a]);
-                    float vote = Vector3.Dot(face, normals[a] + normals[b] + normals[c]);
-                    if (vote > 0f) agree += face.magnitude;
-                    else if (vote < 0f) disagree += face.magnitude;
+                    faces[a] += face;
+                    faces[b] += face;
+                    faces[c] += face;
                 }
             }
-            if (disagree <= agree * 3f)
-            {
-                continue;
-            }
 
-            for (int i = 0; i < normals.Length; i++) normals[i] = -normals[i];
-            mesh.normals = normals;
             Vector4[] tangents = mesh.tangents;
-            if (tangents != null && tangents.Length == normals.Length)
+            bool hasTangents = tangents != null && tangents.Length == normals.Length;
+            int flipped = 0;
+            for (int i = 0; i < normals.Length; i++)
             {
-                for (int i = 0; i < tangents.Length; i++)
+                if (Vector3.Dot(normals[i], faces[i]) >= 0f)
+                {
+                    continue;
+                }
+                normals[i] = -normals[i];
+                if (hasTangents)
                 {
                     tangents[i] = new Vector4(-tangents[i].x, -tangents[i].y, -tangents[i].z, tangents[i].w);
                 }
+                flipped++;
+            }
+            if (flipped == 0)
+            {
+                continue;
+            }
+            mesh.normals = normals;
+            if (hasTangents)
+            {
                 mesh.tangents = tangents;
             }
-            fixedNames.Add(filter.name);
+            fixedNames.Add(filter.name + " (" + flipped + "/" + normals.Length + ")");
         }
         if (fixedNames.Count > 0)
         {

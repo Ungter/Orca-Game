@@ -23,7 +23,7 @@ public class MagicianSceneTests
                 Assert.AreNotEqual("ClueLetter2", root.name);
             }
             Assert.IsNotNull(map);
-            Transform door = map.Find("world/building1/pCylinder1");
+            Transform door = MagicianEncounter.FindDoor(map.Find("world/building1"));
             Assert.IsNotNull(door);
             Assert.IsNotNull(encounter);
             Bounds bounds = door.GetComponent<Renderer>().bounds;

@@ -50,7 +50,7 @@ public class WorldHatStage : MonoBehaviour
         promptHat = -1;
         promptAlpha = 0f;
 
-        Transform door = house != null ? house.Find("pCylinder1") : null;
+        Transform door = house != null ? MagicianEncounter.FindDoor(house) : null;
         Renderer doorway = door != null ? door.GetComponent<Renderer>() : null;
         outward = entrance - (doorway != null ? doorway.bounds.center : HouseBounds(house, entrance).center);
         outward.y = 0f;
