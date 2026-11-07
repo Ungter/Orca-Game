@@ -1,9 +1,9 @@
 using UnityEngine;
 
-// The lantern the magician hands over. Pressing its slot number (or clicking its slot) in
-// the inventory toggles holding it: PlayerController switches to the lantern sprites and a
-// warm, softly flickering point light hangs where the hand holds it. Losing the item puts
-// the light out.
+// The player's lantern, in the bag from the start of the game (startWithLantern). Pressing its
+// slot number (or clicking its slot) in the inventory toggles holding it: PlayerController
+// switches to the lantern sprites and a warm, softly flickering point light hangs where the
+// hand holds it. Losing the item puts the light out.
 [DisallowMultipleComponent]
 public class PlayerLantern : MonoBehaviour
 {
@@ -29,6 +29,15 @@ public class PlayerLantern : MonoBehaviour
     // it (mirrored by SetHand), y up, z towards the camera (away from it when facing away).
     [SerializeField]
     private Vector3 handOffset = new Vector3(0.5f, -0.26f, 0.15f);
+
+    [Header("Starting with it")]
+    // Put the lantern in the bag when the game starts, so nobody has to fetch it.
+    [SerializeField]
+    private bool startWithLantern = true;
+
+    // Its picture in the bag.
+    [SerializeField]
+    private Sprite itemSprite;
 
     private Light glow;
     private float side = -1f;
@@ -69,6 +78,20 @@ public class PlayerLantern : MonoBehaviour
     private void Awake()
     {
         seed = Random.value * 100f;
+    }
+
+    // After every Awake, so the bag is ready; again on every reload, as the bag starts empty.
+    private void Start()
+    {
+        GiveStartingLantern();
+    }
+
+    // Puts the lantern in the bag unless it is there already or starting with it is off.
+    public bool GiveStartingLantern()
+    {
+        InventorySystem inventory = InventorySystem.instance;
+        if (!startWithLantern || inventory == null || inventory.Contains(ItemName)) return false;
+        return inventory.TryAdd(ItemName, itemSprite);
     }
 
     private void OnEnable()

@@ -20,6 +20,7 @@ public class CachudCallout : MonoBehaviour, IInteractable
     public const string FountainClue = "At the fountain, throwing coins.";
     public const string Thanks = "You found my dice! Thanks!";
     public const string Ready = "All right, let's play!";
+    public const string BusyLine = "AL CACHUD: You look busy. Come back when you are done.";
     public const float PanDuration = 1.25f;
     public const float ReturnDuration = 1.2f;
     private const float FadeDuration = 0.25f;
@@ -157,6 +158,12 @@ public class CachudCallout : MonoBehaviour, IInteractable
         if (Mathf.Abs(distance.y) > 3f) return false;
         distance.y = 0f;
         if (distance.sqrMagnitude > talkRadius * talkRadius) return false;
+        // Not while the alchemist's potion hunt is on: he waves the player off instead.
+        if (ClueMinigame.HuntUnderway)
+        {
+            BusyNotice.Show(BusyLine);
+            return false;
+        }
         if (view == null) view = Camera.main;
         if (view == null) return false;
 

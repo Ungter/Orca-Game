@@ -23,6 +23,7 @@ Each section names the files involved, so you can jump straight to the code.
 - [17. The alchemist's letter](#17-the-alchemists-letter) - `AlchemistEncounter.cs`
 - [18. Al Cachud comes out of his door](#18-al-cachud-comes-out-of-his-door) - `CachudCallout.cs`, `CachudDoorway.cs`
 - [19. Door beacons](#19-door-beacons) - `DoorBeacon.cs`
+- [20. Night mood: hard light for a murder mystery](#20-night-mood-hard-light-for-a-murder-mystery) - `LampGlow.cs`, `SampleSceneProfile.asset`
 - [Shared rules for crisp pixel art](#shared-rules-for-crisp-pixel-art)
 
 ---
@@ -374,6 +375,14 @@ island: the letter holds a map of it, and the hunt is walked.
   keep looking.
 - **Script reloads:** the survey, potions and pixel buffers are `[NonSerialized]` and
   rebuilt; a reload in Play mode surveys again.
+- **Other NPCs wait** (`ClueMinigame.HuntUnderway`, `Assets/BusyNotice.cs`): from starting the hunt
+  until the potions are handed to the alchemist (`Playing` and `Found`), the magician and Al
+  Cachud won't start a conversation. E at them still works but only puts their `BusyLine`
+  ("...you are busy. Come back later...") in the bottom speech panel for 3 s. There's no camera
+  move, no door opening and no input lock, and being sent away doesn't count as the magician's
+  visit (his windows stay dark). The twenty-one game hangs off Cachud's conversation, so it waits
+  too. The alchemist, the gravestone, the dolphin statue and dig sites are unaffected. Once the
+  hunt is delivered, or runs out of steps and goes back to `Idle`, everyone talks again.
 
 ---
 
@@ -447,6 +456,25 @@ per 16 metres, independent of the imported mesh's UVs and scale. Point filtering
 pixels crisp up close, mipmaps stop distant shimmer, and repeat wrapping joins tiles.
 `_TextureScroll` gently drifts the tile; scene fog still softens the distant horizon.
 
+**An ocean without edges** (`Assets/FarOcean.cs`, `Assets/OceanHorizon.cs`, the horizon fade in
+`PixelWater.shader`): the map's ocean is a square, and from the title's orbit its edges showed
+against the sky.
+- **Far ocean:** `Far Ocean` in SampleScene is Unity's built-in plane, scaled to 8 x 8 km, with
+  the ocean's material. Its `FarOcean` component (`[ExecuteAlways]`, so it shows in the Scene
+  view too) keeps it centred under the `ocean` object, 2 cm below it, and sized, and gives it the
+  ocean's material. The water is tiled from world positions, so it carries straight on past the
+  old edges. Where the two overlap the ocean itself wins on depth, and both draw the same water
+  anyway. It has no collider and casts no shadows. On every scene load `OceanHorizon` refreshes
+  it, or lays one (and logs it) in a scene that has an ocean but no far ocean. A first version
+  only built it at runtime, and it didn't show up on the title screen.
+- **Melting into the sky:** the water shader blends distant water into the night sky's own
+  colour for that direction, between 45% and 85% of the camera's far plane (never nearer than
+  150 m, so the water round the island stays water). The sky colour comes from the skybox's
+  gradient (horizon to zenith, sinking to its ground colour below the horizon), which
+  `OceanHorizon` passes in as `_Sky*` globals. Past 85% the water is exactly the colour the
+  skybox draws beyond the far plane, so there's no line where the geometry stops. The far plane
+  grows with the title's orbit, so the same shares work there and in play.
+
 ---
 
 ## 7. Lighting the sprite player
@@ -488,9 +516,9 @@ Maya and follow the map into any scene.
 - **`DependsOnSourceAsset(FoliageMatte.mat)`:** editing the material reimports the map, so
   its colour carries into all generated shades.
 - **Lamp lights:** a `LampGlow` point light is added inside every `lampN/pCube1`, placed at
-  the mesh's bounds centre. `LampGlow` owns the Light's settings (intensity 300, range 70,
-  soft shadows) and turns off shadows on the lamp head, otherwise the head would block its
-  own light.
+  the mesh's bounds centre. `LampGlow` owns the Light's settings (sodium orange, intensity 280,
+  range 32, hard shadows - see 20. Night mood) and turns off shadows on the lamp head,
+  otherwise the head would block its own light.
 - **Glowing lamp heads:** the light sits inside the head, so the head's outer faces never
   catch it and stayed dark. Each head's own material slots (the panels; slots sharing a
   material with the pole/caps are the frame and stay) get `Materials/LampHeadGlow.mat`, a
@@ -669,8 +697,9 @@ effect, now switched off), `Assets/Materials/WindowLightRays.shader` and `.mat` 
   `WindowGlow` on `glowWindow1/2` is switched off before it builds and all windows look alike.
 - **Glass:** a copy of the lamp heads' material (`LampHeadGlow`, which the map import puts on
   `maplamp:pCube1`, borrowed from whichever renderer in the scene wears it) in a warmer, softer
-  colour: base (1, 0.72, 0.4), emission (1.35, 0.78, 0.3) against the lamps' (2.7, 2.23, 1). A
-  whole pane at the lamps' brightness stood out too hard against the dark walls and felt blinding.
+  colour: base (1, 0.58, 0.24), emission (1.1, 0.48, 0.13) against the lamps' (2.8, 1.85, 0.84),
+  matte (smoothness 0.15). Paler and brighter, the night grade's ACES and desaturation washed the
+  panes out to near white, and a whole pane at the lamps' brightness felt blinding.
   Only the glass glows, the way the lamp heads keep their black stripes: a slot glows when its
   colour is at least 60% as light as the window's lightest slot (and not near-black), so the
   dark bars, stripes and supports keep their own material; so does any slot the rest of the
@@ -682,6 +711,30 @@ effect, now switched off), `Assets/Materials/WindowLightRays.shader` and `.mat` 
   0.2 m per m) just outside the glass, on its own root object. Out is the thinnest axis of the
   window's box, on the side away from the rest of the house, as below. The PC renderer is
   Forward+, so the extra lights aren't limited per object.
+- **Glow on the wall round it** (`Assets/Resources/WindowSpill/WindowSpill.shader`,
+  `Orca/Window Spill`): the spot points away from the wall, so the wall stayed pitch black around
+  a bright pane, and the window looked painted on rather than lit. A real point light out in
+  front didn't fix it. The walls hardly showed it, and it threw a hot specular spot off the
+  glossy bars. Instead an additive card lies on the window's outside face, lifted 2% of the
+  pane's smaller side. It covers the window plus `SpillMargin` (0.4) x that side all round and
+  adds the light's amber at `SpillIntensity` 0.12. Nothing is added over the window itself
+  (UV1 carries the window's share of the card); from its edge the glow fades out to the card's
+  border (`pow(1 - d, 2)`). Being added light rather than lighting, it shows on dark walls too
+  and has no highlight. Fog fades it to black. One shared material, one small mesh per window.
+  It sits under the spot's object, so it shows, hides and is removed with it. It's in
+  `Resources` so builds include the shader.
+- **Round windows (glass drums, `alHWRound...`):** these are closed cylinders, not panes. Their
+  thinnest box side was their height, so "out" came out as straight up or down: the spot shone
+  down from the bottom face and the spill card lay flat on it. A window counts as a drum when its
+  two level sides are within 75% of each other (`DrumRoundness`) and it is at least a quarter as
+  tall as it is wide (`DrumHeightShare`). That rules out panes in walls and flat skylights;
+  round panes set in a wall still count as panes. A drum gets a point light in its middle,
+  shadowless so the glass doesn't stop it, shining out all round. Its intensity is the pane
+  spot's x ((radius + 3) / 3)^2, so 3 m past the glass is lit like 3 m in front of a pane, with
+  range radius + 10 m. The spill becomes an open tube 2% outside the glass, `SpillMargin` x the
+  drum's height taller above and below it. The same shader reads it as a card that is all
+  window across, so the glow only rises and falls from the drum's top and bottom edges, the same
+  all round.
 
 ### The older rays effect (`WindowGlow`)
 
@@ -753,6 +806,15 @@ orca sheet in `Assets/Resources/TitleScreen/Orca Sprite.png`
 
 Shown once when play starts; no extra scene. PLAY flies the camera out to the player's boat
 for the opening (below).
+
+- **Seeing the island at night:** from the orbit the scene's fog (density 0.009) and the dim
+  moon hid the island entirely. While the title is up, through the flight and the crossing,
+  the fog is thinned to `TitleFogDensity`: `0.45 / distance from the camera to the island`,
+  never thicker than the scene's, which keeps the island about 80% clear (exp2 fog,
+  `e^-(0.45^2)`). Closing in during the crossing, it thickens back towards the scene's. The
+  moon (`RenderSettings.sun`) is 1.8 x brighter. Both ease back to the scene's own values over
+  the 1.2 s hand-off (or the flight, without a crossing). They are restored exactly when the
+  title finishes or is destroyed.
 
 ### Opening: arriving by boat
 
@@ -982,7 +1044,8 @@ cascades, plus a full re-render for SSAO's depth-normals prepass.
   (Auto) reuses the depth prepass so overlapping leaf spheres are shaded once per pixel.
 - **Cheaper, same effects:** SSAO at half resolution from depth only (no depth-normals
   prepass), Gaussian blur; moon shadows 2 cascades instead of 4 (same 50 m distance);
-  soft shadows Medium instead of High. The opaque-texture copy is off - nothing samples
+  soft shadows off altogether since the night-mood pass (hard shadows are also the cheapest).
+  The opaque-texture copy is off - nothing samples
   `_CameraOpaqueTexture`.
 - **Aurora early-out** (`NightSky.hlsl`): visibility (patches x breathing x horizon fade) is
   worked out first and the 16-layer loop is skipped where it's
@@ -1026,14 +1089,16 @@ cascades, plus a full re-render for SSAO's depth-normals prepass.
 
 ## 16. The magician's lantern
 
-**Files:** `Assets/PlayerLantern.cs` (on `Player`), `Assets/MagicianEncounter.cs` (hands it over),
-`Assets/PlayerController.cs` (sprites), `Assets/InventoryInspection.cs` and `Assets/InventoryHUD.cs`
-(equipping), art in `Assets/Sprites/lanternPlayer/`
+**Files:** `Assets/PlayerLantern.cs` (on `Player`), `Assets/PlayerController.cs` (sprites),
+`Assets/InventoryInspection.cs` and `Assets/InventoryHUD.cs` (equipping), art in
+`Assets/Sprites/lanternPlayer/`
 
-- **Handed over once:** the first time the magician has talked about the wand, the next Enter gives
-  the lantern (`LanternGift`, item `"Lantern"`, icon `Lantern.png`). Without the wand that is
-  right after the wand request; arriving with it, after the thanks and before the trick. A full bag
-  gets `LanternNoRoom` and the offer comes back next visit (`HasGivenLantern` stays false).
+- **In the bag from the start:** `PlayerLantern.Start` puts the lantern (item `"Lantern"`,
+  `itemSprite` = `Lantern.png`, set on the Player in SampleScene) in the bag when the game
+  starts, and again on every reload since the bag starts empty. It's not held yet, and it's never
+  added twice. `startWithLantern` switches it off. The magician no longer hands one over: his
+  `LanternGift`, `LanternNoRoom` and `HasGivenLantern` are gone, so without the wand he asks for
+  it and sends the player out, and with it the thanks leads straight to the trick.
 - **Equipping:** pressing the lantern's slot number (1-5) toggles holding it instead of opening
   the inspection view, and clicking its slot in the inventory strip does the same. While held, its
   slot gets a gold rim and a gold name. Losing the item puts it away.
@@ -1124,6 +1189,49 @@ cascades, plus a full re-render for SSAO's depth-normals prepass.
 - **Renamed doors:** the scene renames the model's doors for this (`chudDoor` was
   `pasted__pCube54`, `magDoor` was `building1/pCylinder1`), so `CachudDoorway.FindDoor` and
   `MagicianEncounter.FindDoor` look for the new name first and fall back to the model's.
+
+---
+
+## 20. Night mood: hard light for a murder mystery
+
+**Files:** `Assets/Scenes/SampleScene.unity` (moon, ambient, fog), `Assets/LampGlow.cs`,
+`Assets/Settings/SampleSceneProfile.asset` (post-processing), `Assets/Settings/PC_RPAsset.asset`,
+`Assets/Settings/PC_Renderer.asset` (SSAO), `Assets/Materials/NightSkySkybox.mat`,
+`Assets/Materials/LampHeadGlow.mat`
+
+The old look was soft: no moon, every lamp reaching 70 m, so the island was a single warm wash
+with soft-edged shadows. The new look is a noir night: cold moonlight with crisp shadows,
+tight sodium-orange pools under the lamps with real darkness between them, murk in the
+distance, and a desaturated, high-contrast grade.
+
+- **Moon (the scene's `Directional Light`):** re-enabled. It is Realtime (it was Baked with
+  no bake, so it lit nothing), cold blue-white `(0.58, 0.68, 1)`, intensity 0.35, hard
+  shadows at full strength. It's lowered to 32 degrees (was 50) so houses, fences and trees
+  throw long shadows. Its Custom Shadow Layers still include Lamp Pole Shadows. It is also set
+  as `RenderSettings.sun`, which the player's shadow quad follows.
+- **Lamps (`LampGlow`):** sodium orange `(1, 0.66, 0.3)`, intensity 280, range 32 (was 70), hard
+  shadows. The pool under each lamp stays about as bright, but it ends within about 25 m, so
+  the ground between lamps is moonlit only. The lamp heads' glow (`LampHeadGlow.mat`) is
+  shifted to the same orange. The importer's version was bumped so the map's lamps pick up
+  the new defaults, and the four lamps placed in the scene were updated to match.
+- **Shadows:** soft shadows are off in `PC_RPAsset`, so every shadow has a hard edge. SSAO is
+  stronger (0.6, was 0.4) for darker contact shadows where walls meet the ground.
+- **Ambient:** Trilight, cold and low - sky `(0.022, 0.03, 0.06)`, equator
+  `(0.012, 0.015, 0.026)`, ground `(0.004, 0.004, 0.006)`. Shadowed areas stay dark blue rather
+  than black, so the player can still read the ground.
+- **Fog:** exponential squared, density 0.009, colour `(0.03, 0.05, 0.1)`, close to the sky's
+  horizon so distant shapes sink into it. About 80% of the scene is still visible at 50 m and
+  16% at 150 m, so the island comes out of the murk during the opening crossing.
+- **Sky:** aurora down to 0.12 (was 0.33). The bright green curtains read whimsical, not tense.
+- **Post-processing:** ACES tonemapping (filmic, more contrast than Neutral). Colour
+  Adjustments: post exposure +0.3 (to make up for ACES), contrast +22, saturation -28 and a
+  slightly cold filter. Split Toning: teal shadows `(0.38, 0.47, 0.62)`, warm highlights
+  `(0.62, 0.53, 0.42)`, balance -20. Vignette 0.38 (smoothness 0.4). Film Grain Medium 1 at
+  0.2. Bloom 0.3 with tighter scatter (0.4) so the lamp haloes don't smear.
+- **Tuning:** moon brightness and angle are on the Directional Light. The size of the lamp
+  pools is `range` in `LampGlow` (also serialised on the four scene lamps). The grade is in
+  `SampleSceneProfile`. How far you can see is the scene's fog density (Lighting window >
+  Environment).
 
 ---
 

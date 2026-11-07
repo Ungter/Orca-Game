@@ -31,7 +31,14 @@ public class MagicianSceneTests
             Assert.Less(new Vector2(offset.x, offset.z).magnitude, 1.5f);
             Assert.AreEqual(bounds.min.y, encounter.transform.position.y, 0.1f);
             Assert.IsNotNull(new SerializedObject(encounter).FindProperty("rewardPaper").objectReferenceValue);
-            Assert.IsNotNull(new SerializedObject(encounter).FindProperty("lanternSprite").objectReferenceValue);
+            // The player starts with the lantern, so its bag icon lives on the player's lantern.
+            PlayerLantern lantern = null;
+            foreach (GameObject root in scene.GetRootGameObjects())
+                if (lantern == null) lantern = root.GetComponentInChildren<PlayerLantern>(true);
+            Assert.IsNotNull(lantern);
+            var lanternSettings = new SerializedObject(lantern);
+            Assert.IsNotNull(lanternSettings.FindProperty("itemSprite").objectReferenceValue);
+            Assert.IsTrue(lanternSettings.FindProperty("startWithLantern").boolValue);
             Assert.IsNotNull(wand);
             Assert.AreEqual(MagicianEncounter.WandItemName,
                 new SerializedObject(wand).FindProperty("itemName").stringValue);

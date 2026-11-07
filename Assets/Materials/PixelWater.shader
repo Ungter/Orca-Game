@@ -1,3 +1,9 @@
+// The ocean: the supplied pixel-art water, unlit, tiled in world metres, with scene fog. Far
+// out it melts into the sky so the sea never visibly ends: OceanHorizon lays a much bigger
+// copy of the ocean under it, and from _HorizonFadeStart to _HorizonFadeEnd of the camera's far
+// plane (never nearer than _HorizonFadeMinDistance) the water turns into the night sky's own
+// colour for that direction (the skybox's gradient, passed in as _Sky* globals). Where the
+// geometry stops at the far plane the skybox carries on with the same colour, so there is no line.
 Shader "Orca/Pixel Water"
 {
     Properties
@@ -5,6 +11,10 @@ Shader "Orca/Pixel Water"
         [MainTexture] _BaseMap ("Water Texture", 2D) = "white" {}
         [MainColor] _BaseColor ("Tint", Color) = (1, 1, 1, 1)
         _TextureScroll ("Texture Drift (tiles per second, X / Z)", Vector) = (0.01, 0.006, 0, 0)
+        [Header(Horizon)]
+        _HorizonFadeStart ("Fade Into Sky From (share of far plane)", Range(0, 1)) = 0.45
+        _HorizonFadeEnd ("Fully Sky At (share of far plane)", Range(0, 1)) = 0.85
+        _HorizonFadeMinDistance ("Never Fade Nearer Than (m)", Float) = 150
     }
 
     SubShader
@@ -32,7 +42,12 @@ Shader "Orca/Pixel Water"
             CBUFFER_START(UnityPerMaterial)
                 float4 _BaseMap_ST, _TextureScroll;
                 half4 _BaseColor;
+                float _HorizonFadeStart, _HorizonFadeEnd, _HorizonFadeMinDistance;
             CBUFFER_END
+
+            // The skybox's gradient (Orca/Night Sky Skybox), set by OceanHorizon.
+            half4 _SkyHorizonColor, _SkyZenithColor, _SkyGroundColor;
+            float _SkyHorizonSharpness;
 
             struct Attributes
             {
@@ -44,13 +59,24 @@ Shader "Orca/Pixel Water"
                 float4 positionCS : SV_POSITION;
                 float2 waterUV : TEXCOORD0;
                 float fogFactor : TEXCOORD1;
+                float3 positionWS : TEXCOORD2;
             };
+
+            // Same as the skybox: horizon to zenith above, sinking to the ground colour below.
+            half3 SkyColour(float3 direction)
+            {
+                float up = saturate(direction.y);
+                half3 sky = lerp(_SkyHorizonColor.rgb, _SkyZenithColor.rgb, pow(up, 1.0 / max(_SkyHorizonSharpness, 0.01)));
+                float below = saturate(-direction.y * 6.0);
+                return lerp(sky, _SkyGroundColor.rgb, below);
+            }
 
             Varyings vert(Attributes input)
             {
                 Varyings o;
                 float3 positionWS = TransformObjectToWorld(input.positionOS.xyz);
                 o.positionCS = TransformWorldToHClip(positionWS);
+                o.positionWS = positionWS;
                 // Metre-based tiling, independent of the imported ocean's scale and UVs.
                 o.waterUV = positionWS.xz * _BaseMap_ST.xy + _BaseMap_ST.zw
                           + frac(_Time.y * _TextureScroll.xy);
@@ -62,7 +88,15 @@ Shader "Orca/Pixel Water"
             {
                 // The supplied art is the water, with no procedural water mixed over it.
                 half3 color = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, i.waterUV).rgb * _BaseColor.rgb;
-                return half4(MixFog(color, i.fogFactor), 1);
+                color = MixFog(color, i.fogFactor);
+                float3 toPixel = i.positionWS - _WorldSpaceCameraPos;
+                float dist = length(toPixel);
+                float farPlane = _ProjectionParams.z;
+                float fadeFrom = max(_HorizonFadeStart * farPlane, _HorizonFadeMinDistance);
+                float fadeTo = max(_HorizonFadeEnd * farPlane, fadeFrom + 1.0);
+                float horizon = smoothstep(fadeFrom, fadeTo, dist);
+                color = lerp(color, SkyColour(toPixel / max(dist, 1e-4)), horizon);
+                return half4(color, 1);
             }
             ENDHLSL
         }

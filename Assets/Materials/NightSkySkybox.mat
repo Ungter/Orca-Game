@@ -26,7 +26,7 @@ Material:
     m_Ints: []
     m_Floats:
     - _AuroraFadePeriod: 28
-    - _AuroraIntensity: 0.33
+    - _AuroraIntensity: 0.12
     - _AuroraMinVisibility: 0.05
     - _AuroraScale: 0.28
     - _AuroraSpeed: 0.25

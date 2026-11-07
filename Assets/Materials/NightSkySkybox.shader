@@ -21,7 +21,7 @@ Shader "Orca/Night Sky Skybox"
         [Header(Aurora)]
         _AuroraColorA ("Aurora Low Color", Color) = (0.1, 1.0, 0.45, 1)
         _AuroraColorB ("Aurora High Color", Color) = (0.45, 0.2, 1.0, 1)
-        _AuroraIntensity ("Aurora Intensity", Range(0, 3)) = 0.45
+        _AuroraIntensity ("Aurora Intensity", Range(0, 3)) = 0.6
         _AuroraSpeed ("Aurora Drift Speed", Range(0, 2)) = 0.25
         _AuroraScale ("Aurora Scale", Range(0.1, 4)) = 1
         _AuroraFadePeriod ("Aurora Fade Period (s)", Range(5, 120)) = 28

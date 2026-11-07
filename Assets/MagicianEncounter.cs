@@ -20,8 +20,7 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
     public const string Greeting = "Want to see a magic trick?";
     public const string MissingWand = "Oh no! Im missing my magic wand!, Please find it for me, it should leak magic";
     public const string Thanks = "Oh Thanks for my wand!";
-    public const string LanternGift = "Take my lantern to light your way! Press its number to hold it.";
-    public const string LanternNoRoom = "I would give you my lantern, but your bag is full! Come back for it.";
+    public const string BusyLine = "MAGICIAN: I can see you are busy. Come back later, when you are done!";
     public const float FadeDuration = 0.35f;
     public const float RoomEnterDuration = 0.6f;
 
@@ -29,7 +28,6 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
     public static bool BlocksMovement => IsOpen && (active == null || active.CurrentPhase != Phase.Playing);
     public bool HasWand { get; private set; }
     public bool HasRequestedWand { get; private set; }
-    public bool HasGivenLantern { get; private set; }
     // True from the first E at the door. The house's windows light up once the player is back outside.
     public bool HasVisited { get; private set; }
     // The room, or the fade into or out of it, covers the world.
@@ -45,12 +43,10 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
     [SerializeField, Min(3f)] private float maxGameDistance = 25f;
     [SerializeField] private float charactersPerSecond = 40f;
     [SerializeField] private Sprite rewardPaper;
-    [SerializeField] private Sprite lanternSprite;
 
     private static MagicianEncounter active;
     private Transform player;
     private bool handInOnEntry;
-    private bool offeredLanternThisVisit;
     private float promptAlpha;
     private float typed;
     private float roomTime;
@@ -127,12 +123,17 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
     public void Begin()
     {
         if (Interactables.Busy || InventoryInspection.IsOpen || PauseMenu.IsPaused || TitleScreen.IsOpen) return;
+        // Not while the alchemist's potion hunt is on: he calls through the door instead.
+        if (ClueMinigame.HuntUnderway)
+        {
+            BusyNotice.Show(BusyLine);
+            return;
+        }
         if (canvas == null) BuildView();
         inventory = InventorySystem.instance;
         active = this;
         IsOpen = true;
         HasVisited = true;
-        offeredLanternThisVisit = false;
         promptAlpha = 0f;
         roomTime = 0f;
         // Without the wand in hand the magician can be asked again; the request replays.
@@ -232,13 +233,14 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
         UpdateVisuals();
     }
 
-    // The lantern comes once per visit until it is in the bag: after the wand request when
-    // the wand is still missing, or after the thanks (or greeting) before the trick.
+    // With the wand handed in (now or on an earlier visit) the trick follows; without it the
+    // magician asks for it, then sends the player back out. The player starts with the lantern
+    // (PlayerLantern), so he no longer hands one over.
     private void AdvanceLine()
     {
         if (HasWand)
         {
-            if (!OfferLantern()) SetPhase(Phase.LeavingForTrick);
+            SetPhase(Phase.LeavingForTrick);
         }
         else if (CurrentLine == Greeting)
         {
@@ -250,20 +252,10 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
             SetLine(Thanks);
             SetPhase(Phase.Typing);
         }
-        else if (!OfferLantern())
+        else
         {
             Exit();
         }
-    }
-
-    private bool OfferLantern()
-    {
-        if (HasGivenLantern || offeredLanternThisVisit || inventory == null) return false;
-        offeredLanternThisVisit = true;
-        HasGivenLantern = inventory.TryAdd(PlayerLantern.ItemName, lanternSprite);
-        SetLine(HasGivenLantern ? LanternGift : LanternNoRoom);
-        SetPhase(Phase.Typing);
-        return true;
     }
 
     private bool AcceptWand()

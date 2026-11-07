@@ -78,10 +78,83 @@ public class WindowLampTests
         Assert.Greater(Vector3.Dot(lamp.Glow.transform.forward, Vector3.right), 0.9f);
         Assert.Greater(lamp.Glow.transform.position.x, lamp.FaceCentre.x, "The light sits just outside the glass.");
 
+        // The light spills onto the wall round the window, without a real light's hot spot.
+        MeshRenderer spill = lamp.Spill;
+        Assert.IsNotNull(spill);
+        Assert.AreEqual(WindowLamp.SpillShaderName, spill.sharedMaterial.shader.name);
+        Assert.IsTrue(spill.sharedMaterial.shader.isSupported);
+        Assert.AreEqual(UnityEngine.Rendering.ShadowCastingMode.Off, spill.shadowCastingMode);
+        Assert.AreEqual(0, spill.GetComponentsInChildren<Light>().Length, "Not a light, so nothing to reflect.");
+        Vector3 offset = spill.transform.position - lamp.FaceCentre;
+        Assert.Greater(offset.x, 0f, "Just out from the glass, so the wall doesn't hide it.");
+        Assert.Less(offset.x, 0.1f, "Lying on the wall, not floating out in front of it.");
+        Assert.Less(new Vector2(offset.y, offset.z).magnitude, 1e-3f, "Centred on the window.");
+        Assert.Greater(Vector3.Dot(spill.transform.forward, Vector3.right), 0.99f, "Facing out of the house.");
+        // The window is 1.2 high and 1.4 wide; the glow reaches SpillMargin x 1.2 past each edge.
+        Bounds card = spill.bounds;
+        float margin = 1.2f * WindowLamp.SpillMargin;
+        Assert.AreEqual(1.2f + margin * 2f, card.size.y, 1e-3f);
+        Assert.AreEqual(1.4f + margin * 2f, card.size.z, 1e-3f);
+        Call(lamp, "OnDisable");
+        Assert.IsFalse(spill.gameObject.activeInHierarchy, "Hidden with the window's light.");
+        Call(lamp, "OnEnable");
+        Assert.IsTrue(spill.gameObject.activeInHierarchy);
+
         Call(lamp, "OnDestroy");
         CollectionAssert.AreEqual(new[] { glass, bars, wall }, window.GetComponent<Renderer>().sharedMaterials,
             "The window gets its own materials back.");
         Assert.IsTrue(lamp.Glow == null);
+        Assert.IsTrue(spill == null, "It goes with the window's light.");
+    }
+
+    // alHWRound... are glass drums, not panes: a flat card and a one-way spot came out wrong.
+    [Test]
+    public void ARoundGlassDrumShinesOutAllRoundWithARingOfSpill()
+    {
+        var tower = Keep(new GameObject("Test tower"));
+        GameObject walls = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        walls.name = "Walls";
+        walls.transform.SetParent(tower.transform, false);
+        walls.transform.localScale = new Vector3(3f, 4f, 3f);
+        walls.GetComponent<Renderer>().sharedMaterial = wall;
+        GameObject drum = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        drum.name = "alHWRound2";
+        drum.transform.SetParent(tower.transform, false);
+        drum.transform.localPosition = new Vector3(0f, 3.5f, 0f);
+        // Unity's cylinder is 1 wide and 2 tall: this drum is 3 wide and 3 tall.
+        drum.transform.localScale = new Vector3(3f, 1.5f, 3f);
+        drum.GetComponent<Renderer>().sharedMaterials = new[] { glass };
+        WindowLamp.Install(SceneManager.GetActiveScene());
+        WindowLamp lamp = drum.GetComponent<WindowLamp>();
+        Call(lamp, "Start");
+
+        Assert.IsTrue(lamp.IsRound);
+        Assert.AreEqual(WindowLamp.GlassGlow(), drum.GetComponent<Renderer>().sharedMaterials[0], "The glass glows.");
+        Assert.AreEqual(LightType.Point, lamp.Glow.type, "Out all round, not one way.");
+        Assert.AreEqual(LightShadows.None, lamp.Glow.shadows, "The glass round it doesn't stop it.");
+        Assert.Less(Vector3.Distance(lamp.Glow.transform.position, drum.transform.position), 1e-3f, "From the middle of the drum.");
+        Assert.Greater(lamp.Glow.range, 1.5f, "Reaching out past the glass.");
+        Assert.AreEqual(Vector3.zero, lamp.Outward);
+
+        Bounds ring = lamp.Spill.bounds;
+        Assert.Less(Vector3.Distance(ring.center, drum.transform.position), 1e-3f, "Centred on the drum.");
+        Assert.Greater(ring.size.x, 3f, "Just outside the glass all round...");
+        Assert.Less(ring.size.x, 3.3f, "...not out in front of it.");
+        Assert.AreEqual(ring.size.x, ring.size.z, 1e-2f, "Round, not a flat card.");
+        Assert.AreEqual(3f + 2f * 3f * WindowLamp.SpillMargin, ring.size.y, 1e-3f, "Reaching above and below the drum.");
+
+        Call(lamp, "OnDestroy");
+        Assert.IsTrue(lamp.Glow == null);
+    }
+
+    [Test]
+    public void OnlyGlassDrumsCountAsRound()
+    {
+        Assert.IsTrue(WindowLamp.IsRoundWindow(new[] { new Vector3(3f, 0f, 0f), new Vector3(0f, 3f, 0f), new Vector3(0f, 0f, 3f) }));
+        Assert.IsFalse(WindowLamp.IsRoundWindow(new[] { new Vector3(0.1f, 0f, 0f), new Vector3(0f, 1.2f, 0f), new Vector3(0f, 0f, 1.4f) }),
+            "A pane in a wall.");
+        Assert.IsFalse(WindowLamp.IsRoundWindow(new[] { new Vector3(2f, 0f, 0f), new Vector3(0f, 0.05f, 0f), new Vector3(0f, 0f, 2f) }),
+            "A flat skylight.");
     }
 
     [Test]

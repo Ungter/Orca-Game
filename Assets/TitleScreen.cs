@@ -72,6 +72,13 @@ public class TitleScreen : MonoBehaviour
     private const int DividerHalfWidth = 40;
     private const int ButtonGap = 3;
 
+    // From high over the island the scene's fog hid it completely and the moon left it too dark
+    // to read. While the title is up, and through the flight and the crossing, the fog thins so
+    // the island stays about 80% clear at the camera's distance (never thicker than the scene's),
+    // and the moon is brighter. Both ease back to the scene's own over the hand-off to gameplay.
+    public const float TitleFogReach = 0.45f;
+    public const float TitleMoonBoost = 1.8f;
+
     private static readonly Color Ink = new Color32(59, 36, 22, 255);
     private static readonly Color InkShadow = new Color32(200, 168, 114, 140);
     private static readonly Color Gold = new Color32(212, 160, 42, 255);
@@ -108,6 +115,11 @@ public class TitleScreen : MonoBehaviour
     private bool handingOff;
     private Vector3 handoffPosition;
     private Quaternion handoffRotation;
+    // The scene's own fog and moon, put back when the title is done.
+    private bool atmosphereHeld;
+    private float sceneFogDensity;
+    private Light moon;
+    private float moonIntensity;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetStatics()
@@ -177,6 +189,8 @@ public class TitleScreen : MonoBehaviour
         originalFarClip = cam.farClipPlane;
         cam.farClipPlane = Mathf.Max(originalFarClip, orbitDistance * 3f);
         cam.transform.SetPositionAndRotation(TitlePosition(), TitleRotation());
+        HoldAtmosphere();
+        ApplyAtmosphere(0f);
     }
 
     private void OnDestroy()
@@ -185,10 +199,53 @@ public class TitleScreen : MonoBehaviour
         Thaw(cameraRigs);
         Thaw(frozen);
         IsOpen = false;
+        RestoreAtmosphere();
         if (cam != null)
         {
             cam.farClipPlane = originalFarClip;
         }
+    }
+
+    // Fog density that keeps the island about 80% clear (exp2 fog: e^-(density x distance)^2)
+    // from cameraDistance away, never thicker than the scene's own.
+    public static float TitleFogDensity(float sceneDensity, float cameraDistance) =>
+        Mathf.Min(sceneDensity, TitleFogReach / Mathf.Max(cameraDistance, 1f));
+
+    private void HoldAtmosphere()
+    {
+        sceneFogDensity = RenderSettings.fogDensity;
+        moon = RenderSettings.sun;
+        if (moon == null)
+        {
+            foreach (Light light in FindObjectsByType<Light>())
+            {
+                if (light.type == LightType.Directional)
+                {
+                    moon = light;
+                    break;
+                }
+            }
+        }
+        moonIntensity = moon != null ? moon.intensity : 0f;
+        atmosphereHeld = true;
+    }
+
+    // toScene: 0 for the title's thin fog and bright moon, 1 for the scene's own.
+    private void ApplyAtmosphere(float toScene)
+    {
+        if (!atmosphereHeld) return;
+        toScene = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(toScene));
+        float distance = Vector3.Distance(cam.transform.position, islandCentre);
+        RenderSettings.fogDensity = Mathf.Lerp(TitleFogDensity(sceneFogDensity, distance), sceneFogDensity, toScene);
+        if (moon != null) moon.intensity = moonIntensity * Mathf.Lerp(TitleMoonBoost, 1f, toScene);
+    }
+
+    private void RestoreAtmosphere()
+    {
+        if (!atmosphereHeld) return;
+        atmosphereHeld = false;
+        RenderSettings.fogDensity = sceneFogDensity;
+        if (moon != null) moon.intensity = moonIntensity;
     }
 
     private static void Freeze<T>(List<Behaviour> into) where T : Behaviour
@@ -375,6 +432,15 @@ public class TitleScreen : MonoBehaviour
 
     private void LateUpdate()
     {
+        PlaceCamera();
+        // Back to the scene's fog and moon over the hand-off, or over the flight with no crossing.
+        float toScene = handingOff ? handoffTime / HandoffDuration
+            : starting && opening == null ? flightTime / Mathf.Max(0.01f, flightDuration) : 0f;
+        ApplyAtmosphere(toScene);
+    }
+
+    private void PlaceCamera()
+    {
         if (!starting)
         {
             cam.transform.SetPositionAndRotation(TitlePosition(), TitleRotation());
@@ -424,6 +490,7 @@ public class TitleScreen : MonoBehaviour
         opening?.Dispose();
         Thaw(cameraRigs);
         Thaw(frozen);
+        RestoreAtmosphere();
         enabled = false;
         Destroy(gameObject);
     }

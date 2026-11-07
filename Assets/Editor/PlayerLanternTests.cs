@@ -55,6 +55,35 @@ public class PlayerLanternTests
     }
 
     [Test]
+    public void ThePlayerStartsWithTheLanternInTheBagOnce()
+    {
+        Sprite icon = MakeSprite();
+        var settings = new SerializedObject(lantern);
+        settings.FindProperty("itemSprite").objectReferenceValue = icon;
+        settings.ApplyModifiedPropertiesWithoutUndo();
+        Assert.IsTrue(settings.FindProperty("startWithLantern").boolValue, "On by default.");
+
+        Call(lantern, "Start");
+        Assert.AreEqual(1, inventory.ItemCount());
+        Assert.AreEqual(PlayerLantern.ItemName, inventory.GetItem(0));
+        Assert.AreEqual(icon, inventory.GetSprite(0), "With its picture in the bag.");
+        Assert.IsFalse(lantern.Equipped, "In the bag, not yet held.");
+
+        Assert.IsFalse(lantern.GiveStartingLantern(), "Never a second one.");
+        Assert.AreEqual(1, inventory.ItemCount());
+    }
+
+    [Test]
+    public void StartingWithTheLanternCanBeSwitchedOff()
+    {
+        var settings = new SerializedObject(lantern);
+        settings.FindProperty("startWithLantern").boolValue = false;
+        settings.ApplyModifiedPropertiesWithoutUndo();
+        Call(lantern, "Start");
+        Assert.AreEqual(0, inventory.ItemCount());
+    }
+
+    [Test]
     public void LosingTheLanternPutsItOut()
     {
         inventory.TryAdd(PlayerLantern.ItemName);

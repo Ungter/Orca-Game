@@ -3,7 +3,8 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 
-// The warm point light inside a lamp head. It owns the Light's settings: edit them
+// The sodium-orange point light inside a lamp head: a tight pool of light with hard-edged
+// shadows, dark between lamps, against the cold moonlight. It owns the Light's settings: edit them
 // here, since they are re-applied whenever the lamp is enabled or changed.
 [ExecuteAlways]
 [RequireComponent(typeof(Light))]
@@ -21,19 +22,22 @@ public class LampGlow : MonoBehaviour
     private const int ShadowedLamps = 6;
     private const float ShadowFadeTime = 0.6f;
     private const float RankInterval = 0.25f;
+    // Crisp shadow edges, for the noir look.
+    private const LightShadows ShadowType = LightShadows.Hard;
 
     private static readonly List<LampGlow> Lamps = new List<LampGlow>();
     private static int rankedFrame = -1;
     private static float nextRank;
 
     [SerializeField]
-    private Color color = new Color(1f, 0.82f, 0.35f);
+    private Color color = new Color(1f, 0.66f, 0.3f);
 
     [SerializeField]
-    private float intensity = 300f;
+    private float intensity = 500f;
 
+    // Short enough that the pools end and the ground between lamps falls dark.
     [SerializeField]
-    private float range = 70f;
+    private float range = 64f;
 
     [SerializeField]
     private bool castShadows = true;
@@ -60,7 +64,7 @@ public class LampGlow : MonoBehaviour
         }
         RankLamps();
         lamp.shadowStrength = Mathf.MoveTowards(lamp.shadowStrength, nearCamera ? 1f : 0f, Time.unscaledDeltaTime / ShadowFadeTime);
-        LightShadows shadows = lamp.shadowStrength > 0f ? LightShadows.Soft : LightShadows.None;
+        LightShadows shadows = lamp.shadowStrength > 0f ? ShadowType : LightShadows.None;
         if (lamp.shadows != shadows)
         {
             lamp.shadows = shadows;
@@ -102,7 +106,7 @@ public class LampGlow : MonoBehaviour
         lamp.color = color;
         lamp.intensity = intensity;
         lamp.range = Mathf.Max(0.1f, range);
-        lamp.shadows = castShadows ? LightShadows.Soft : LightShadows.None;
+        lamp.shadows = castShadows ? ShadowType : LightShadows.None;
 
         // The light sits inside the lamp head, so the head must not cast shadows
         // or it would block its own light in every direction.

@@ -65,6 +65,33 @@ public class CachudCalloutTests
     }
 
     [Test]
+    public void DuringThePotionHuntHeOnlySaysTheyAreBusy()
+    {
+        var hunt = new GameObject("Hunt test");
+        try
+        {
+            ClueMinigame clue = hunt.AddComponent<ClueMinigame>();
+            typeof(ClueMinigame).GetProperty("Current").SetValue(null, clue);
+            typeof(ClueMinigame).GetProperty("State").SetValue(clue, ClueMinigame.HuntState.Playing);
+            Assert.IsFalse(callout.TryKnock(), "No knocking while the hunt is on.");
+            Assert.IsFalse(callout.TryTalk());
+            Assert.IsFalse(CachudCallout.IsOpen);
+            Assert.IsFalse(callout.HasComeOut, "He stays in.");
+            Assert.AreEqual(CachudCallout.BusyLine, BusyNotice.Showing);
+            Assert.AreEqual(originalPosition, view.transform.position, "The camera doesn't move.");
+
+            typeof(ClueMinigame).GetProperty("State").SetValue(clue, ClueMinigame.HuntState.Idle);
+            Assert.IsTrue(callout.TryKnock(), "Once the hunt is off he answers.");
+        }
+        finally
+        {
+            typeof(ClueMinigame).GetProperty("Current").SetValue(null, null);
+            Object.DestroyImmediate(hunt);
+            BusyNotice.Clear();
+        }
+    }
+
+    [Test]
     public void AnotherConversationDefersTheMeeting()
     {
         var talk = root.AddComponent<TalkInteractable>();

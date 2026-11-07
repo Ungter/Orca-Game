@@ -55,6 +55,11 @@ public class ClueMinigame : MonoBehaviour
     // The player's clue letter, for the inventory to hold up and the alchemist to finish.
     public static ClueMinigame Current { get; private set; }
 
+    // The potion hunt is on: from starting it until the potions are handed to the alchemist.
+    // The other NPCs won't talk meanwhile (BusyNotice).
+    public static bool HuntUnderway => Current != null && Current.isActiveAndEnabled &&
+        (Current.State == HuntState.Playing || Current.State == HuntState.Found);
+
     public HuntState State { get; private set; }
     public bool IsHeld { get; private set; }
     public int StepsLeft { get; private set; }

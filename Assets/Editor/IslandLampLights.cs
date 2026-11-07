@@ -22,7 +22,7 @@ public class IslandLampLights : AssetPostprocessor
     {
         // Bump when the lamp setup or LampGlow defaults change, so the map reimports.
         // Editing the sidewalk pixel art changes the hash, which reimports it too.
-        return 22u ^ (SidewalkGravelArt.ContentHash() << 8);
+        return 23u ^ (SidewalkGravelArt.ContentHash() << 8);
     }
 
     // The slab gets a matte copy of this template, using its supplied texture when set.

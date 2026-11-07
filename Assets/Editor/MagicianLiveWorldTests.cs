@@ -61,9 +61,6 @@ public class MagicianLiveWorldTests
         encounter.Tick(0.01f, true);
         Until(MagicianEncounter.Phase.Waiting);
         encounter.Tick(0.01f, true);
-        // The lantern is handed over before the trick.
-        Until(MagicianEncounter.Phase.Waiting);
-        encounter.Tick(0.01f, true);
         Until(MagicianEncounter.Phase.Playing);
         game = entrance.GetComponent<ShellMinigame>();
         yield return null;
