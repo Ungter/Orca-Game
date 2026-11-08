@@ -22,7 +22,7 @@ public class IslandLampLights : AssetPostprocessor
     {
         // Bump when the lamp setup or LampGlow defaults change, so the map reimports.
         // Editing the sidewalk pixel art changes the hash, which reimports it too.
-        return 23u ^ (SidewalkGravelArt.ContentHash() << 8);
+        return 24u ^ (SidewalkGravelArt.ContentHash() << 8);
     }
 
     // The slab gets a matte copy of this template, using its supplied texture when set.
@@ -60,6 +60,9 @@ public class IslandLampLights : AssetPostprocessor
     private const float HueJitter = 0.035f;
     private const float SaturationJitter = 0.12f;
     private const float ValueJitter = 0.18f;
+
+    // The leaf and bark shades this import made, so MergeFoliage only merges parts wearing them.
+    private readonly HashSet<Material> foliageMaterials = new HashSet<Material>();
 
     private void OnPostprocessModel(GameObject root)
     {
@@ -141,6 +144,11 @@ public class IslandLampLights : AssetPostprocessor
         }
         FixInvertedNormals(root);
         FixInsideOutMeshes(root);
+        // After the fixes above, so the merged meshes inherit them.
+        if (leaves > 0 && MergeFoliage(root) == 0)
+        {
+            Debug.LogWarning("[IslandLampLights] No foliage merged in " + MapPath);
+        }
         if (!ApplyGroundUVs(root))
         {
             Debug.LogWarning("[IslandLampLights] No " + GroundName + " ground found in " + MapPath);
@@ -357,6 +365,8 @@ public class IslandLampLights : AssetPostprocessor
         Color leafColor = template.HasProperty("_BaseColor") ? template.GetColor("_BaseColor") : template.color;
         Material[] leaves = BuildShades(template, leafColor, "Leaves");
         Material[] bark = BuildShades(template, BarkColor, "Bark");
+        foliageMaterials.UnionWith(leaves);
+        foliageMaterials.UnionWith(bark);
 
         int count = 0;
         foreach (Transform group in root.GetComponentsInChildren<Transform>(true))
@@ -400,6 +410,171 @@ public class IslandLampLights : AssetPostprocessor
             }
         }
         return count;
+    }
+
+    // Every tree, shrub and hedge is dozens of separate spheres and cylinders: about 5000 objects
+    // across the island, each culled and drawn on its own in the main view, the depth prepass
+    // and every shadow map, which kept the main thread busy. Each plant's parts are merged into
+    // one mesh per material: the same triangles and materials, so it looks the same. The parts
+    // keep their GameObjects and colliders (they still block the player and shade sprites); a
+    // MergedRenderer on each points at the renderer that draws it now. Returns parts merged.
+    private int MergeFoliage(GameObject root)
+    {
+        int merged = 0;
+        int plantIndex = 0;
+        foreach (Transform group in root.GetComponentsInChildren<Transform>(true))
+        {
+            if (Array.IndexOf(FoliageGroups, group.name) < 0)
+            {
+                continue;
+            }
+            foreach (Transform plant in group)
+            {
+                plantIndex++;
+                var byMaterial = new Dictionary<Material, List<MeshRenderer>>();
+                foreach (MeshRenderer renderer in plant.GetComponentsInChildren<MeshRenderer>(true))
+                {
+                    Material material = renderer.sharedMaterial;
+                    MeshFilter filter = renderer.GetComponent<MeshFilter>();
+                    if (material == null || !foliageMaterials.Contains(material) || filter == null || filter.sharedMesh == null)
+                    {
+                        continue;
+                    }
+                    if (Array.Exists(renderer.sharedMaterials, other => other != material))
+                    {
+                        continue;
+                    }
+                    if (!byMaterial.TryGetValue(material, out List<MeshRenderer> parts))
+                    {
+                        byMaterial[material] = parts = new List<MeshRenderer>();
+                    }
+                    parts.Add(renderer);
+                }
+
+                foreach (KeyValuePair<Material, List<MeshRenderer>> pair in byMaterial)
+                {
+                    List<MeshRenderer> parts = pair.Value;
+                    if (parts.Count < 2)
+                    {
+                        continue;
+                    }
+                    string label = pair.Key.name + " (merged)";
+                    Mesh mesh = CombineParts(plant, parts, plant.name + " " + label);
+                    context.AddObjectToAsset("foliage_merged_" + plantIndex + "_" + pair.Key.name, mesh);
+
+                    MeshRenderer first = parts[0];
+                    var holder = new GameObject(label) { layer = first.gameObject.layer };
+                    holder.transform.SetParent(plant, false);
+                    GameObjectUtility.SetStaticEditorFlags(holder, GameObjectUtility.GetStaticEditorFlags(first.gameObject));
+                    holder.AddComponent<MeshFilter>().sharedMesh = mesh;
+                    MeshRenderer drawn = holder.AddComponent<MeshRenderer>();
+                    drawn.sharedMaterial = pair.Key;
+                    drawn.shadowCastingMode = first.shadowCastingMode;
+                    drawn.receiveShadows = first.receiveShadows;
+                    drawn.renderingLayerMask = first.renderingLayerMask;
+                    drawn.lightProbeUsage = first.lightProbeUsage;
+                    drawn.reflectionProbeUsage = first.reflectionProbeUsage;
+                    drawn.motionVectorGenerationMode = first.motionVectorGenerationMode;
+
+                    foreach (MeshRenderer part in parts)
+                    {
+                        GameObject partObject = part.gameObject;
+                        MeshFilter filter = partObject.GetComponent<MeshFilter>();
+                        UnityEngine.Object.DestroyImmediate(part);
+                        UnityEngine.Object.DestroyImmediate(filter);
+                        partObject.AddComponent<MergedRenderer>().Target = drawn;
+                    }
+                    merged += parts.Count;
+                }
+            }
+        }
+        Debug.Log("[IslandLampLights] Merged " + merged + " foliage parts across " + plantIndex + " plants");
+        return merged;
+    }
+
+    // One mesh in the plant's space from every part's full-detail triangles. Mirrored parts
+    // (negative scale) get their winding and tangent handedness turned, since baking the mirror
+    // into the vertices takes away the flipped culling Unity gave them. Mesh LODs are generated
+    // for the result like the importer does for the map's own meshes.
+    private static Mesh CombineParts(Transform plant, List<MeshRenderer> parts, string name)
+    {
+        bool hasNormals = true, hasUvs = true, hasTangents = true;
+        foreach (MeshRenderer part in parts)
+        {
+            Mesh source = part.GetComponent<MeshFilter>().sharedMesh;
+            hasNormals &= source.HasVertexAttribute(VertexAttribute.Normal);
+            hasUvs &= source.HasVertexAttribute(VertexAttribute.TexCoord0);
+            hasTangents &= source.HasVertexAttribute(VertexAttribute.Tangent);
+        }
+
+        var vertices = new List<Vector3>();
+        var normals = new List<Vector3>();
+        var uvs = new List<Vector2>();
+        var tangents = new List<Vector4>();
+        var indices = new List<int>();
+        Matrix4x4 toPlant = plant.worldToLocalMatrix;
+        foreach (MeshRenderer part in parts)
+        {
+            Mesh source = part.GetComponent<MeshFilter>().sharedMesh;
+            Matrix4x4 toLocal = toPlant * part.transform.localToWorldMatrix;
+            Matrix4x4 toNormal = toLocal.inverse.transpose;
+            bool mirrored = toLocal.determinant < 0f;
+            int offset = vertices.Count;
+
+            foreach (Vector3 v in source.vertices) vertices.Add(toLocal.MultiplyPoint3x4(v));
+            if (hasNormals)
+            {
+                foreach (Vector3 n in source.normals) normals.Add(toNormal.MultiplyVector(n).normalized);
+            }
+            if (hasUvs)
+            {
+                uvs.AddRange(source.uv);
+            }
+            if (hasTangents)
+            {
+                foreach (Vector4 t in source.tangents)
+                {
+                    Vector3 direction = toLocal.MultiplyVector(new Vector3(t.x, t.y, t.z)).normalized;
+                    tangents.Add(new Vector4(direction.x, direction.y, direction.z, mirrored ? -t.w : t.w));
+                }
+            }
+            for (int sub = 0; sub < source.subMeshCount; sub++)
+            {
+                if (source.GetTopology(sub) != MeshTopology.Triangles)
+                {
+                    continue;
+                }
+                int[] triangles = source.lodCount > 1 ? source.GetIndices(sub, 0, true) : source.GetIndices(sub, true);
+                for (int i = 0; i + 2 < triangles.Length; i += 3)
+                {
+                    indices.Add(triangles[i] + offset);
+                    indices.Add(triangles[mirrored ? i + 2 : i + 1] + offset);
+                    indices.Add(triangles[mirrored ? i + 1 : i + 2] + offset);
+                }
+            }
+        }
+
+        var mesh = new Mesh
+        {
+            name = name,
+            indexFormat = vertices.Count > 65535 ? IndexFormat.UInt32 : IndexFormat.UInt16,
+        };
+        mesh.SetVertices(vertices);
+        if (hasNormals) mesh.SetNormals(normals);
+        if (hasUvs) mesh.SetUVs(0, uvs);
+        if (hasTangents) mesh.SetTangents(tangents);
+        mesh.SetTriangles(indices, 0, true);
+        if (!hasNormals) mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+        try
+        {
+            MeshLodUtility.GenerateMeshLods(mesh, -1);
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("[IslandLampLights] No Mesh LODs for " + name + ": " + e.Message);
+        }
+        return mesh;
     }
 
     // Unity imports the map's one Maya material (openPBR_shader1: opacity 1, no transmission) as

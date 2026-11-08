@@ -13,6 +13,9 @@ public static class FountainWaterArt
     public const float PixelsPerMetre = 16f;
     // Side of one droplet or splash cell, in pixels. Cells are square so particles are too.
     public const int CellSize = 7;
+    // Droplet cells keep only the middle of the 7-pixel grid they're drawn on: the art never
+    // touches its outer ring, and a smaller quad is fewer clear pixels for the GPU to shade.
+    public const int DropletCellSize = 5;
     public const int DropletVariants = 4;
     public const int DropletStages = 4;
     public const int SplashFrames = 4;
@@ -93,12 +96,15 @@ public static class FountainWaterArt
     // system's texture sheet (row 0 at the top).
     public static Texture2D DropletSheet()
     {
-        var canvas = new Canvas(CellSize * DropletStages, CellSize * DropletVariants);
+        // Each 7-pixel drawing is stamped one pixel up and left of its 5-pixel cell, so its
+        // empty outer ring falls outside (or onto clear pixels of) the neighbours.
+        int inset = (CellSize - DropletCellSize) / 2;
+        var canvas = new Canvas(DropletCellSize * DropletStages, DropletCellSize * DropletVariants);
         for (int row = 0; row < DropletVariants; row++)
         {
             for (int stage = 0; stage < DropletStages; stage++)
             {
-                canvas.Stamp(Droplets[row][stage], stage * CellSize, row * CellSize);
+                canvas.Stamp(Droplets[row][stage], stage * DropletCellSize - inset, row * DropletCellSize - inset);
             }
         }
         return canvas.ToTexture("fountain_droplets", false);

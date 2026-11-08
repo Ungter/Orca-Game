@@ -31,6 +31,9 @@ public class FountainWater : MonoBehaviour
     // they'd be invisible specks. Farther out than the title screen's view of the island
     // (about 330 m), even at 720p.
     private const float MinScreenPixelsPerArtPixel = 0.1f;
+    // Below one screen pixel per art pixel the droplets are sub-pixel specks that blur into
+    // one another, so fewer are launched, down to this share of the full rate.
+    private const float MinDetail = 0.25f;
     private const int PoolSegments = 96;
 
     private static readonly int BaseMapId = Shader.PropertyToID("_BaseMap");
@@ -62,6 +65,7 @@ public class FountainWater : MonoBehaviour
     private MeshRenderer pool;
     private Mesh poolMesh;
     private MaterialPropertyBlock poolBlock;
+    private int poolFrame = -1;
 
     // drop: spout tip down to the water. columnRadius: the column at the water line, its
     // widest above the water. wallRadius: the basin's inner wall. All measured from the axis.
@@ -99,6 +103,7 @@ public class FountainWater : MonoBehaviour
         Texture2D splashSheet = FountainWaterArt.SplashSheet();
         textures = new[] { droplets, splashSheet };
         float cellMetres = FountainWaterArt.CellSize / FountainWaterArt.PixelsPerMetre;
+        float dropletMetres = FountainWaterArt.DropletCellSize / FountainWaterArt.PixelsPerMetre;
 
         ParticleSystem system = SetUpSystem(gameObject, droplets, FountainWaterArt.DropletStages, FountainWaterArt.DropletVariants);
         ParticleSystem.MainModule main = system.main;
@@ -134,7 +139,7 @@ public class FountainWater : MonoBehaviour
         subEmitters.enabled = true;
         subEmitters.AddSubEmitter(splashes, ParticleSystemSubEmitterType.Collision, ParticleSystemSubEmitterProperties.InheritNothing, SplashChance);
 
-        launch = new ParticleSystem.EmitParams { startSize = cellMetres };
+        launch = new ParticleSystem.EmitParams { startSize = dropletMetres };
         system.Play();
         return system;
     }
@@ -250,9 +255,9 @@ public class FountainWater : MonoBehaviour
 
     private void Update()
     {
-        if (spray != null && InSight())
+        if (spray != null && InSight(out float detail))
         {
-            owed += dropletsPerSecond * Time.deltaTime;
+            owed += dropletsPerSecond * detail * Time.deltaTime;
             int count = (int)owed;
             owed -= count;
             Vector3 tip = transform.position;
@@ -263,14 +268,21 @@ public class FountainWater : MonoBehaviour
         }
         if (pool != null)
         {
+            // The texture only changes ten times a second; don't re-set the block every frame.
             int frame = (int)(Time.time * PoolFramesPerSecond) % FountainWaterArt.FrameCount;
-            poolBlock.SetTexture(BaseMapId, poolFrames[frame]);
-            pool.SetPropertyBlock(poolBlock);
+            if (frame != poolFrame)
+            {
+                poolFrame = frame;
+                poolBlock.SetTexture(BaseMapId, poolFrames[frame]);
+                pool.SetPropertyBlock(poolBlock);
+            }
         }
     }
 
-    private bool InSight()
+    // detail: share of the full droplet rate worth launching at the fountain's size on screen.
+    private bool InSight(out float detail)
     {
+        detail = 1f;
         Camera view = Camera.main;
         if (view == null)
         {
@@ -278,7 +290,9 @@ public class FountainWater : MonoBehaviour
         }
         float distance = Mathf.Max(0.01f, Vector3.Distance(view.transform.position, transform.position));
         float screenPixelsPerMetre = Screen.height / (2f * distance * Mathf.Tan(view.fieldOfView * 0.5f * Mathf.Deg2Rad));
-        return screenPixelsPerMetre / FountainWaterArt.PixelsPerMetre >= MinScreenPixelsPerArtPixel;
+        float screenPixelsPerArtPixel = screenPixelsPerMetre / FountainWaterArt.PixelsPerMetre;
+        detail = Mathf.Clamp(screenPixelsPerArtPixel, MinDetail, 1f);
+        return screenPixelsPerArtPixel >= MinScreenPixelsPerArtPixel;
     }
 
     // One droplet, in a random direction round the spout. It picks where to come down and

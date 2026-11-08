@@ -64,23 +64,10 @@ Shader "Orca/Fountain Spray"
             {
                 float4 positionCS : SV_POSITION;
                 float2 uv         : TEXCOORD0;
+                // Particle colour with the lighting already multiplied in.
                 half4 color       : COLOR;
-                float3 normalWS   : TEXCOORD1;
-                float3 positionWS : TEXCOORD2;
-                float fogFactor   : TEXCOORD3;
+                float fogFactor   : TEXCOORD1;
             };
-
-            Varyings vert(Attributes input)
-            {
-                Varyings o;
-                o.positionWS = TransformObjectToWorld(input.positionOS.xyz);
-                o.positionCS = TransformWorldToHClip(o.positionWS);
-                o.normalWS = TransformObjectToWorldNormal(input.normalOS);
-                o.uv = TRANSFORM_TEX(input.uv, _BaseMap);
-                o.color = input.color;
-                o.fogFactor = ComputeFogFactor(o.positionCS.z);
-                return o;
-            }
 
             // Half-Lambert: light from behind still reaches a droplet, at half strength.
             half Wrap(float3 normal, half3 direction)
@@ -88,24 +75,26 @@ Shader "Orca/Fountain Spray"
                 return saturate(dot(normal, direction) * 0.5 + 0.5);
             }
 
-            half4 frag(Varyings i) : SV_Target
+            // The light on a droplet. Lit per vertex, not per pixel: a droplet is a few pixels
+            // across and its four corners see the same lamps, while thousands of overlapping
+            // alpha-clipped quads walking the light list for every pixel cost a big share of the
+            // frame wherever the fountain is on screen.
+            half3 DropletLight(float3 positionWS, float3 normal, float4 positionCS)
             {
-                half4 texel = SampleAlbedoAlpha(i.uv, TEXTURE2D_ARGS(_BaseMap, sampler_BaseMap));
-                Alpha(texel.a * i.color.a, _BaseColor, _Cutoff);
-                half3 albedo = texel.rgb * _BaseColor.rgb * i.color.rgb;
-                float3 normal = normalize(i.normalWS);
-
                 half3 light = SampleSH(normal);
                 Light mainLight = GetMainLight();
                 light += mainLight.color * mainLight.distanceAttenuation * Wrap(normal, mainLight.direction);
 
                 #if defined(_ADDITIONAL_LIGHTS) || USE_CLUSTER_LIGHT_LOOP
                 InputData inputData = (InputData)0;
-                inputData.positionWS = i.positionWS;
-                inputData.normalizedScreenSpaceUV = GetNormalizedScreenSpaceUV(i.positionCS);
+                inputData.positionWS = positionWS;
+                // The same screen UV the pixel shader would get, which picks the light cluster.
+                float4 ndc = positionCS * 0.5;
+                ndc.xy = float2(ndc.x, ndc.y * _ProjectionParams.x) + ndc.w;
+                inputData.normalizedScreenSpaceUV = ndc.xy / positionCS.w;
                 uint lightCount = GetAdditionalLightsCount();
                 LIGHT_LOOP_BEGIN(lightCount)
-                    Light lamp = GetAdditionalLight(lightIndex, i.positionWS);
+                    Light lamp = GetAdditionalLight(lightIndex, positionWS);
                     light += lamp.color * lamp.distanceAttenuation * Wrap(normal, lamp.direction);
                 LIGHT_LOOP_END
                 #endif
@@ -118,8 +107,26 @@ Shader "Orca/Fountain Spray"
                 half headroom = max(_MaxLight - _Knee, 1e-3);
                 half level = brightness <= _Knee ? brightness :
                     _Knee + headroom * (1.0 - exp(-(brightness - _Knee) / headroom));
+                return tint * level;
+            }
 
-                half3 col = albedo * tint * level;
+            Varyings vert(Attributes input)
+            {
+                Varyings o;
+                float3 positionWS = TransformObjectToWorld(input.positionOS.xyz);
+                o.positionCS = TransformWorldToHClip(positionWS);
+                float3 normal = normalize(TransformObjectToWorldNormal(input.normalOS));
+                o.uv = TRANSFORM_TEX(input.uv, _BaseMap);
+                o.color = half4(input.color.rgb * DropletLight(positionWS, normal, o.positionCS), input.color.a);
+                o.fogFactor = ComputeFogFactor(o.positionCS.z);
+                return o;
+            }
+
+            half4 frag(Varyings i) : SV_Target
+            {
+                half4 texel = SampleAlbedoAlpha(i.uv, TEXTURE2D_ARGS(_BaseMap, sampler_BaseMap));
+                Alpha(texel.a * i.color.a, _BaseColor, _Cutoff);
+                half3 col = texel.rgb * _BaseColor.rgb * i.color.rgb;
                 col = MixFog(col, i.fogFactor);
                 return half4(col, 1);
             }

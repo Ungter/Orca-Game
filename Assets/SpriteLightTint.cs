@@ -243,6 +243,15 @@ public class SpriteLightTint : MonoBehaviour
                     result |= renderer.renderingLayerMask;
                 }
             }
+            // Foliage parts whose mesh the map import merged into one renderer per plant.
+            foreach (MergedRenderer merged in collider.GetComponentsInChildren<MergedRenderer>())
+            {
+                Renderer renderer = merged.Target;
+                if (renderer != null && renderer.enabled && renderer.shadowCastingMode != ShadowCastingMode.Off)
+                {
+                    result |= renderer.renderingLayerMask;
+                }
+            }
             shadowLayers[collider] = result;
         }
         return result;

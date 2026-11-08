@@ -515,7 +515,7 @@ Maya and follow the map into any scene.
   makes Unity reimport the model with the new rules. Every change below bumped it.
 - **`DependsOnSourceAsset(FoliageMatte.mat)`:** editing the material reimports the map, so
   its colour carries into all generated shades.
-- **Lamp lights:** a `LampGlow` point light is added inside every `lampN/pCube1`, placed at
+- **Lamp lights:** a `LampGlow` light (a wide spot aimed down, see 14) is added inside every `lampN/pCube1`, placed at
   the mesh's bounds centre. `LampGlow` owns the Light's settings (sodium orange, intensity 280,
   range 32, hard shadows - see 20. Night mood) and turns off shadows on the lamp head,
   otherwise the head would block its own light.
@@ -663,7 +663,7 @@ Maya and follow the map into any scene.
   flight time to the water, and sideways distance levels off at `speed / k`, so
   `speed = k * landing / (1 - e^-kT)`. Sideways travel happens early and the fall is near
   vertical, so a droplet that lands clear of the column's foot clears its narrower top too.
-- **Pixel art:** 7x7 hand-drawn cells at 16 px/m. Droplets: 4 variants (rows, picked at
+- **Pixel art:** 7x7 hand-drawn cells at 16 px/m (droplets cropped to their used 5x5 middle). Droplets: 4 variants (rows, picked at
   random) x 4 stages over the flight (sparkle bursting from the spout, round drop, small drop,
   falling streak). A plane at the water line kills droplets and 15% spawn a splash (4 frames,
   drawn in the top half of the cell, since it's centred on the landing point and the bottom
@@ -1029,8 +1029,8 @@ removing anything. Where the time went: the map is 5058 separate meshes, ~3.2M t
 renders it six more times - with 15 lamps that was ~90 extra passes, plus four moon
 cascades, plus a full re-render for SSAO's depth-normals prepass.
 
-- **Lamp shadows by distance** (`LampGlow`): in play mode only the 6 lamps nearest the
-  camera keep shadows (all four round the fountain plaza, plus the next nearest). The rest
+- **Lamp shadows by distance** (`LampGlow`): in play mode only the 2 lamps nearest the
+  camera keep shadows (was 6, which kept all four round the fountain plaza). The rest
   fade `shadowStrength` to 0 over 0.6 s and switch shadows off; coming closer fades them back
   in, so nothing pops. Every lamp keeps its light. Ranked 4x a second; in the editor every
   lamp keeps its shadow. With fewer lamps sharing the 4096 shadow atlas, each one also gets
@@ -1064,6 +1064,30 @@ cascades, plus a full re-render for SSAO's depth-normals prepass.
   cost heat); the fountain stops launching droplets beyond the distance where an art pixel
   is under 0.1 screen pixel (farther than the title view); `CameraFollow` uses a
   non-allocating sphere cast.
+- **Lamps are downward spot lights** (`LampGlow`): looking at the fountain plaza cost ~40%
+  of the frame at any distance. Measured, the fountain itself was noise; the four plaza
+  lamps' shadows were the cost: as point lights each rendered the map six times (cube
+  faces), 24 extra shadow views, +3.2M triangles and +3,850 shadow casters a frame, and only
+  while they're in view. Now each lamp is a 150-degree spot (soft edge from 110) aimed
+  straight down: one shadow view per lamp. Nothing above about 15 degrees under the lamp
+  heads is lit.
+- **Fountain spray:** lit per vertex in `Orca/Fountain Spray` (the pixel shader is a texture
+  read, clip and multiply), droplet quads cropped from 7x7 to 5x5 cells, launch rate falls
+  with screen size below one screen pixel per art pixel (down to 25%), and the pool's
+  property block is only set when its frame changes. Small savings; the spray was never the
+  bottleneck.
+- **Foliage merged per plant** (`IslandLampLights.MergeFoliage`, at import): the frame was
+  main-thread bound on draw submission (~5300 meshes, mostly leaf spheres, each culled and
+  drawn separately in the main view, depth prepass, moon cascades and lamp shadows). Each
+  tree, shrub and hedge's leaf and bark parts are combined into one mesh per shade material
+  in the plant's space (full-detail triangles; mirrored parts get their winding and tangent
+  sign turned), with Mesh LODs generated for the result. Same triangles and materials, so it
+  looks the same. The parts keep their GameObjects and colliders, and a `MergedRenderer` on
+  each points at the renderer that draws it now; `SpriteLightTint` follows it so foliage
+  still shades the player.
+- **Depth priming stays:** on desktop, URP's Auto depth priming always runs the depth prepass
+  (~2 ms of main thread here), whatever SSAO needs. Turning it off would trade that CPU time
+  for leaf overdraw on the GPU, which hurts the integrated GPUs this section targets.
 - **FPS counter** (`FpsCounter`, installs itself): `]` toggles a pixel-font readout in the
   top-right corner, averaged over half a second on unscaled time so it keeps counting while
   paused. `GUI.depth` -2000 draws it over the pause menu and title screen. The label string is
