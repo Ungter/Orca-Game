@@ -102,7 +102,10 @@ public sealed class OpeningVoyage : IDisposable
         // Scripted while the opening runs; solid once it is moored.
         hull.enabled = false;
         Renderer body = boat.GetComponent<Renderer>();
-        body.sharedMaterial = new Material(body.sharedMaterial) { name = "Boat (placeholder)", color = Wood };
+        // Not the primitive's default material: in a build that is built-in Standard, pink under URP.
+        Material wood = PlaceholderMaterials.Lit(Wood);
+        wood.name = "Boat (placeholder)";
+        body.sharedMaterial = wood;
 
         controller = player.GetComponent<CharacterController>();
         controllerWasEnabled = controller.enabled;

@@ -78,9 +78,8 @@ public sealed class CachudDoorway : IDisposable
         doorwayMesh.triangles = new[] { 0, 1, 2, 0, 2, 3 };
         doorwayMesh.RecalculateNormals();
         doorway.AddComponent<MeshFilter>().sharedMesh = doorwayMesh;
-        Shader shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
-        doorwayMaterial = new Material(shader) { color = new Color(0.012f, 0.009f, 0.006f) };
-        if (doorwayMaterial.HasProperty("_Cull")) doorwayMaterial.SetFloat("_Cull", 0f);
+        // Not Shader.Find: in a build the unused URP Unlit shader is stripped and it returned null.
+        doorwayMaterial = PlaceholderMaterials.Unlit(new Color(0.012f, 0.009f, 0.006f));
         MeshRenderer interior = doorway.AddComponent<MeshRenderer>();
         interior.sharedMaterial = doorwayMaterial;
         interior.shadowCastingMode = ShadowCastingMode.Off;
