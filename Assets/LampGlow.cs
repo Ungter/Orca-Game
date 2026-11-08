@@ -39,11 +39,11 @@ public class LampGlow : MonoBehaviour
     private Color color = new Color(1f, 0.66f, 0.3f);
 
     [SerializeField]
-    private float intensity = 500f;
+    private float intensity = 100f;
 
     // Short enough that the pools end and the ground between lamps falls dark.
     [SerializeField]
-    private float range = 64f;
+    private float range = 50f;
 
     [SerializeField]
     private bool castShadows = true;
