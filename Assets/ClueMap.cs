@@ -351,7 +351,7 @@ public sealed class ClueMap
         if (!overGround)
         {
             // A pier or boat deck just above the sea; everything else off the island is sea.
-            if (any && OwnerOf(first.collider) != Kind.Water && first.normal.y > 0.6f &&
+            if (any && OwnerOf(first.collider) == Kind.Paved && first.normal.y > 0.6f &&
                 first.point.y > seaLevel - 0.5f && first.point.y < seaLevel + 4f)
             {
                 Kinds[i] = Kind.Dock;
@@ -423,7 +423,8 @@ public sealed class ClueMap
             string name = t.name.ToLowerInvariant();
             if (name.Contains("ocean")) kind = Kind.Water;
             else if (name.Contains("building")) kind = Kind.Building;
-            else if (name == "islanddemo:pcylinder3" || name.StartsWith("lamp")) kind = Kind.Structure;
+            // Boulders and the rocky shore (IslandScenery) are in the way, never a deck or a path.
+            else if (name == "islanddemo:pcylinder3" || name.StartsWith("lamp") || name.Contains("rock")) kind = Kind.Structure;
             else
             {
                 foreach (string foliage in FoliageNames)

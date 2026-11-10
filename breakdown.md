@@ -24,6 +24,7 @@ Each section names the files involved, so you can jump straight to the code.
 - [18. Al Cachud comes out of his door](#18-al-cachud-comes-out-of-his-door) - `CachudCallout.cs`, `CachudDoorway.cs`
 - [19. Door beacons](#19-door-beacons) - `DoorBeacon.cs`
 - [20. Night mood: hard light for a murder mystery](#20-night-mood-hard-light-for-a-murder-mystery) - `LampGlow.cs`, `SampleSceneProfile.asset`
+- [21. Island terrain, rock shore and foliage](#21-island-terrain-rock-shore-and-foliage) - `Editor/IslandTerrain.cs`, `Editor/IslandScenery.cs`
 - [Shared rules for crisp pixel art](#shared-rules-for-crisp-pixel-art)
 
 ---
@@ -1256,6 +1257,191 @@ distance, and a desaturated, high-contrast grade.
   pools is `range` in `LampGlow` (also serialised on the four scene lamps). The grade is in
   `SampleSceneProfile`. How far you can see is the scene's fog density (Lighting window >
   Environment).
+
+---
+
+## 21. Island terrain, rock shore and foliage
+
+**Files:** `Assets/Editor/IslandTerrain.cs` (levels, ground, moving what stands on it),
+`Assets/Editor/IslandScenery.cs` (trees, undergrowth, boulders, shore),
+`Assets/Generated/IslandTerrain/` and `Assets/Generated/IslandScenery/` (the baked meshes),
+`Assets/Materials/CliffMat.mat`, `SceneryMat.mat`, `Scenery Palette.png`
+
+The island came out of Maya flat: a 122-vertex slab with everything standing on it at one
+height, and forty trees that were all the same two trees. Two editor tools reshape and dress it.
+Nothing is hand-modelled; every mesh is built in code and baked into the project, so the
+result is the same on every run and the model itself is never edited.
+
+- `Tools/Orca/Raise Island Terrain` runs once on the flat island. It refuses to run twice.
+- `Tools/Orca/Regrow Island Scenery` can be run any time; it deletes what it grew and regrows
+  it from the same seed. Run it after the terrain.
+
+### Heights: a border drawn on the map, then blurred
+
+The island sits at four levels: the harbour and start house at sea level, the lower town (the
+square and the well) at +5 m, the upper town (both big houses, the north road, the magician's
+dell) at +9.5 m, and wooded heights round the dell and on the south-west lobe at +15 m. East of
+the east road the town falls away to the beach.
+
+- **A level is a yes/no map.** Each of the three `Levels` is a rise in metres and a test for
+  "is this spot inside" (an outline polygon for the lower town, plain x/z comparisons for the
+  others). It is rasterised at one sample per metre: inside is the rise, outside is 0.
+- **The slope comes from blurring that map**, box-blurred twice by `Blend` metres either side.
+  Two box blurs make a tent, so each slope is a smooth S: level at the top and bottom, steepest
+  halfway. Three things fall out of the one number: the slope is about `4 x Blend` long, the
+  ground is exactly level again `2 x Blend` from the border, and the steepest point is
+  `Rise / (2 x Blend + 1)`. That gives 18 degrees into the lower town, 22 up to the upper town
+  and 23 on the wooded banks.
+- **The three maps are added**, and the sum is the rise at any spot (`HeightField.At`, read
+  with bilinear filtering). Everything else in the tool asks only that one question.
+- **Where the borders go is the design.** Because the ground is exactly level `2 x Blend` from
+  a border, a building that far inside one keeps a level floor. Borders run through lawns and
+  cross the paths at right angles, so a path climbs head-on and never leans sideways. The
+  lower-town edge is bent for this: it meets the west diagonal road and the path to the east
+  gate square on, and passes south of the well.
+
+### Re-cutting the ground
+
+- **The slab is too coarse to bend,** so its triangles are split: every edge longer than 3 m is
+  halved, again and again, until none is left (122 vertices become about 39,600). An edge is
+  judged by its two end points alone, so both triangles sharing it make the same choice and the
+  surface stays closed. Midpoints interpolate the UVs, so the grass keeps its metre scale.
+- **Only the top rises.** A vertex's share of the rise goes from 1 at the top surface to 0 at
+  the slab's underwater rim, so the sides stretch into cliffs and the sea bed stays put.
+- **Rock on the steep faces.** After reshaping, each triangle goes into one of two submeshes by
+  its own normal: grass, or `CliffMat` where it is steeper than about 52 degrees. The cliff
+  texture is drawn in code like the gravel: banded strata in the grass texture's chunky pixels.
+- **A crack in the model:** the slab had a hairline wedge open across its top, east from the
+  square (two corners at the shore 27 cm apart that should be one). Flat, it never showed;
+  raised, the lawn would split along it. Corners closer than 0.4 m are welded before cutting.
+  `RepairJunctions` also cuts any edge that has another corner sitting partway along it, the
+  other way a flat mesh hides a crack.
+- The model is untouched: the new mesh is saved as `Ground.asset` and the scene's ground object
+  points at it, keeping its name, so `ClueMap`, the paving and the opening still find it.
+
+### Moving everything that stood on it
+
+Every object is visited once, parents before children, and given one of four treatments.
+
+- **Lifted whole** by the rise under its middle: anything under 8 m across, each shrub, and
+  anything named as a tree, lamp, building, house, statue or grave. A building's parts all get
+  the same rise because the borders keep clear of it.
+- **Trees go by the lowest ground under the trunk,** not the middle. A trunk is cut off flat,
+  so on a slope its downhill side would hang in the air.
+- **Hedges are lifted and leant.** A hedge is one 17 m row; lifted level on a slope, its ends
+  would be metres out. It is tipped to the slope measured between its two ends, turning about
+  its middle.
+- **Bent:** a single long mesh that crosses a slope (the road slab, its gravel spill, fence
+  rails, the alchemist's path) gets a copy with every vertex raised by the rise under it.
+  Vertical lines stay vertical, so nothing tips over. Normals are corrected by the slope
+  instead of being recalculated, which would put seams in smooth shading. Coarse meshes are
+  split first (2.5 m edges) so they follow the curve.
+- **Positions are absolute.** Each object's new place is worked out from where it stood before
+  anything moved, so a child never also rides its parent's lift.
+- `ScenePaving` is told to re-lay the alchemist's path last. Its old meshes are deleted first:
+  it normally rebuilds them inside their files, and the editor keeps drawing the old shape of a
+  mesh rebuilt that way until it restarts.
+
+### Modelling the plants
+
+No two trees are alike: each is grown from its own random numbers, not copied from a few
+models.
+
+- **Broadleaf:** an 8-sided trunk of five rings, wide at the foot and buried 0.7 m (so a slope
+  never shows under it), with a slight bend. It forks into 3-5 boughs rising at 22-48 degrees.
+  Each bough ends in a leaf mass, with a crown on top and one filler mass.
+- **A leaf mass** is a ball of triangles (an icosahedron split twice, 162 points) with every
+  point pushed in or out by Perlin noise, and the underside flattened to 60%. That lumpiness is
+  what separates them from the model's perfect spheres.
+- **Poplar:** tall and narrow. Four or five leaf masses stacked up the trunk, each taller than
+  wide and smaller than the one below.
+- **Pine:** 4-6 tiers of boughs. Each tier is a cone whose rim alternates long and short points
+  (9-11 of them) and droops, with an underside so it looks right from below, where the player
+  is. Pines are flat-shaded; the leaf masses are smooth.
+- **Bushes** are 3-5 small leaf masses. **Ferns** are 6-10 arching ribbons from one root.
+  **Grass tufts** are 5-9 tapering blades. **Flowers** are a stem and a five-sided double cone.
+  Ribbons and blades are drawn on both sides and lit as if they faced up, so they shade like the
+  ground they grow from.
+- **Boulders** are a coarse ball (42 points) with every corner pushed in or out by up to 26%,
+  squashed, turned at random and flat-shaded.
+- **One material for everything.** `Scenery Palette.png` is 4 x 16 pixels: sixteen rows, each
+  four shades of one thing (three leaf greens, pine, two barks, grass, fern, four petal
+  colours, rock, wet rock, cut wood and one spare). A vertex's V picks the row and its U says how light it
+  is, lighter where it faces the sky. The texture is point-sampled, so the shading steps in
+  four flat bands. That keeps the cartoon look and means bark, leaves, petals and rock all
+  draw with `SceneryMat`.
+- **The model's own trees** that still face the way the model left them (36 of the 40) are each
+  turned (25-335 degrees), resized (big ones 80-108%, medium 82-122%) and leant up to 3.5
+  degrees about the foot of the trunk. The numbers come from a hash of the tree's name, so they
+  never change, and a tree already turned is left alone. Fifteen stood a little above the
+  ground; each is lowered until its trunk is 0.3 m in the earth all the way round.
+
+### Placing them
+
+- **Zones set the density.** Eleven rectangles (`Zones`) give trees, bushes, ferns and flowers
+  per 100 square metres and the split between broadleaf, poplar and pine: 1.5-1.6 trees in the
+  three woods, 1.0 in the west grove, 0.1-0.7 on the lawns, pine-heavy on the north head and
+  south-west.
+- **A jittered grid, not random points.** `Scatter` walks the island in cells (3 m for trees),
+  picks one random spot in each and plants there with probability density x cell area. Plants
+  can't pile up, and a fixed seed gives the same island every time.
+- **Woods grow in clumps.** In a wood the density is multiplied by a slow Perlin noise, 0 to
+  1.7, which leaves clearings and thickets.
+- **Every spot is checked before anything grows:** ground under it and above the tide line;
+  not too steep (trees stay under about 30 degrees); nothing within reach from just above the
+  grass to overhead (one capsule query that catches paths, walls, fences, trunks and posts);
+  clear of building footprints by the tree's own spread; 7 m from any lamp, so the pools of
+  light stay; outside a ring round everything the player has to find or use (the player's
+  start, both doors, the letter, dice, wand, dig site, gravestone, statue and the dock); and
+  not crowding another new tree.
+- **Undergrowth follows the same rules with smaller numbers.** Ferns come in stands of one to
+  three, flowers in patches of five to ten of one colour, grass tufts everywhere there is
+  grass. Boulders are sparse on the flat and thick where the ground slopes over about 17
+  degrees, so the banks between levels look like banks.
+
+### The rock shore
+
+The slab's sides are sheer and showed as a dark gap above the water. A bank of rock now runs
+from the island's edge down into the sea, all the way round (about 1 km).
+
+- **Finding the coast:** take the ground's upward faces, and the edges only one of them uses
+  are the outline. Chained end to end they make one loop, resampled every 2 m, each sample with
+  the direction out to sea (averaged over its neighbours so corners don't fan open).
+- **The bank** is eight rows of points at each sample: one tucked under the turf, a raised lip
+  at the edge, then six stepping out and down to 1.7 m under water. It reaches further out the
+  higher the cliff (2.2 m plus half a metre per metre of height). Each row is jittered in and
+  out and up and down, in blocks two samples wide, which gives ledges instead of a smooth ramp.
+  Faces are flat-shaded, and anything near the waterline takes the darker wet-rock row.
+- **Boulders** sit at the waterline on about four samples in ten, with more partway up cliffs
+  over 3.5 m.
+- **The dock's foot is left smooth:** within 3 m of it the lip and the jitter go away and no
+  boulders are placed.
+
+### Baking it
+
+- **One mesh per patch.** Plants are written straight into a builder for the 48 m patch they
+  stand in, in three layers: trees and boulders (cast shadows), ground cover (no shadows) and
+  shore (also the collision mesh). About 2,500 plants and boulders and the whole shore come to
+  97 meshes and one material, the same idea as the model's merged foliage.
+- **Packed small.** Normals are stored as bytes and UVs as 16-bit, 20 bytes a vertex, because
+  these meshes (about 325,000 vertices) are saved in the project.
+- **Colliders are separate and simple:** a capsule for each trunk, a sphere for each crown
+  (kept 2.4 m clear of the ground so the player walks under it), a sphere for each bush and
+  larger boulder. Each carries a `MergedRenderer` pointing at the mesh that draws it, like the
+  model's plants, so `SpriteLightTint` shades the player under them.
+- **The clue map** reads the new trees and bushes as foliage by name. `ClueMap` treats anything
+  named `rock` as in the way, and only an unnamed flat surface over the sea counts as a pier,
+  so the shore doesn't draw as dock.
+
+### Changing it
+
+- **Heights and slopes:** the `Levels` table at the top of `IslandTerrain.cs`. To run it again,
+  first put back the flat island: both the scene and `Assets/Generated/sideWalkAlch` from the
+  commit before the terrain, since the paving's meshes are bent too.
+- **How much grows where:** the `Zones` table in `IslandScenery.cs`; `Seed` for a different
+  arrangement; `KeptClear` for the rings nothing grows in.
+- **Colours:** the `Ramps` strings, four hex colours per row; the palette is rewritten on the
+  next regrow.
 
 ---
 
