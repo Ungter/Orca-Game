@@ -16,6 +16,8 @@ public class MagicianLiveWorldTests
     private Camera camera;
     private Keyboard keyboard;
     private KeyboardState heldKeys;
+    private Mouse mouse;
+    private MouseState mouseState;
     private InputSettings previousInputSettings;
     private InputSettings.BackgroundBehavior previousBackgroundBehavior;
     private InputSettings.EditorInputBehaviorInPlayMode previousEditorInputBehavior;
@@ -38,7 +40,9 @@ public class MagicianLiveWorldTests
         InputSystem.settings.editorInputBehaviorInPlayMode =
             InputSettings.EditorInputBehaviorInPlayMode.AllDeviceInputAlwaysGoesToGameView;
         keyboard = InputSystem.AddDevice<Keyboard>();
+        mouse = InputSystem.AddDevice<Mouse>();
         heldKeys = new KeyboardState();
+        mouseState = new MouseState();
         InputSystem.onBeforeUpdate += FeedKeyboard;
         floor = GameObject.CreatePrimitive(PrimitiveType.Cube);
         floor.transform.position = Vector3.down * 0.5f;
@@ -71,6 +75,7 @@ public class MagicianLiveWorldTests
     {
         InputSystem.onBeforeUpdate -= FeedKeyboard;
         if (keyboard != null && keyboard.added) InputSystem.RemoveDevice(keyboard);
+        if (mouse != null && mouse.added) InputSystem.RemoveDevice(mouse);
         if (entrance != null) Object.DestroyImmediate(entrance);
         if (player != null) Object.DestroyImmediate(player);
         if (camera != null) Object.DestroyImmediate(camera.gameObject);
@@ -85,67 +90,122 @@ public class MagicianLiveWorldTests
     }
 
     [UnityTest]
-    public IEnumerator PlayerMovesAndCameraFollowsAndOrbitsWhileTheGameRuns_EscapeEndsWithoutPausing()
+    public IEnumerator WindowBlocksMovementAndCameraOrbit_EscapeClosesWithoutPausing()
     {
         Vector3 start = player.transform.position;
         Vector3 cameraStart = camera.transform.position;
-        WorldHatStage stage = entrance.GetComponent<WorldHatStage>();
-        Vector3 performance = stage.Centre;
-        Vector3 placement = player.transform.position - stage.ViewingPoint;
-        Assert.Less(new Vector2(placement.x, placement.z).magnitude, 0.05f);
+        Assert.IsFalse(game.IsWorldGame);
+        Assert.IsNull(entrance.GetComponent<WorldHatStage>());
         Assert.IsTrue(player.GetComponent<CharacterController>().enabled);
-        Assert.That(player.GetComponent<CharacterController>().bounds.min.y, Is.InRange(-0.1f, 0.15f));
         float gameTime = Read<float>(game, "phaseElapsed");
-        heldKeys = new KeyboardState(Key.W);
+        heldKeys = new KeyboardState(Key.W, Key.L);
         yield return WaitForGameTime(0.2f);
-        Assert.Greater(Vector3.Distance(start, player.transform.position), 0.1f);
-        Assert.Greater(Vector3.Distance(cameraStart, camera.transform.position), 0.01f);
+        Assert.Less(Vector3.Distance(start, player.transform.position), 0.001f);
+        Assert.Less(Vector3.Distance(cameraStart, camera.transform.position), 0.001f);
         Assert.Greater(Read<float>(game, "phaseElapsed"), gameTime + 0.1f);
-        Assert.AreEqual(performance, stage.Centre, "Walking must not move the entrance game.");
-        Assert.IsFalse(Interactables.BlocksMovement);
+        Assert.IsTrue(Interactables.BlocksMovement);
         CameraFollow follow = camera.GetComponent<CameraFollow>();
         float angle = Read<float>(follow, "cameraAngle");
         heldKeys = new KeyboardState(Key.W, Key.L);
         yield return WaitForGameTime(0.15f);
-        Assert.Greater(Mathf.Abs(Read<float>(follow, "cameraAngle") - angle), 1f);
+        Assert.AreEqual(angle, Read<float>(follow, "cameraAngle"));
         Assert.AreEqual(MagicianEncounter.Phase.Playing, encounter.CurrentPhase);
         Assert.IsTrue(game.IsShowing);
-        Vector3 playerPoint = camera.WorldToViewportPoint(player.transform.position);
-        Assert.Greater(playerPoint.z, 0f);
-        Assert.That(playerPoint.x, Is.InRange(0f, 1f));
-        Assert.That(playerPoint.y, Is.InRange(0f, 1f));
         heldKeys = new KeyboardState(Key.Escape);
-        yield return null;
-        yield return null;
+        float deadline = Time.realtimeSinceStartup + 3f;
+        while (encounter.CurrentPhase != MagicianEncounter.Phase.Idle && Time.realtimeSinceStartup < deadline)
+            yield return null;
         Assert.AreEqual(MagicianEncounter.Phase.Idle, encounter.CurrentPhase);
         Assert.IsFalse(game.IsShowing);
         Assert.IsFalse(PauseMenu.IsPaused, "Esc belongs to the hat game, not the pause menu.");
         Assert.AreEqual(1f, Time.timeScale);
+        Assert.IsFalse(Interactables.BlocksMovement);
+        heldKeys = new KeyboardState(Key.D);
+        yield return WaitForGameTime(0.2f);
+        Assert.Greater(Vector3.Distance(start, player.transform.position), 0.1f);
     }
 
     [UnityTest]
-    public IEnumerator WalkingAcrossTheDistanceLimitEndsTheGameAndMovementContinues()
+    public IEnumerator ClickingAWindowHatSelectsItAndTheNextRoundButtonWorks()
     {
-        CharacterController controller = player.GetComponent<CharacterController>();
-        controller.enabled = false;
-        player.transform.position = new Vector3(encounter.MaxGameDistance - 0.25f, 1f, 0f);
-        controller.enabled = true;
-        heldKeys = new KeyboardState(Key.D);
-        float deadline = Time.realtimeSinceStartup + 3f;
-        while (encounter.CurrentPhase == MagicianEncounter.Phase.Playing && Time.realtimeSinceStartup < deadline)
-            yield return null;
-        Assert.AreEqual(MagicianEncounter.Phase.Idle, encounter.CurrentPhase);
-        Assert.IsFalse(game.IsShowing);
-        Assert.IsTrue(encounter.HasWand);
-        Assert.IsFalse(Interactables.BlocksMovement);
-        Vector3 afterExit = player.transform.position;
-        deadline = Time.realtimeSinceStartup + 3f;
-        while (player.transform.position.x < afterExit.x + 0.15f && Time.realtimeSinceStartup < deadline)
-            yield return null;
-        Assert.Greater(player.transform.position.x, afterExit.x + 0.1f);
-        Assert.Less(Vector3.Distance(camera.transform.position, player.transform.position), 10f,
-            "The normal camera follows the player's current position, not a saved doorway shot.");
+        MethodInfo tick = typeof(ShellMinigame).GetMethod("Tick", Private);
+        for (int i = 0; i < 2000 && !game.AcceptsGuess; i++) tick.Invoke(game, new object[] { 0.05f });
+        Assert.IsTrue(game.AcceptsGuess);
+        yield return NextFrame();
+        RectTransform surface = Read<RectTransform>(game, "surface");
+        Assert.IsTrue(surface.Find("Hat board/Background").gameObject.activeInHierarchy);
+        Assert.IsFalse(Read<RectTransform>(encounter, "room").gameObject.activeInHierarchy);
+        int winner = game.GetHatPose(0).panther == 0 ? 0 : 1;
+        Vector3 point = surface.TransformPoint(new Vector3(game.GetHatPose(winner).x, -15f, 0f));
+        mouseState.position = RectTransformUtility.WorldToScreenPoint(null, point);
+        mouseState.buttons = 1;
+        yield return NextFrame();
+        mouseState.buttons = 0;
+        yield return NextFrame();
+        Assert.AreEqual("RoundWon", Read<object>(game, "phase").ToString());
+        Assert.AreEqual(MagicianEncounter.Phase.Playing, encounter.CurrentPhase);
+        Assert.IsTrue(game.IsShowing);
+        tick.Invoke(game, new object[] { 0.81f });
+        yield return NextFrame();
+        Assert.IsTrue(game.CanContinue);
+        RectTransform next = Read<UnityEngine.UI.Image>(game, "roundAction").rectTransform;
+        mouseState.position = RectTransformUtility.WorldToScreenPoint(null, next.TransformPoint(Vector3.zero));
+        mouseState.buttons = 1;
+        yield return NextFrame();
+        mouseState.buttons = 0;
+        yield return NextFrame();
+        Assert.AreEqual(3, game.HatCount);
+        Assert.AreEqual("Reveal", Read<object>(game, "phase").ToString());
+        Assert.IsFalse(Read<RectTransform>(encounter, "room").gameObject.activeInHierarchy);
         Assert.IsFalse(PauseMenu.IsPaused);
+    }
+
+    [UnityTest]
+    public IEnumerator MouseSelectsBothPanthersAfterWideAndTallLayoutChanges()
+    {
+        MethodInfo tick = typeof(ShellMinigame).GetMethod("Tick", Private);
+        Canvas canvas = Read<Canvas>(encounter, "canvas");
+        var viewport = new GameObject("Resizable hat viewport", typeof(RectTransform)).GetComponent<RectTransform>();
+        viewport.SetParent(canvas.transform, false);
+        Vector2 bounds = ((RectTransform)canvas.transform).rect.size;
+        Vector2[] sizes =
+        {
+            new Vector2(1280f, 720f), new Vector2(1024f, 768f),
+            new Vector2(2560f, 1080f), new Vector2(720f, 1280f)
+        };
+        foreach (Vector2 size in sizes)
+        {
+            viewport.sizeDelta = size * Mathf.Min(bounds.x / size.x, bounds.y / size.y);
+            game.Play(viewport);
+            typeof(ShellMinigame).GetMethod("BeginRound", Private).Invoke(game, new object[] { 2 });
+            for (int i = 0; i < 2000 && !game.AcceptsGuess; i++) tick.Invoke(game, new object[] { 0.05f });
+            Assert.IsTrue(game.AcceptsGuess);
+            yield return NextFrame();
+            RectTransform surface = Read<RectTransform>(game, "surface");
+            Assert.AreEqual(game.Controls, Read<PixelText>(game, "controls").text);
+            for (int type = 0; type < 2; type++)
+            {
+                int winner = -1;
+                for (int i = 0; i < game.HatCount; i++)
+                    if (game.GetHatPose(i).panther == type) winner = i;
+                Assert.GreaterOrEqual(winner, 0);
+                Vector3 point = surface.TransformPoint(new Vector3(game.GetHatPose(winner).x, -15f, 0f));
+                mouseState.position = RectTransformUtility.WorldToScreenPoint(null, point);
+                Assert.That(mouseState.position.x, Is.InRange(0f, (float)Screen.width));
+                Assert.That(mouseState.position.y, Is.InRange(0f, (float)Screen.height));
+                mouseState.buttons = 1;
+                yield return NextFrame();
+                mouseState.buttons = 0;
+                yield return NextFrame();
+                Assert.AreEqual(type == 0 ? "Found" : "Won", Read<object>(game, "phase").ToString(),
+                    $"Click must hit the correct hat at {size}.");
+                if (type == 0)
+                {
+                    tick.Invoke(game, new object[] { 0.81f });
+                    yield return NextFrame();
+                }
+            }
+        }
     }
 
     private void Until(MagicianEncounter.Phase phase)
@@ -157,7 +217,20 @@ public class MagicianLiveWorldTests
     private void FeedKeyboard()
     {
         if (InputState.currentUpdateType == InputUpdateType.Dynamic)
+        {
             InputSystem.QueueStateEvent(keyboard, heldKeys);
+            InputSystem.QueueStateEvent(mouse, mouseState);
+        }
+    }
+
+    // EditMode's yield return null only waits for an editor update. Under a frame-rate cap (the
+    // pause menu's saved setting) several editor updates can pass between two play-mode frames.
+    private static IEnumerator NextFrame()
+    {
+        int frame = Time.frameCount;
+        float deadline = Time.realtimeSinceStartup + 2f;
+        while (Time.frameCount == frame && Time.realtimeSinceStartup < deadline) yield return null;
+        Assert.AreNotEqual(frame, Time.frameCount, "Play-mode frames did not advance.");
     }
 
     // WaitForSeconds must run on the player loop, not EditMode's editor-update enumerator.

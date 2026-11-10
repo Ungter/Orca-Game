@@ -39,6 +39,9 @@ public class WorldHatStageTests
         Assert.IsTrue(game.IsWorldGame);
         Assert.IsTrue(game.IsShowing);
         Assert.AreEqual(15, root.GetComponentsInChildren<SpriteRenderer>(true).Length);
+        foreach (PixelText label in root.GetComponentsInChildren<PixelText>(true))
+            Assert.AreNotEqual("Panther identity", label.name);
+        Assert.IsNull(root.transform.Find("Entrance hat stage/Panther identities"));
         foreach (RawImage image in root.GetComponentsInChildren<RawImage>(true))
             Assert.AreNotEqual("Background", image.name);
         Assert.AreEqual(RenderMode.ScreenSpaceOverlay, root.GetComponent<WorldHatStage>().Hud.GetComponent<Canvas>().renderMode);

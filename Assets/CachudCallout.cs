@@ -141,6 +141,14 @@ public class CachudCallout : MonoBehaviour, IInteractable
         return distance <= talkRadius * talkRadius ? distance : float.MaxValue;
     }
 
+    // The knock prompt goes on the part of the door nearest the player, at about head height
+    // (as at the alchemist's door), rather than on top of the tall door.
+    public static Vector3 DoorPromptAnchor(Bounds door, Vector3 playerPosition)
+    {
+        Vector3 nearest = door.ClosestPoint(playerPosition);
+        return new Vector3(nearest.x, Mathf.Min(door.max.y, door.min.y + 1.7f), nearest.z);
+    }
+
     // Where the player has to be: by his door until he has come out, then by him.
     private Vector3 Anchor()
     {
@@ -380,8 +388,9 @@ public class CachudCallout : MonoBehaviour, IInteractable
         if (Event.current.type != EventType.Repaint) return;
         if (active != this)
         {
-            Vector3 top = AtDoor ? Interactables.TopCentre(door.gameObject) : Interactables.TopCentre(gameObject);
-            InteractPrompt.Draw(top, 12f, "E", AtDoor ? "Knock" : "Talk", 3, promptAlpha);
+            Vector3 anchor = AtDoor ? DoorPromptAnchor(door.GetComponent<Renderer>().bounds,
+                player != null ? player.position : Anchor()) : Interactables.TopCentre(gameObject);
+            InteractPrompt.Draw(anchor, 12f, "E", AtDoor ? "Knock" : "Talk", 3, promptAlpha);
             return;
         }
         int previousDepth = GUI.depth;

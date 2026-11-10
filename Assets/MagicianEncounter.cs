@@ -2,7 +2,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
-// A doorway conversation followed by a live trick outside the entrance.
+// A doorway conversation followed by a windowed hat trick.
 [DefaultExecutionOrder(-50)]
 public class MagicianEncounter : MonoBehaviour, IInteractable
 {
@@ -25,22 +25,19 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
     public const float RoomEnterDuration = 0.6f;
 
     public static bool IsOpen { get; private set; }
-    public static bool BlocksMovement => IsOpen && (active == null || active.CurrentPhase != Phase.Playing);
+    public static bool BlocksMovement => IsOpen;
     public bool HasWand { get; private set; }
     public bool HasRequestedWand { get; private set; }
     // True from the first E at the door. The house's windows light up once the player is back outside.
     public bool HasVisited { get; private set; }
     // The room, or the fade into or out of it, covers the world.
-    public bool InRoom => CurrentPhase != Phase.Idle && CurrentPhase != Phase.Returning &&
-        CurrentPhase != Phase.EnteringTrick && CurrentPhase != Phase.Playing;
-    public float MaxGameDistance => maxGameDistance;
+    public bool InRoom => CurrentPhase != Phase.Idle && CurrentPhase != Phase.Returning;
     public Phase CurrentPhase { get; private set; }
     public float PhaseTime { get; private set; }
     public string CurrentLine { get; private set; } = Greeting;
     public int VisibleCharacters { get; private set; }
 
     [SerializeField] private float talkRadius = 3f;
-    [SerializeField, Min(3f)] private float maxGameDistance = 25f;
     [SerializeField] private float charactersPerSecond = 40f;
     [SerializeField] private Sprite rewardPaper;
 
@@ -64,8 +61,6 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
     private PixelText enterHint;
     private PixelText controls;
     private ShellMinigame game;
-    private WorldHatStage worldStage;
-    private Transform house;
 
     // The door among the house's children, under either name.
     public static Transform FindDoor(Transform house)
@@ -78,8 +73,9 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
     public static bool TryGetGameBounds(out Bounds bounds)
     {
         bounds = default;
-        if (active == null || active.worldStage == null || !active.worldStage.IsShowing) return false;
-        bounds = active.worldStage.FramingBounds;
+        WorldHatStage worldStage = active != null ? active.GetComponent<WorldHatStage>() : null;
+        if (worldStage == null || !worldStage.IsShowing) return false;
+        bounds = worldStage.FramingBounds;
         return true;
     }
 
@@ -200,23 +196,20 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
             case Phase.LeavingForTrick:
                 if (PhaseTime >= FadeDuration)
                 {
-                    stage.gameObject.SetActive(false);
-                    game.PlayInWorld(FindHouse(), transform.position, rewardPaper);
-                    worldStage = GetComponent<WorldHatStage>();
-                    PlacePlayerForTrick();
+                    conversation.SetActive(false);
                     SetPhase(Phase.EnteringTrick);
                 }
                 break;
             case Phase.EnteringTrick:
                 if (PhaseTime >= FadeDuration)
                 {
-                    game.StartWorldPlayback();
+                    game.Play((RectTransform)canvas.transform, rewardPaper);
+                    veil.transform.SetAsLastSibling();
                     SetPhase(Phase.Playing);
                 }
                 break;
             case Phase.Playing:
-                if (game.ShouldClose || (player != null &&
-                    (player.position - transform.position).sqrMagnitude > maxGameDistance * maxGameDistance)) Exit();
+                if (game.ShouldClose) Exit();
                 break;
             case Phase.LeavingRoom:
                 if (PhaseTime >= FadeDuration)
@@ -265,21 +258,6 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
         return true;
     }
 
-    private void PlacePlayerForTrick()
-    {
-        if (player == null) return;
-        if (player.TryGetComponent(out PlayerController controller))
-            controller.PlaceOnGround(worldStage.ViewingPoint);
-        else
-            player.position = worldStage.ViewingPoint + Vector3.up * Mathf.Max(0.02f, player.position.y - transform.position.y);
-        Vector3 forward = worldStage.Centre - player.position;
-        forward.y = 0f;
-        player.rotation = Quaternion.LookRotation(forward);
-        Camera view = Camera.main;
-        if (view != null && view.TryGetComponent(out CameraFollow follow)) follow.LookTowards(worldStage.Centre);
-        Physics.SyncTransforms();
-    }
-
     public void Exit()
     {
         if (CurrentPhase == Phase.Idle || CurrentPhase == Phase.LeavingRoom ||
@@ -289,18 +267,6 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
             Cancel();
         }
         else SetPhase(stage.gameObject.activeSelf ? Phase.LeavingRoom : Phase.Returning);
-    }
-
-    private Transform FindHouse()
-    {
-        if (house != null) return house;
-        foreach (GameObject root in gameObject.scene.GetRootGameObjects())
-        {
-            if (root.name != "IslanddemoV3") continue;
-            house = root.transform.Find("world/building1");
-            break;
-        }
-        return house;
     }
 
     // Disabling/unloading the entrance must release the keyboard and hide its canvas.
@@ -352,6 +318,7 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
     {
         if (canvas == null || CurrentPhase == Phase.Idle) return;
         backdrop.enabled = stage.gameObject.activeSelf;
+        room.gameObject.SetActive(conversation.activeSelf);
         float fade = CurrentPhase == Phase.FadingToRoom || CurrentPhase == Phase.LeavingRoom ||
             CurrentPhase == Phase.LeavingForTrick ?
             Mathf.Clamp01(PhaseTime / FadeDuration) :

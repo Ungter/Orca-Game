@@ -123,6 +123,38 @@ public class CachudDoorwayTests
     }
 
     // As if the player had walked up and knocked: just outside the door.
+    [Test]
+    public void TheKnockPromptSitsNearThePlayerAtHeadHeightNotOnTopOfTheDoor()
+    {
+        StandAtTheDoor();
+        Transform door = CachudDoorway.FindDoor(map);
+        Bounds bounds = door.GetComponent<Renderer>().bounds;
+        Vector3 standing = player.transform.position;
+        Vector3 prompt = CachudCallout.DoorPromptAnchor(bounds, standing);
+        Vector3 top = Interactables.TopCentre(door.gameObject);
+        Assert.AreEqual(bounds.min.y + 1.7f, prompt.y, 0.001f);
+        Assert.Less(prompt.y, top.y - 4f, "The prompt should not sit on top of the door.");
+        Assert.Less(bounds.SqrDistance(prompt), 0.0001f, "The prompt should stay on the door.");
+        var flat = new Vector2(prompt.x - standing.x, prompt.z - standing.z);
+        var flatTop = new Vector2(top.x - standing.x, top.z - standing.z);
+        Assert.LessOrEqual(flat.magnitude, flatTop.magnitude, "The prompt should be no further out than the door's centre.");
+        Assert.Less(Vector3.Distance(prompt, standing), Vector3.Distance(top, standing) - 3f);
+    }
+
+    [Test]
+    public void TheKnockPromptFollowsThePlayerAlongTheDoor()
+    {
+        var bounds = new Bounds(new Vector3(10f, 3.5f, -130f), new Vector3(4f, 6.5f, 1f));
+        Vector3 left = CachudCallout.DoorPromptAnchor(bounds, new Vector3(7f, 0.2f, -133f));
+        Vector3 right = CachudCallout.DoorPromptAnchor(bounds, new Vector3(13f, 0.2f, -133f));
+        Assert.AreEqual(8f, left.x, 0.001f);
+        Assert.AreEqual(12f, right.x, 0.001f);
+        Assert.AreEqual(-130.5f, left.z, 0.001f);
+        Assert.AreEqual(bounds.min.y + 1.7f, left.y, 0.001f);
+        var low = new Bounds(new Vector3(0f, 0.5f, 0f), Vector3.one);
+        Assert.AreEqual(1f, CachudCallout.DoorPromptAnchor(low, Vector3.forward * 3f).y, 0.001f, "Never above a short door.");
+    }
+
     private void StandAtTheDoor()
     {
         Transform door = CachudDoorway.FindDoor(map);

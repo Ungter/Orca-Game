@@ -2,24 +2,24 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
-// An arcade-style queue of the supplied animal tiles, with a dangerous final tile.
+// The twenty-one game: the table in the world (TwentyOneTable) and, over it, the title and
+// count, the cycling die, the order question and the result dialogue.
 public sealed class TwentyOneView : System.IDisposable
 {
+    private static readonly string[] NumberNames = { "TWENTY", "TWENTY-ONE", "TWENTY-TWO", "TWENTY-THREE",
+        "TWENTY-FOUR", "TWENTY-FIVE", "TWENTY-SIX", "TWENTY-SEVEN", "TWENTY-EIGHT", "TWENTY-NINE", "THIRTY" };
     private static readonly Color Gold = new Color32(242, 211, 107, 255);
     private static readonly Color Paper = new Color32(241, 226, 185, 255);
     private static readonly Color Muted = new Color32(137, 153, 161, 255);
     private static readonly Color Red = new Color32(231, 91, 82, 255);
     private static readonly Color Well = new Color32(20, 31, 42, 255);
     private readonly List<Object> owned = new List<Object>();
-    private readonly Image[] tiles = new Image[21];
-    private readonly Image[] frames = new Image[21];
-    private readonly PixelText[] numbers = new PixelText[21];
     private readonly Image[] choices = new Image[2];
     private readonly Sprite[] dice = new Sprite[3];
     private readonly GameObject root;
     private readonly Image die;
-    private readonly Image hero;
-    private readonly Image opponent;
+    private readonly PixelText title;
+    private readonly PixelText rules;
     private readonly PixelText count;
     private readonly PixelText message;
     private readonly PixelText controls;
@@ -31,14 +31,18 @@ public sealed class TwentyOneView : System.IDisposable
     private readonly PixelText keyword;
     private readonly PixelText suffix;
     private readonly PixelText reward;
+    private readonly GameObject rulesPanel;
+    private readonly GameObject diePanel;
     private readonly GameObject orderPanel;
     private readonly GameObject resultPanel;
 
     public bool IsVisible => root != null && root.activeSelf;
     public PixelText KeywordLabel => keyword;
+    public TwentyOneTable Table { get; }
 
-    public TwentyOneView(Transform parent, Sprite[] art, Sprite npc, Sprite player)
+    public TwentyOneView(Transform parent, Sprite[] art, Sprite npc)
     {
+        Table = new TwentyOneTable(parent, art, npc);
         root = new GameObject("Twenty-one game", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler));
         root.transform.SetParent(parent, false);
         Canvas canvas = root.GetComponent<Canvas>();
@@ -48,42 +52,16 @@ public sealed class TwentyOneView : System.IDisposable
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1280f, 720f);
         scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.Expand;
-        Image shade = Picture("World shade", root.transform, null, Vector2.zero, Vector2.zero);
-        shade.rectTransform.anchorMin = Vector2.zero;
-        shade.rectTransform.anchorMax = Vector2.one;
-        shade.rectTransform.offsetMin = shade.rectTransform.offsetMax = Vector2.zero;
-        shade.color = new Color(0f, 0f, 0f, 0.8f);
-        RectTransform panel = Rect("Board", root.transform, Vector2.zero, new Vector2(1200f, 640f));
-        Picture("Gold frame", panel, null, Vector2.zero, new Vector2(1200f, 640f)).color = Gold;
-        Picture("Dark inset", panel, null, Vector2.zero, new Vector2(1192f, 632f)).color = Well;
-        Label("Title", panel, "TWENTY-ONE", 35f, new Vector2(0f, 278f), new Vector2(1100f, 50f)).color = Gold;
-        Label("Rules", panel, "TAKE 1-3 TILES. DON'T TAKE TILE 21.", 21f,
-            new Vector2(0f, 235f), new Vector2(1120f, 36f));
-        count = Label("Count", panel, "", 28f, new Vector2(0f, 205f), new Vector2(800f, 38f));
-        for (int i = 0; i < 20; i++)
-        {
-            Vector2 a = TilePosition(i), b = TilePosition(i + 1);
-            Label("Queue arrow", panel, i / 7 != (i + 1) / 7 ? "v" : i / 7 % 2 == 0 ? ">" : "<",
-                14f, (a + b) * 0.5f, new Vector2(22f, 22f)).color = Muted;
-        }
-        var tileArt = new Sprite[art.Length];
-        for (int i = 0; i < art.Length; i++) tileArt[i] = PixelSprite(art[i]);
-        for (int i = 0; i < 21; i++)
-        {
-            frames[i] = Picture("Tile frame " + (i + 1), panel, null, TilePosition(i), Vector2.one * 78f);
-            tiles[i] = Picture("Animal tile " + (i + 1), frames[i].transform, tileArt[i % tileArt.Length],
-                Vector2.zero, Vector2.one * 72f);
-            Image badge = Picture("Number badge", frames[i].transform, null,
-                new Vector2(-22f, 23f), new Vector2(27f, 21f));
-            badge.color = Well;
-            numbers[i] = Label("Tile number", badge.transform, (i + 1).ToString(), 14f,
-                Vector2.zero, new Vector2(27f, 21f));
-        }
-        opponent = Picture("Al Cachud", panel, PixelSprite(npc), new Vector2(-450f, 28f), new Vector2(220f, 248f));
-        hero = Picture("Player", panel, PixelSprite(player), new Vector2(450f, 28f), new Vector2(220f, 248f));
-        Label("Opponent name", panel, "AL CACHUD", 21f, new Vector2(-450f, 173f), new Vector2(270f, 35f));
-        Label("Player name", panel, "YOU", 21f, new Vector2(450f, 173f), new Vector2(270f, 35f));
-        turn = Label("Turn", panel, "", 21f, new Vector2(0f, -89f), new Vector2(900f, 32f));
+        Transform hud = root.transform;
+        // Both panels hang over the dark back wall, either side of Al Cachud and above the board.
+        rulesPanel = Panel("Rules panel", hud, new Vector2(-470f, 170f), new Vector2(320f, 240f));
+        title = Label("Title", rulesPanel.transform, "", 28f, new Vector2(0f, 78f), new Vector2(300f, 40f));
+        title.color = Gold;
+        rules = Label("Rules", rulesPanel.transform, "", 14f, new Vector2(0f, 14f), new Vector2(300f, 48f));
+        count = Label("Count", rulesPanel.transform, "", 28f, new Vector2(0f, -62f), new Vector2(300f, 40f));
+
+        diePanel = Panel("Die panel", hud, new Vector2(470f, 150f), new Vector2(320f, 300f));
+        turn = Label("Turn", diePanel.transform, "", 21f, new Vector2(0f, 112f), new Vector2(300f, 32f));
         turn.color = Gold;
         for (int i = 0; i < 3; i++)
         {
@@ -92,12 +70,13 @@ public sealed class TwentyOneView : System.IDisposable
             dice[i] = Sprite.Create(texture, new Rect(0f, 0f, 32f, 32f), Vector2.one * 0.5f, 32f);
             owned.Add(dice[i]);
         }
-        die = Picture("Cycling die", panel, dice[0], new Vector2(0f, -149f), Vector2.one * 112f);
-        face = Label("Die number", panel, "1", 28f, new Vector2(0f, -215f), new Vector2(160f, 35f));
-        message = Label("Last move", panel, "", 21f, new Vector2(0f, -260f), new Vector2(1120f, 42f));
-        controls = Label("Controls", panel, "", 14f, new Vector2(0f, -304f), new Vector2(1150f, 28f));
+        die = Picture("Cycling die", diePanel.transform, dice[0], new Vector2(0f, 24f), Vector2.one * 112f);
+        face = Label("Die number", diePanel.transform, "1", 28f, new Vector2(0f, -54f), new Vector2(160f, 35f));
+        message = Label("Last move", diePanel.transform, "", 14f, new Vector2(0f, -106f), new Vector2(300f, 28f));
+        controls = Label("Controls", hud, "", 14f, new Vector2(0f, -338f), new Vector2(1150f, 28f));
         controls.highlightBrackets = true;
-        orderPanel = Rect("Order question", panel, new Vector2(0f, -177f), new Vector2(800f, 190f)).gameObject;
+
+        orderPanel = Rect("Order question", hud, new Vector2(0f, -205f), new Vector2(800f, 190f)).gameObject;
         Picture("Question border", orderPanel.transform, null, Vector2.zero, new Vector2(800f, 190f)).color = Gold;
         Picture("Question background", orderPanel.transform, null, Vector2.zero, new Vector2(792f, 182f)).color = Well;
         orderQuestion = Label("Can I go second", orderPanel.transform, TwentyOneGame.OrderQuestion, 28f,
@@ -109,7 +88,7 @@ public sealed class TwentyOneView : System.IDisposable
             Label("Answer", choices[i].transform, i == 0 ? "YES\nAL CACHUD GOES SECOND" : "NO\nI GO SECOND",
                 14f, Vector2.zero, new Vector2(310f, 60f)).color = Well;
         }
-        resultPanel = Rect("Result dialogue", panel, new Vector2(0f, -177f), new Vector2(1020f, 190f)).gameObject;
+        resultPanel = Rect("Result dialogue", hud, new Vector2(0f, -205f), new Vector2(1020f, 190f)).gameObject;
         Picture("Dialogue border", resultPanel.transform, null, Vector2.zero, new Vector2(1020f, 190f)).color = Gold;
         Picture("Dialogue inset", resultPanel.transform, null, Vector2.zero, new Vector2(1012f, 182f)).color = Well;
         normalSpeech = Label("Speech", resultPanel.transform, "", 28f,
@@ -139,7 +118,19 @@ public sealed class TwentyOneView : System.IDisposable
     public Vector2 OrderChoiceCentre(int index) =>
         RectTransformUtility.WorldToScreenPoint(null, choices[index].rectTransform.position);
 
-    public void SetVisible(bool visible) { if (root != null) root.SetActive(visible); }
+    // Sits the camera at the table; Hide gives it back.
+    public void Show(Camera camera)
+    {
+        if (root == null) return;
+        Table.Seat(camera);
+        root.SetActive(true);
+    }
+
+    public void Hide()
+    {
+        if (root != null) root.SetActive(false);
+        Table.Release();
+    }
 
     public void Refresh(TwentyOneGame game)
     {
@@ -150,34 +141,29 @@ public sealed class TwentyOneView : System.IDisposable
         orderPanel.SetActive(choosing);
         resultPanel.SetActive(lost || drat || insult);
         bool boardGame = !choosing && !lost && !drat && !insult;
-        die.gameObject.SetActive(boardGame);
-        face.gameObject.SetActive(boardGame);
-        turn.gameObject.SetActive(boardGame);
-        message.gameObject.SetActive(boardGame);
-        count.text = "COUNT " + game.VisibleTotal + " / 21";
-        count.color = game.VisibleTotal >= 18 ? Red : Gold;
-        for (int i = 0; i < 21; i++)
-        {
-            bool taken = i < game.VisibleTotal;
-            bool preview = game.IsRolling && i >= game.VisibleTotal && i < game.VisibleTotal + game.Face;
-            frames[i].color = i == 20 ? Red : preview ? Gold : taken ? new Color(0.15f, 0.2f, 0.24f) : Muted;
-            tiles[i].color = taken ? new Color(1f, 1f, 1f, 0.16f) : choosing ? new Color(1f, 1f, 1f, 0.5f) : Color.white;
-            numbers[i].color = i == 20 ? Red : taken ? Muted : Paper;
-            frames[i].transform.localScale = Vector3.one * (taken ? 0.87f : preview ? 1.04f : 1f);
-        }
+        diePanel.SetActive(boardGame);
+        // Only shown while he asks to go second.
+        rulesPanel.SetActive(!game.Match.Started);
+        int limit = game.Match.Limit;
+        title.text = NumberNames[limit - TwentyOneMatch.MinLimit];
+        rules.text = "TAKE 1-3 TILES.\nDON'T TAKE TILE " + limit + ".";
+        count.text = "COUNT " + game.VisibleTotal + " / " + limit;
+        count.color = game.VisibleTotal >= limit - 3 ? Red : Gold;
+        Table.Refresh(game);
+
         bool playerTurn = game.Match.Started && game.Match.Turn == TwentyOneMatch.Side.Player;
-        hero.color = !boardGame || playerTurn ? Color.white : new Color(0.5f, 0.5f, 0.5f);
-        opponent.color = !boardGame || !playerTurn ? Color.white : new Color(0.5f, 0.5f, 0.5f);
-        opponent.rectTransform.anchoredPosition = new Vector2(-450f + (drat ? Mathf.Sin(game.PhaseTime * 25f) * 4f : 0f), 28f);
+        bool playerThrew = game.Match.LastMover == TwentyOneMatch.Side.Player;
         die.sprite = dice[game.Face - 1];
         die.rectTransform.localRotation = Quaternion.Euler(0f, 0f, game.IsRolling ? Mathf.Sin(game.PhaseTime * 25f) * 5f : 0f);
         face.text = game.Face.ToString();
         turn.text = game.CurrentPhase == TwentyOneGame.Phase.Rules ?
             (game.OpponentGoesSecond ? "YOU GO FIRST" : "AL CACHUD GOES FIRST") :
-            game.CurrentPhase == TwentyOneGame.Phase.TakingTiles ? "ROLL STOPPED" :
+            game.CurrentPhase == TwentyOneGame.Phase.Throwing ? (playerThrew ? "YOU THROW" : "AL CACHUD THROWS") :
+            game.CurrentPhase == TwentyOneGame.Phase.TakingTiles ? (playerThrew ? "YOU ROLLED " : "AL CACHUD ROLLED ") + game.Match.LastRoll :
             playerTurn ? "YOUR TURN" : "AL CACHUD'S TURN";
         message.text = game.Match.TurnCount == 0 ? "STOP THE DIE ON 1, 2 OR 3." :
-            (game.Match.LastMover == TwentyOneMatch.Side.Player ? "YOU" : "AL CACHUD") +
+            game.CurrentPhase == TwentyOneGame.Phase.Throwing ? "THE DIE IS ROLLING..." :
+            (playerThrew ? "YOU" : "AL CACHUD") +
             " TOOK " + game.Match.LastRoll + (game.Match.LastRoll == 1 ? " TILE." : " TILES.");
         controls.text = choosing ? "[1] YES   [2] NO   [LEFT/RIGHT] SELECT   [ENTER] CHOOSE   [ESC] LEAVE" :
             lost ? "[ENTER] TRY AGAIN    [ESC] LEAVE" :
@@ -190,7 +176,7 @@ public sealed class TwentyOneView : System.IDisposable
         prefix.gameObject.SetActive(insult);
         keyword.gameObject.SetActive(insult);
         suffix.gameObject.SetActive(insult);
-        normalSpeech.text = lost ? "YOU TOOK TILE 21. YOU LOSE!" :
+        normalSpeech.text = lost ? "YOU TOOK TILE " + limit + ". YOU LOSE!" :
             drat ? TwentyOneGame.DratLine.Substring(0, game.VisibleCharacters) : "";
         if (insult)
         {
@@ -223,44 +209,13 @@ public sealed class TwentyOneView : System.IDisposable
         label.rectTransform.anchoredPosition = new Vector2(left + width * 0.5f, 29f);
     }
 
-    private Sprite PixelSprite(Sprite original)
+    private static GameObject Panel(string name, Transform parent, Vector2 position, Vector2 size)
     {
-        if (original == null) return null;
-        // Keep existing tile imports and world materials unchanged.
-        Texture2D source = original.texture;
-        var copy = new Texture2D(source.width, source.height, TextureFormat.RGBA32, false)
-        {
-            filterMode = FilterMode.Point,
-            wrapMode = TextureWrapMode.Clamp,
-            hideFlags = HideFlags.HideAndDontSave
-        };
-        owned.Add(copy);
-        RenderTexture previous = RenderTexture.active;
-        RenderTexture temporary = RenderTexture.GetTemporary(source.width, source.height, 0,
-            RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
-        try
-        {
-            Graphics.Blit(source, temporary);
-            RenderTexture.active = temporary;
-            copy.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
-            copy.Apply();
-        }
-        finally
-        {
-            RenderTexture.active = previous;
-            RenderTexture.ReleaseTemporary(temporary);
-        }
-        Sprite sprite = Sprite.Create(copy, original.rect, Vector2.one * 0.5f, original.pixelsPerUnit,
-            0, SpriteMeshType.FullRect);
-        owned.Add(sprite);
-        return sprite;
-    }
-
-    private static Vector2 TilePosition(int index)
-    {
-        int row = index / 7;
-        int column = row % 2 == 0 ? index % 7 : 6 - index % 7;
-        return new Vector2((column - 3) * 88f, 142f - row * 84f);
+        GameObject panel = Rect(name, parent, position, size).gameObject;
+        Picture("Border", panel.transform, null, Vector2.zero, size).color = Gold;
+        Picture("Inset", panel.transform, null, Vector2.zero, size - Vector2.one * 8f).color =
+            new Color(Well.r, Well.g, Well.b, 0.92f);
+        return panel;
     }
 
     private static RectTransform Rect(string name, Transform parent, Vector2 position, Vector2 size)
@@ -295,6 +250,7 @@ public sealed class TwentyOneView : System.IDisposable
 
     public void Dispose()
     {
+        Table.Dispose();
         Destroy(root);
         for (int i = owned.Count - 1; i >= 0; i--) Destroy(owned[i]);
         owned.Clear();

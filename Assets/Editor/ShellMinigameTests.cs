@@ -39,6 +39,32 @@ public class ShellMinigameTests
         Assert.IsFalse(HatImage(3).gameObject.activeSelf);
     }
 
+    [TestCase(1280f, 720f)]
+    [TestCase(1024f, 768f)]
+    [TestCase(2560f, 1080f)]
+    [TestCase(720f, 1280f)]
+    public void ShowFillsItsParentImmediatelyWithoutStretchingTheHats(float width, float height)
+    {
+        RectTransform viewport = new GameObject("Resized viewport", typeof(RectTransform)).GetComponent<RectTransform>();
+        viewport.SetParent(root.transform, false);
+        viewport.sizeDelta = new Vector2(width, height);
+        game.Hide();
+        game.Show(viewport);
+        RectTransform surface = Get<RectTransform>("surface");
+        Assert.AreEqual(viewport, surface.parent, "Reopening must use the requested parent.");
+        var corners = new Vector3[4];
+        Get<RawImage>("backgroundImage").rectTransform.GetWorldCorners(corners);
+        Vector3 min = viewport.InverseTransformPoint(corners[0]);
+        Vector3 max = viewport.InverseTransformPoint(corners[2]);
+        Assert.AreEqual(-width * 0.5f, min.x, 0.01f);
+        Assert.AreEqual(-height * 0.5f, min.y, 0.01f);
+        Assert.AreEqual(width * 0.5f, max.x, 0.01f);
+        Assert.AreEqual(height * 0.5f, max.y, 0.01f);
+        Assert.AreEqual(Mathf.Min(width / 800f, height / 500f), surface.localScale.x, 0.001f);
+        Assert.AreEqual(surface.localScale.x, surface.localScale.y);
+        Assert.AreEqual(game.Controls, Get<PixelText>("controls").text);
+    }
+
     [Test]
     public void PantherImagesDisplayOnlyOneSquareFrameFromTheVerticalSheet()
     {
@@ -347,7 +373,7 @@ public class ShellMinigameTests
         Assert.AreEqual(2, PantherCount());
         FinishShuffle();
         Call("ChooseHat", Winner(1));
-        Assert.AreEqual("Lost", Phase, "Amber cannot stand in for Azure.");
+        Assert.AreEqual("Lost", Phase, "Yellow Panther cannot stand in for Blue Panther.");
         Call("Tick", 1f);
         game.ContinueRound();
         Assert.AreEqual("Reveal", Phase);
@@ -369,7 +395,7 @@ public class ShellMinigameTests
     }
 
     [Test]
-    public void FinalRoundPutsTwoDistinctPanthersUnderFiveIdenticalHats()
+    public void FinalRoundPutsTwoDistinctPanthersUnderFiveHats()
     {
         Call("BeginRound", 2);
         Assert.AreEqual(5, ActiveCount);
@@ -391,6 +417,128 @@ public class ShellMinigameTests
         for (int i = 0; i < 5; i++) Assert.IsFalse(game.GetHatPose(i).showPanther);
         MatchAllPanthers();
         Assert.IsTrue(game.IsSolved);
+    }
+
+    [TestCase(0.5f)]
+    [TestCase(1f)]
+    [TestCase(1.5f)]
+    [TestCase(2f)]
+    public void PanthersHaveNoIndividualLabelsButThePromptStillIdentifiesTheRequestedColor(float canvasScale)
+    {
+        root.GetComponent<Canvas>().scaleFactor = canvasScale;
+        Call("BeginRound", 2);
+        Call("Tick", 0.4f);
+        Call("UpdateVisuals");
+        string[] names = { "BLUE PANTHER", "YELLOW PANTHER" };
+        string[] resources = { "Azure", "Amber" };
+        for (int type = 0; type < names.Length; type++)
+        {
+            Assert.AreEqual(names[type], ShellMinigame.PantherName(type));
+            Assert.AreEqual(Resources.Load<Texture2D>("ShellGame/Panthers/" + resources[type]),
+                ShellMinigame.PantherTexture(type));
+            Assert.IsTrue(game.GetHatPose(Winner(type)).showPanther);
+        }
+        foreach (PixelText label in root.GetComponentsInChildren<PixelText>(true))
+            Assert.AreNotEqual("Panther name", label.name);
+        StringAssert.DoesNotContain("number", game.Message.ToLowerInvariant());
+        StringAssert.DoesNotContain("number", game.Instructions.ToLowerInvariant());
+        FinishShuffle();
+        StringAssert.Contains("Find BLUE PANTHER", game.Message);
+        StringAssert.DoesNotContain("#", game.Message);
+        StringAssert.Contains("Click", game.Instructions);
+        StringAssert.Contains("[CLICK]", game.Controls);
+        game.GuessHat(Winner(0));
+        Call("Tick", 0.81f);
+        StringAssert.Contains("Find YELLOW PANTHER", game.Message);
+        game.GuessHat(Winner(1));
+        Assert.IsTrue(game.IsSolved);
+    }
+
+    [TestCase(0)]
+    [TestCase(1)]
+    [TestCase(2)]
+    public void RoundHeadingOnlyShowsTheCurrentRound(int round)
+    {
+        Call("BeginRound", round);
+        Assert.AreEqual($"ROUND {round + 1}", game.RoundTitle);
+        Assert.AreEqual(game.RoundTitle, Get<PixelText>("roundLabel").text);
+    }
+
+    [Test]
+    public void EveryLossShowsOnlyOneTauntAndStillRetriesTheSameRound()
+    {
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            FinishShuffle();
+            game.GuessHat((Winner() + 1) % ActiveCount);
+            Assert.AreEqual("Lost", Phase);
+            Assert.AreEqual("OUTPLAYED BY A HAT.", game.Message);
+            Assert.AreEqual("", game.Instructions);
+            Call("Tick", 0.81f);
+            Call("UpdateVisuals");
+            Assert.IsTrue(game.CanContinue);
+            var shown = new System.Collections.Generic.List<string>();
+            foreach (PixelText label in root.GetComponentsInChildren<PixelText>())
+                if (!string.IsNullOrEmpty(label.text)) shown.Add(label.text);
+            CollectionAssert.AreEquivalent(
+                new[] { "THE PANTHER'S HATS", "ROUND 1", "OUTPLAYED BY A HAT.", game.Controls, "RETRY ROUND" },
+                shown, "The taunt is the only sentence on the loss screen.");
+            Assert.LessOrEqual(PixelFont.Measure(game.Message) * Get<PixelText>("message").PixelSize(),
+                Get<PixelText>("message").rectTransform.rect.width);
+            game.ContinueRound();
+            Assert.AreEqual("Reveal", Phase);
+            Assert.AreEqual("ROUND 1", game.RoundTitle);
+        }
+    }
+
+    [TestCase(0)]
+    [TestCase(1)]
+    [TestCase(2)]
+    public void EveryHatChangesToRandomColorsDuringEverySwapButKeepsItsPanther(int round)
+    {
+        Call("BeginRound", round);
+        int[] identities = new int[ActiveCount];
+        for (int i = 0; i < ActiveCount; i++)
+        {
+            identities[i] = game.GetHatPose(i).panther;
+            Assert.AreEqual(Color.white, HatImage(i).color);
+        }
+        Call("Tick", Property<float>("RevealSeconds") + 0.01f);
+        for (int swap = 0; swap < Property<int>("ShuffleMoves"); swap++)
+        {
+            Assert.AreEqual("Shuffle", Phase);
+            Color[] targets = new Color[ActiveCount];
+            Color[] starts = new Color[ActiveCount];
+            for (int i = 0; i < ActiveCount; i++)
+            {
+                starts[i] = game.GetHatPose(i).color;
+                targets[i] = HatField<Color>(Hats.GetValue(i), "targetColor");
+                Assert.AreNotEqual(starts[i], targets[i], "Each swap picks a new color for every hat.");
+                Assert.AreEqual(1f, targets[i].a);
+            }
+            Call("Tick", 0.08f + Property<float>("SwapSeconds") * 0.5f);
+            Call("UpdateVisuals");
+            for (int i = 0; i < ActiveCount; i++)
+            {
+                Assert.AreNotEqual(starts[i], HatImage(i).color);
+                Assert.AreNotEqual(targets[i], HatImage(i).color, "Colors animate during movement.");
+                Assert.AreEqual(game.GetHatPose(i).color, HatImage(i).color);
+                Assert.IsFalse(game.GetHatPose(i).showPanther);
+                Assert.AreEqual(identities[i], game.GetHatPose(i).panther);
+            }
+            Call("Tick", Property<float>("SwapSeconds") * 0.5f + 0.001f);
+            Call("UpdateVisuals");
+            for (int i = 0; i < ActiveCount; i++) Assert.AreEqual(targets[i], HatImage(i).color);
+        }
+        Assert.AreEqual("Guess", Phase);
+        Color finalColor = HatImage(0).color;
+        Call("Tick", 1f);
+        Call("UpdateVisuals");
+        Assert.AreEqual(finalColor, HatImage(0).color, "Colors stop changing when it is time to guess.");
+        MatchAllPanthers();
+        Assert.AreEqual(round == 2 ? "Won" : "RoundWon", Phase);
+        Call("BeginRound", round);
+        for (int i = 0; i < ActiveCount; i++) Assert.AreEqual(Color.white, HatImage(i).color);
     }
 
     private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;

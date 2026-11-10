@@ -5,22 +5,22 @@ using UnityEngine.InputSystem;
 [DisallowMultipleComponent]
 public class TwentyOneGame : MonoBehaviour
 {
-    public enum Phase { Closed, ChoosingOrder, Rules, PlayerRolling, OpponentRolling, TakingTiles, Lost, Drat, Insult }
+    public enum Phase { Closed, ChoosingOrder, Rules, PlayerRolling, OpponentRolling, Throwing, TakingTiles, Lost, Drat, Insult }
     public const string Keyword = "JERK";
     public const string OrderQuestion = "Can I go second?";
     public const string DratLine = "Drat!";
     public const string InsultLine = "You're a JERK!";
     public const float FaceDuration = 0.6f;
     public const float RulesDuration = 1.2f;
+    public const float ThrowDuration = 1.1f;
     public const float TileDuration = 0.2f;
     public const float OpponentThinkDuration = 0.75f;
 
     [SerializeField] private Sprite[] tileSprites = new Sprite[4];
-    [SerializeField] private Sprite playerPortrait;
     private static TwentyOneGame active;
     public static bool IsOpen => active != null;
     public Phase CurrentPhase { get; private set; }
-    public TwentyOneMatch Match { get; private set; } = new TwentyOneMatch();
+    public TwentyOneMatch Match { get; private set; } = new TwentyOneMatch(TwentyOneMatch.MinLimit);
     public float PhaseTime { get; private set; }
     public int Face { get; private set; } = 1;
     public int SelectedOrder { get; private set; }
@@ -28,8 +28,12 @@ public class TwentyOneGame : MonoBehaviour
     public bool OpponentGoesSecond { get; private set; }
     public bool IsSolved { get; private set; }
     public bool KeywordRecorded { get; private set; }
-    public int VisibleTotal => CurrentPhase == Phase.TakingTiles ?
-        Mathf.Min(Match.Total, beforeRoll + Mathf.FloorToInt(PhaseTime / TileDuration)) : Match.Total;
+    // Where the counter is along the tiles: it stays put while the die is in the air, then hops
+    // one tile per TileDuration.
+    public float TokenProgress => CurrentPhase == Phase.Throwing ? beforeRoll :
+        CurrentPhase == Phase.TakingTiles ? Mathf.Min(Match.Total, beforeRoll + PhaseTime / TileDuration) : Match.Total;
+    public int VisibleTotal => Mathf.FloorToInt(TokenProgress);
+    public float ThrowProgress => CurrentPhase == Phase.Throwing ? Mathf.Clamp01(PhaseTime / ThrowDuration) : 1f;
     public bool IsRolling => CurrentPhase == Phase.PlayerRolling || CurrentPhase == Phase.OpponentRolling;
     public string Speech => CurrentPhase == Phase.Drat ? DratLine : InsultLine;
     public TwentyOneView View => view;
@@ -41,6 +45,7 @@ public class TwentyOneGame : MonoBehaviour
     private bool cursorVisible;
     private int beforeRoll;
     private int opponentDecision;
+    private int dealtLimit;
     private float typed;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -51,12 +56,7 @@ public class TwentyOneGame : MonoBehaviour
         if (!isActiveAndEnabled || IsOpen || Interactables.Busy || TitleScreen.IsOpen ||
             InventoryInspection.IsOpen || PauseMenu.IsPaused || owner == null || !owner.IsReadyForGame ||
             player == null || player.gameObject.scene != gameObject.scene || !HasTileArt()) return false;
-        if (view == null)
-        {
-            Sprite hero = playerPortrait;
-            if (hero == null && player.TryGetComponent(out SpriteRenderer renderer)) hero = renderer.sprite;
-            view = new TwentyOneView(transform, tileSprites, owner.GetComponent<SpriteRenderer>().sprite, hero);
-        }
+        if (view == null) view = new TwentyOneView(transform, tileSprites, owner.GetComponent<SpriteRenderer>().sprite);
         if (camera == null) camera = Camera.main;
         follow = camera != null ? camera.GetComponent<CameraFollow>() : null;
         followWasEnabled = follow != null && follow.enabled;
@@ -67,7 +67,7 @@ public class TwentyOneGame : MonoBehaviour
         Cursor.visible = true;
         active = this;
         ChooseAgain();
-        view.SetVisible(true);
+        view.Show(camera);
         view.Refresh(this);
         return true;
     }
@@ -137,6 +137,7 @@ public class TwentyOneGame : MonoBehaviour
                     PhaseTime >= OpponentThinkDuration && Face == opponentDecision) TakeRoll(Face);
             }
         }
+        else if (CurrentPhase == Phase.Throwing && PhaseTime >= ThrowDuration) SetPhase(Phase.TakingTiles);
         else if (CurrentPhase == Phase.TakingTiles &&
                  PhaseTime >= (Match.Total - beforeRoll + 1) * TileDuration)
         {
@@ -178,15 +179,26 @@ public class TwentyOneGame : MonoBehaviour
     private void TakeRoll(int face)
     {
         beforeRoll = Match.Total;
-        if (Match.Take(Match.Turn, face)) SetPhase(Phase.TakingTiles);
+        if (Match.Take(Match.Turn, face)) SetPhase(Phase.Throwing);
     }
 
+    // Every offer, retries included, deals a last tile different from the one before. He always
+    // asks to go second, but that only wins when the last tile is one more than a multiple of four.
     private void ChooseAgain()
     {
-        Match = new TwentyOneMatch();
+        Match = new TwentyOneMatch(NextLimit(dealtLimit));
+        dealtLimit = Match.Limit;
         SelectedOrder = 0;
         Face = 1;
         SetPhase(Phase.ChoosingOrder);
+    }
+
+    // Any last tile from 20 to 30 except the previous one (0 for none).
+    public static int NextLimit(int previous)
+    {
+        bool hadOne = previous >= TwentyOneMatch.MinLimit && previous <= TwentyOneMatch.MaxLimit;
+        int limit = Random.Range(TwentyOneMatch.MinLimit, TwentyOneMatch.MaxLimit + (hadOne ? 0 : 1));
+        return hadOne && limit >= previous ? limit + 1 : limit;
     }
 
     private void SetPhase(Phase next)
@@ -210,7 +222,7 @@ public class TwentyOneGame : MonoBehaviour
         if (Match.Winner == TwentyOneMatch.Side.Player) RememberKeyword();
         active = null;
         CurrentPhase = Phase.Closed;
-        if (view != null) view.SetVisible(false);
+        if (view != null) view.Hide();
         if (follow != null) follow.enabled = followWasEnabled;
         Cursor.lockState = cursorLock;
         Cursor.visible = cursorVisible;

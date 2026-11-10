@@ -117,6 +117,7 @@ public class MagicianEncounterTests
     {
         GiveWand();
         encounter.Tick(0.01f, false, true);
+        RunUntil(MagicianEncounter.Phase.Idle);
         Assert.AreEqual(MagicianEncounter.Phase.Idle, encounter.CurrentPhase);
         Assert.IsFalse(MagicianEncounter.IsOpen);
         Assert.IsTrue(encounter.HasWand);
@@ -173,6 +174,7 @@ public class MagicianEncounterTests
         GiveWand();
         typeof(ShellMinigame).GetProperty("ShouldClose").SetValue(root.GetComponent<ShellMinigame>(), true);
         encounter.Tick(0.01f, false);
+        RunUntil(MagicianEncounter.Phase.Idle);
         Assert.AreEqual(MagicianEncounter.Phase.Idle, encounter.CurrentPhase);
         Assert.IsTrue(encounter.HasWand);
     }
@@ -216,34 +218,142 @@ public class MagicianEncounterTests
     }
 
     [Test]
-    public void TrickPlacesThePlayerBackFromTheEntranceOnceAndDoesNotMoveThemOnExit()
+    public void TrickUsesTheWindowWithoutMovingThePlayerOrCreatingWorldHats()
     {
         Vector3 position = new Vector3(7f, 0f, 128f);
         player.transform.position = position;
         root.transform.position = position;
         GiveWand();
         ShellMinigame game = root.GetComponent<ShellMinigame>();
-        Assert.IsTrue(game.IsWorldGame);
-        Assert.IsTrue(root.GetComponent<WorldHatStage>().IsShowing);
-        Assert.IsFalse(FindImage("Room").gameObject.activeInHierarchy);
-        Assert.IsFalse(FindImage("Room backdrop").enabled);
-        WorldHatStage stage = root.GetComponent<WorldHatStage>();
-        Vector3 offset = player.transform.position - position;
-        Assert.AreEqual(12f, new Vector2(offset.x, offset.z).magnitude, 0.01f);
-        Assert.AreEqual(stage.ViewingPoint.x, player.transform.position.x, 0.01f);
-        Assert.AreEqual(stage.ViewingPoint.z, player.transform.position.z, 0.01f);
-        player.transform.position += Vector3.right;
-        Vector3 moved = player.transform.position;
+        Assert.IsFalse(game.IsWorldGame);
+        Assert.IsNull(root.GetComponent<WorldHatStage>());
+        Assert.IsFalse(FindImage("Room").gameObject.activeInHierarchy, "The room must not draw behind the hat game's own background.");
+        Assert.IsTrue(FindGameBackground().gameObject.activeInHierarchy);
+        Assert.IsTrue(FindImage("Room backdrop").enabled);
+        Assert.IsTrue(encounter.InRoom);
+        Assert.AreEqual(position, player.transform.position);
+        RectTransform surface = (RectTransform)typeof(ShellMinigame).GetField("surface", PrivateInstance).GetValue(game);
+        Assert.AreEqual(root.GetComponentInChildren<Canvas>().transform, surface.parent);
+        Assert.IsTrue(surface.gameObject.activeInHierarchy);
+        Assert.AreEqual("[ESC] CLOSE", game.Controls);
+        Assert.IsFalse(root.GetComponentInChildren<Canvas>().transform.Find("Cinematic stage/Conversation").gameObject.activeSelf);
         encounter.Tick(0.01f, false);
-        Assert.AreEqual(moved, player.transform.position, "Placement happens once, not while playing.");
+        Assert.AreEqual(position, player.transform.position);
         encounter.Tick(0.01f, false, true);
         RunUntil(MagicianEncounter.Phase.Idle);
-        Assert.AreEqual(moved, player.transform.position);
+        Assert.AreEqual(position, player.transform.position);
         Assert.IsFalse(game.IsShowing);
     }
 
     [Test]
-    public void OutdoorRevealWaitsUntilTheRoomHasFadedAway()
+    public void HatBackgroundFillsTheCanvasAcrossAspectRatiosAndWindowResizes()
+    {
+        GiveWand();
+        ShellMinigame game = root.GetComponent<ShellMinigame>();
+        Canvas canvas = root.GetComponentInChildren<Canvas>();
+        canvas.GetComponent<CanvasScaler>().enabled = false;
+        canvas.renderMode = RenderMode.WorldSpace;
+        RectTransform viewport = (RectTransform)canvas.transform;
+        RectTransform surface = (RectTransform)typeof(ShellMinigame).GetField("surface", PrivateInstance).GetValue(game);
+        Vector2[] sizes =
+        {
+            new Vector2(1280f, 720f), new Vector2(1024f, 768f),
+            new Vector2(2560f, 1080f), new Vector2(720f, 1280f)
+        };
+        var corners = new Vector3[4];
+        foreach (Vector2 size in sizes)
+        {
+            viewport.sizeDelta = size;
+            typeof(MagicianEncounter).GetMethod("LateUpdate", PrivateInstance).Invoke(encounter, null);
+            typeof(ShellMinigame).GetMethod("LateUpdate", PrivateInstance).Invoke(game, null);
+            RawImage background = FindGameBackground();
+            background.rectTransform.GetWorldCorners(corners);
+            Vector3 min = viewport.InverseTransformPoint(corners[0]);
+            Vector3 max = viewport.InverseTransformPoint(corners[2]);
+            Assert.AreEqual(viewport.rect.xMin, min.x, 0.1f, $"Left edge at {size}");
+            Assert.AreEqual(viewport.rect.yMin, min.y, 0.1f, $"Bottom edge at {size}");
+            Assert.AreEqual(viewport.rect.xMax, max.x, 0.1f, $"Right edge at {size}");
+            Assert.AreEqual(viewport.rect.yMax, max.y, 0.1f, $"Top edge at {size}");
+            float artAspect = background.texture.width * background.uvRect.width /
+                (background.texture.height * background.uvRect.height);
+            Assert.AreEqual(background.rectTransform.rect.width / background.rectTransform.rect.height,
+                artAspect, 0.001f, "The background fills without distorting the artwork.");
+            surface.GetWorldCorners(corners);
+            foreach (Vector3 corner in corners)
+            {
+                Vector3 point = viewport.InverseTransformPoint(corner);
+                Assert.That(point.x, Is.InRange(viewport.rect.xMin - 0.1f, viewport.rect.xMax + 0.1f));
+                Assert.That(point.y, Is.InRange(viewport.rect.yMin - 0.1f, viewport.rect.yMax + 0.1f));
+            }
+            Assert.AreEqual(surface.localScale.x, surface.localScale.y, "Do not stretch hats or controls.");
+        }
+        Assert.Greater(FindImage("Transition").transform.GetSiblingIndex(), surface.GetSiblingIndex(),
+            "The full-screen game must remain behind the transition fade.");
+    }
+
+    [Test]
+    public void HatBackgroundDoesNotOverlapTheRoomDuringTransitionsOrRepeatVisits()
+    {
+        GiveWand();
+        Assert.IsFalse(FindImage("Room").gameObject.activeInHierarchy);
+        Assert.IsTrue(FindGameBackground().gameObject.activeInHierarchy);
+        encounter.Exit();
+        Assert.AreEqual(MagicianEncounter.Phase.LeavingRoom, encounter.CurrentPhase);
+        encounter.Tick(MagicianEncounter.FadeDuration * 0.5f, false);
+        Assert.IsFalse(FindImage("Room").gameObject.activeInHierarchy);
+        Assert.IsTrue(FindGameBackground().gameObject.activeInHierarchy);
+        RunUntil(MagicianEncounter.Phase.Idle);
+        Assert.IsFalse(FindGameBackground().gameObject.activeInHierarchy);
+
+        encounter.Begin();
+        RunUntil(MagicianEncounter.Phase.Waiting);
+        Assert.IsTrue(FindImage("Room").gameObject.activeInHierarchy, "The room returns for conversation.");
+        Assert.IsFalse(FindGameBackground().gameObject.activeInHierarchy);
+        Advance();
+        Assert.AreEqual(MagicianEncounter.Phase.LeavingForTrick, encounter.CurrentPhase);
+        Assert.IsTrue(FindImage("Room").gameObject.activeInHierarchy);
+        RunUntil(MagicianEncounter.Phase.EnteringTrick);
+        Assert.IsFalse(FindImage("Room").gameObject.activeInHierarchy, "Switch backgrounds behind the fade.");
+        Assert.IsFalse(FindGameBackground().gameObject.activeInHierarchy);
+        RunUntil(MagicianEncounter.Phase.Playing);
+        Assert.IsFalse(FindImage("Room").gameObject.activeInHierarchy);
+        Assert.IsTrue(FindGameBackground().gameObject.activeInHierarchy);
+    }
+
+    [Test]
+    public void FinishingTheHatGameDoesNotBringBackTheConversationBackgroundBehindTheReward()
+    {
+        GiveWand();
+        ShellMinigame game = root.GetComponent<ShellMinigame>();
+        MethodInfo tick = typeof(ShellMinigame).GetMethod("Tick", PrivateInstance);
+        for (int round = 0; round < 3; round++)
+        {
+            for (int frame = 0; frame < 2000 && !game.AcceptsGuess; frame++)
+                tick.Invoke(game, new object[] { 0.05f });
+            Assert.IsTrue(game.AcceptsGuess);
+            int count = game.PantherCount;
+            for (int type = 0; type < count; type++)
+            {
+                int winner = -1;
+                for (int i = 0; i < game.HatCount; i++)
+                    if (game.GetHatPose(i).panther == type) winner = i;
+                Assert.GreaterOrEqual(winner, 0);
+                game.GuessHat(winner);
+                tick.Invoke(game, new object[] { 0.81f });
+            }
+            if (round < 2) game.ContinueRound();
+        }
+        Assert.IsTrue(game.IsSolved);
+        typeof(ShellMinigame).GetMethod("UpdateVisuals", PrivateInstance).Invoke(game, null);
+        encounter.Tick(0.01f, false);
+        Assert.IsTrue(FindImage("Clue letter").gameObject.activeInHierarchy);
+        Assert.IsFalse(FindGameBackground().gameObject.activeInHierarchy);
+        Assert.IsFalse(FindImage("Room").gameObject.activeInHierarchy);
+        Assert.IsTrue(FindImage("Room backdrop").enabled, "Keep the world covered behind the reward.");
+    }
+
+    [Test]
+    public void WindowRevealWaitsUntilTheTransitionHasFinished()
     {
         inventory.TryAdd(MagicianEncounter.WandItemName);
         encounter.Begin();
@@ -258,6 +368,7 @@ public class MagicianEncounterTests
         Assert.IsFalse(root.GetComponent<ShellMinigame>().IsShowing);
         RunUntil(MagicianEncounter.Phase.EnteringTrick);
         ShellMinigame game = root.GetComponent<ShellMinigame>();
+        Assert.IsFalse(game.IsShowing);
         typeof(ShellMinigame).GetMethod("Update", PrivateInstance).Invoke(game, null);
         Assert.AreEqual(0f, (float)typeof(ShellMinigame).GetField("phaseElapsed", PrivateInstance).GetValue(game));
         encounter.Tick(0.01f, false, true);
@@ -382,16 +493,16 @@ public class MagicianEncounterTests
     }
 
     [Test]
-    public void WorldGameAllowsMovementButStillReservesEscapeAndOtherInteractions()
+    public void WindowGameBlocksMovementAndReservesEscapeAndOtherInteractions()
     {
         GiveWand();
         Assert.IsTrue(MagicianEncounter.IsOpen);
         Assert.IsTrue(Interactables.Busy);
-        Assert.IsFalse(MagicianEncounter.BlocksMovement);
-        Assert.IsFalse(Interactables.BlocksMovement);
-        Assert.IsTrue(MagicianEncounter.TryGetGameBounds(out Bounds bounds));
-        Assert.IsTrue(bounds.Contains(root.GetComponent<WorldHatStage>().Centre));
+        Assert.IsTrue(MagicianEncounter.BlocksMovement);
+        Assert.IsTrue(Interactables.BlocksMovement);
+        Assert.IsFalse(MagicianEncounter.TryGetGameBounds(out _));
         encounter.Tick(0.01f, false, true);
+        RunUntil(MagicianEncounter.Phase.Idle);
         Assert.AreEqual(MagicianEncounter.Phase.Idle, encounter.CurrentPhase);
         Assert.IsFalse(Interactables.Busy);
         Assert.IsFalse(Interactables.BlocksMovement);
@@ -399,15 +510,16 @@ public class MagicianEncounterTests
     }
 
     [Test]
-    public void WalkingAwayEndsTheTrickImmediatelyWithoutMovingThePlayerOrLosingTheWand()
+    public void WindowGameDoesNotUseAnOutdoorDistanceLimitAndCanBeReopened()
     {
         GiveWand();
-        player.transform.position = root.transform.position + Vector3.right * (encounter.MaxGameDistance - 0.1f);
-        encounter.Tick(0.01f, false);
-        Assert.AreEqual(MagicianEncounter.Phase.Playing, encounter.CurrentPhase);
-        Vector3 outside = root.transform.position + Vector3.right * (encounter.MaxGameDistance + 0.1f);
+        Vector3 outside = root.transform.position + Vector3.right * 100f;
         player.transform.position = outside;
         encounter.Tick(0.01f, false);
+        Assert.AreEqual(MagicianEncounter.Phase.Playing, encounter.CurrentPhase);
+        Assert.IsTrue(root.GetComponent<ShellMinigame>().IsShowing);
+        encounter.Tick(0.01f, false, true);
+        RunUntil(MagicianEncounter.Phase.Idle);
         Assert.AreEqual(MagicianEncounter.Phase.Idle, encounter.CurrentPhase);
         Assert.AreEqual(outside, player.transform.position);
         Assert.IsFalse(root.GetComponent<ShellMinigame>().IsShowing);
@@ -419,7 +531,7 @@ public class MagicianEncounterTests
         Assert.AreEqual(MagicianEncounter.Greeting, encounter.CurrentLine);
         Advance();
         RunUntil(MagicianEncounter.Phase.Playing);
-        Assert.IsFalse(Interactables.BlocksMovement);
+        Assert.IsTrue(Interactables.BlocksMovement);
     }
 
     [TestCase(false)]
@@ -447,6 +559,14 @@ public class MagicianEncounterTests
         foreach (Image image in root.GetComponentsInChildren<Image>(true))
             if (image.name == name) return image;
         Assert.Fail("Missing image: " + name);
+        return null;
+    }
+
+    private RawImage FindGameBackground()
+    {
+        foreach (RawImage image in root.GetComponentsInChildren<RawImage>(true))
+            if (image.name == "Background") return image;
+        Assert.Fail("Missing hat game background.");
         return null;
     }
 

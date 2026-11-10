@@ -15,12 +15,10 @@ public class WorldHatStage : MonoBehaviour
     private readonly SpriteRenderer[] hats = new SpriteRenderer[ShellMinigame.MaxHatCount];
     private readonly SpriteRenderer[] panthers = new SpriteRenderer[ShellMinigame.MaxHatCount];
     private readonly SpriteRenderer[] markers = new SpriteRenderer[ShellMinigame.MaxHatCount];
-    private readonly PixelText[] names = new PixelText[ShellMinigame.MaxHatCount];
     private readonly Sprite[] pantherSprites = new Sprite[ShellMinigame.MaxHatCount];
     private readonly List<Sprite> ownedSprites = new List<Sprite>();
     private ShellMinigame game;
     private GameObject worldRoot;
-    private Canvas nameCanvas;
     private PixelText round;
     private PixelText message;
     private PixelText instructions;
@@ -114,10 +112,6 @@ public class WorldHatStage : MonoBehaviour
     {
         if (!IsShowing) return;
         view = Camera.main;
-        if (view != null)
-        {
-            nameCanvas.transform.rotation = view.transform.rotation;
-        }
         Refresh();
     }
 
@@ -179,16 +173,14 @@ public class WorldHatStage : MonoBehaviour
             ShellMinigame.HatPose pose = game.GetHatPose(i);
             panthers[i].gameObject.SetActive(active && pose.showPanther);
             markers[i].gameObject.SetActive(active && (pose.revealed || pose.hovered));
-            names[i].gameObject.SetActive(active && pose.showPanther);
             if (!active) continue;
+            hats[i].color = pose.color;
             Draw(hats[i], WorldPoint(pose.x, pose.y + pose.lift * 110f + (pose.hovered ? 8f : 0f)),
                 130f * pose.scaleX, 145f * pose.scaleY, facing * Quaternion.Euler(0f, 0f, pose.tilt));
             if (pose.panther >= 0)
             {
                 panthers[i].sprite = pantherSprites[pose.panther];
                 Draw(panthers[i], WorldPoint(pose.x, -45f), 105f, 105f, facing);
-                names[i].text = $"#{pose.panther + 1} {ShellMinigame.PantherName(pose.panther)}";
-                names[i].rectTransform.position = WorldPoint(pose.x, -125f);
             }
             Draw(markers[i], WorldPoint(pose.x, -60f), 148f, 153f, facing);
             markers[i].color = pose.revealed ? pose.panther >= 0 ? new Color32(65, 190, 112, 255) :
@@ -227,16 +219,6 @@ public class WorldHatStage : MonoBehaviour
             panthers[i] = Renderer("Panther " + (i + 1), pantherSprites[i], 2);
             markers[i] = Renderer("Selection ring", marker, 0);
         }
-        var labelRoot = new GameObject("Panther identities", typeof(RectTransform), typeof(Canvas));
-        labelRoot.transform.SetParent(worldRoot.transform, false);
-        labelRoot.transform.localScale = Vector3.one * ArtScale;
-        nameCanvas = labelRoot.GetComponent<Canvas>();
-        nameCanvas.renderMode = RenderMode.WorldSpace;
-        nameCanvas.sortingOrder = 12;
-        ((RectTransform)labelRoot.transform).sizeDelta = new Vector2(800f, 500f);
-        for (int i = 0; i < names.Length; i++)
-            names[i] = Label("Panther identity", labelRoot.transform, 15f, new Vector2(0.5f, 0.5f), new Vector2(130f, 25f));
-
         var hud = new GameObject("Outdoor hat game HUD", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler));
         hud.transform.SetParent(transform, false);
         Hud = hud.GetComponent<RectTransform>();

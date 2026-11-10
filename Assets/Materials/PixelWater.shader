@@ -11,6 +11,8 @@ Shader "Orca/Pixel Water"
         [MainTexture] _BaseMap ("Water Texture", 2D) = "white" {}
         [MainColor] _BaseColor ("Tint", Color) = (1, 1, 1, 1)
         _TextureScroll ("Texture Drift (tiles per second, X / Z)", Vector) = (0.01, 0.006, 0, 0)
+        _RippleAmplitude ("Ripple Amount (texture tiles)", Range(0, 0.1)) = 0.025
+        _RippleSpeed ("Ripple Speed", Range(0, 3)) = 1.2
         [Header(Horizon)]
         _HorizonFadeStart ("Fade Into Sky From (share of far plane)", Range(0, 1)) = 0.45
         _HorizonFadeEnd ("Fully Sky At (share of far plane)", Range(0, 1)) = 0.85
@@ -41,6 +43,7 @@ Shader "Orca/Pixel Water"
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _BaseMap_ST, _TextureScroll;
+                float _RippleAmplitude, _RippleSpeed;
                 half4 _BaseColor;
                 float _HorizonFadeStart, _HorizonFadeEnd, _HorizonFadeMinDistance;
             CBUFFER_END
@@ -86,8 +89,13 @@ Shader "Orca/Pixel Water"
 
             half4 frag(Varyings i) : SV_Target
             {
-                // The supplied art is the water, with no procedural water mixed over it.
-                half3 color = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, i.waterUV).rgb * _BaseColor.rgb;
+                // World-aligned ripples move the supplied pixels, including across the far-ocean seam.
+                float t = _Time.y * _RippleSpeed;
+                float2 ripples = float2(
+                    sin(i.positionWS.z * 0.8 + t) + 0.5 * sin(i.positionWS.x * 1.3 - t * 0.7),
+                    sin(i.positionWS.x * 0.65 - t * 0.85) + 0.5 * sin(i.positionWS.z * 1.1 + t * 1.2));
+                float2 uv = i.waterUV + ripples * _RippleAmplitude;
+                half3 color = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, uv).rgb * _BaseColor.rgb;
                 color = MixFog(color, i.fogFactor);
                 float3 toPixel = i.positionWS - _WorldSpaceCameraPos;
                 float dist = length(toPixel);
