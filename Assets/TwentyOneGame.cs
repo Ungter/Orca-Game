@@ -81,6 +81,7 @@ public class TwentyOneGame : MonoBehaviour
 
     private void Update()
     {
+        if (GameplayDebugMenu.BlocksInput) return;
         if (active != this || PauseMenu.IsPaused) return;
         Keyboard keyboard = Keyboard.current;
         Mouse mouse = Mouse.current;
@@ -182,8 +183,8 @@ public class TwentyOneGame : MonoBehaviour
         if (Match.Take(Match.Turn, face)) SetPhase(Phase.Throwing);
     }
 
-    // Every offer, retries included, deals a last tile different from the one before. He always
-    // asks to go second, but that only wins when the last tile is one more than a multiple of four.
+    // Every offer, retries included, deals a last tile different from the one before.
+    // He always asks to go second, but his casual opening can give away the advantage.
     private void ChooseAgain()
     {
         Match = new TwentyOneMatch(NextLimit(dealtLimit));
@@ -213,6 +214,16 @@ public class TwentyOneGame : MonoBehaviour
         if (Match.Winner != TwentyOneMatch.Side.Player || InventorySystem.instance == null) return;
         InventorySystem.instance.RevealClueWords(Keyword);
         KeywordRecorded = true;
+    }
+
+    public bool DebugComplete()
+    {
+        if (InventorySystem.instance == null) return false;
+        Match.DebugComplete();
+        IsSolved = true;
+        RememberKeyword();
+        Close();
+        return true;
     }
 
     public void Close()

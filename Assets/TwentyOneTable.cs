@@ -5,7 +5,7 @@ using UnityEngine.Rendering.Universal;
 
 // Where the twenty-one game is played, Buckshot Roulette style: a dark room under one hanging
 // lamp, Al Cachud seated across the table and the tiles laid out on the felt in front of the
-// player. Each roll throws a die across the table, then a cylinder counter hops along the tiles
+// player. Each roll throws a die across the table, then a dolphin statue hops along the tiles
 // it takes. The room floats above the game and only the seated camera sees it.
 public sealed class TwentyOneTable : System.IDisposable
 {
@@ -25,7 +25,6 @@ public sealed class TwentyOneTable : System.IDisposable
     private const float BoardZ = -0.42f;
     private const float BoardWidth = 2f;
     private const float MaxPitch = 0.26f;
-    private const float TokenHeight = 0.1f;
     private const float HopHeight = 0.08f;
     public static readonly Vector3 SeatOffset = new Vector3(0f, 1.62f, -1.75f);
     public static readonly Vector3 OpponentOffset = new Vector3(0f, 0f, 1.35f);
@@ -54,6 +53,8 @@ public sealed class TwentyOneTable : System.IDisposable
     private readonly Transform[] plates = new Transform[TwentyOneMatch.MaxLimit];
     private readonly MeshRenderer[] numbers = new MeshRenderer[TwentyOneMatch.MaxLimit];
     private readonly Color[] frameColors = new Color[TwentyOneMatch.MaxLimit];
+    private readonly int[] tileAnimals = new int[TwentyOneMatch.MaxLimit];
+    private readonly Material[] animals;
     private readonly Transform[] dieFaces = new Transform[6];
     private readonly MaterialPropertyBlock block = new MaterialPropertyBlock();
     private readonly Transform token;
@@ -61,6 +62,7 @@ public sealed class TwentyOneTable : System.IDisposable
     private readonly Transform die;
     private readonly SpriteRenderer opponent;
     private int laidOutLimit;
+    private TwentyOneMatch dealtMatch;
     private int columns;
     private float pitch;
 
@@ -84,6 +86,8 @@ public sealed class TwentyOneTable : System.IDisposable
     public Transform Tile(int index) => tiles[index];
     public Renderer TileArt(int index) => art[index];
     public Color FrameColor(int index) => frameColors[index];
+    // Orcas mark every fixed optimal stop, including after that tile has been taken.
+    public int TileAnimal(int index) => tileAnimals[index];
     public float TileSize => pitch * 0.82f;
 
     public int ShownTiles
@@ -168,7 +172,7 @@ public sealed class TwentyOneTable : System.IDisposable
         opponent.receiveShadows = false;
         if (npc != null) opponent.transform.localScale = Vector3.one * (2.35f / npc.bounds.size.y);
 
-        var animals = new Material[tileArt.Length];
+        animals = new Material[tileArt.Length];
         for (int i = 0; i < tileArt.Length; i++)
         {
             Texture2D copy = PixelCopy(tileArt[i].texture);
@@ -194,9 +198,15 @@ public sealed class TwentyOneTable : System.IDisposable
         }
         startPad = Part("Start", PrimitiveType.Cylinder, room, Vector3.zero, Quaternion.identity,
             new Vector3(0.13f, 0.002f, 0.13f), Lit(new Color(0.07f, 0.1f, 0.12f), 0.1f), false).transform;
-        // Placeholder counter piece.
-        token = Part("Counter", PrimitiveType.Cylinder, room, Vector3.zero, Quaternion.identity,
-            new Vector3(0.09f, TokenHeight * 0.5f, 0.09f), Lit(new Color(0.78f, 0.16f, 0.12f), 0.45f), true).transform;
+        token = Object.Instantiate(Resources.Load<GameObject>("WorldModels/DolphinCounter"), room, false).transform;
+        token.name = "Dolphin counter";
+        foreach (Transform part in token.GetComponentsInChildren<Transform>(true)) part.gameObject.layer = Layer;
+        foreach (Renderer renderer in token.GetComponentsInChildren<Renderer>(true))
+        {
+            renderer.renderingLayerMask = 1u << LightLayer;
+            renderer.shadowCastingMode = ShadowCastingMode.On;
+            renderer.receiveShadows = true;
+        }
 
         die = new GameObject("Die") { layer = Layer }.transform;
         die.SetParent(room, false);
@@ -279,6 +289,7 @@ public sealed class TwentyOneTable : System.IDisposable
         if (seated != null) seated.fieldOfView = FieldOfViewFor(seated.aspect);
         int limit = game.Match.Limit;
         Layout(limit);
+        ArrangeAnimals(game.Match);
         int visible = game.VisibleTotal;
         bool choosing = game.CurrentPhase == TwentyOneGame.Phase.ChoosingOrder;
         for (int i = 0; i < limit; i++)
@@ -298,7 +309,7 @@ public sealed class TwentyOneTable : System.IDisposable
         int from = Mathf.FloorToInt(progress);
         float step = progress - from;
         Vector3 position = Vector3.Lerp(Spot(from), Spot(Mathf.Min(limit, from + 1)), step);
-        token.localPosition = position + Vector3.up * (TokenHeight * 0.5f + 0.006f + Mathf.Sin(step * Mathf.PI) * HopHeight);
+        token.localPosition = position + Vector3.up * (0.006f + Mathf.Sin(step * Mathf.PI) * HopHeight);
 
         bool thrown = game.Match.Started && game.Match.TurnCount > 0;
         die.gameObject.SetActive(thrown);
@@ -307,6 +318,29 @@ public sealed class TwentyOneTable : System.IDisposable
 
         float shake = game.CurrentPhase == TwentyOneGame.Phase.Drat ? Mathf.Sin(game.PhaseTime * 25f) * 0.02f : 0f;
         opponent.transform.localPosition = OpponentOffset + Vector3.right * shake;
+    }
+
+    private void ArrangeAnimals(TwentyOneMatch match)
+    {
+        if (dealtMatch == match) return;
+        dealtMatch = match;
+        var order = new int[animals.Length - 1];
+        for (int i = 0; i < order.Length; i++) order[i] = i + 1;
+        // Vary the other animals' order between deals, but keep their counts balanced and
+        // their spacing regular instead of independently randomizing every tile.
+        for (int i = order.Length - 1; i > 0; i--)
+        {
+            int j = Random.Range(0, i + 1);
+            int swap = order[i];
+            order[i] = order[j];
+            order[j] = swap;
+        }
+        int next = 0;
+        for (int i = 0; i < tiles.Length; i++)
+        {
+            tileAnimals[i] = match.IsOptimalStoppingTile(i + 1) ? 0 : order[next++ % order.Length];
+            art[i].sharedMaterial = animals[tileAnimals[i]];
+        }
     }
 
     // Where the counter stands after this many tiles: the start pad, then on the last tile taken.

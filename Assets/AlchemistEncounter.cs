@@ -137,6 +137,7 @@ public class AlchemistEncounter : MonoBehaviour, IInteractable
 
     private void Update()
     {
+        if (GameplayDebugMenu.BlocksInput) return;
         if (PauseMenu.IsPaused) return;
         Keyboard keyboard = Keyboard.current;
         if (CurrentPhase != Phase.Idle)
@@ -285,6 +286,19 @@ public class AlchemistEncounter : MonoBehaviour, IInteractable
         HasGivenLetter = letter != null ? letter.Collect() :
             InventorySystem.instance != null && InventorySystem.instance.TryAdd(LetterItemName);
         SetLine(HasGivenLetter ? LetterGift : LetterNoRoom);
+    }
+
+    public bool DebugCompleteHunt()
+    {
+        ClueMinigame clue = ClueMinigame.Current;
+        if (clue == null || !clue.DebugComplete()) return false;
+        HasHeardIntroduction = true;
+        InventorySystem inventory = InventorySystem.instance;
+        if (!HasGivenLetter && inventory != null)
+            HasGivenLetter = inventory.Contains(LetterItemName) ||
+                (letter != null ? letter.Collect() : inventory.TryAdd(LetterItemName));
+        Cancel();
+        return true;
     }
 
     public void Exit()

@@ -90,6 +90,7 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
 
     private void Update()
     {
+        if (GameplayDebugMenu.BlocksInput) return;
         if (PauseMenu.IsPaused) return;
         Keyboard keyboard = Keyboard.current;
         if (CurrentPhase != Phase.Idle)
@@ -256,6 +257,18 @@ public class MagicianEncounter : MonoBehaviour, IInteractable
         if (inventory == null || !inventory.TryRemove(WandItemName)) return false;
         HasWand = true;
         return true;
+    }
+
+    public bool DebugCompleteTrick()
+    {
+        if (InventorySystem.instance == null) return false;
+        Cancel();
+        if (game == null) game = GetComponent<ShellMinigame>();
+        if (game == null) game = gameObject.AddComponent<ShellMinigame>();
+        HasVisited = HasRequestedWand = true;
+        if (!HasWand) InventorySystem.instance.TryRemove(WandItemName);
+        HasWand = true;
+        return game.DebugComplete();
     }
 
     public void Exit()

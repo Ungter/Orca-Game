@@ -66,6 +66,7 @@ public class InventoryHUD : MonoBehaviour
 
     private void Update()
     {
+        if (GameplayDebugMenu.BlocksInput) return;
         if (Keyboard.current != null && Keyboard.current.iKey.isPressed)
         {
             Show();

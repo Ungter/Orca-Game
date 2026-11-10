@@ -23,6 +23,7 @@ public sealed class TwentyOneView : System.IDisposable
     private readonly PixelText count;
     private readonly PixelText message;
     private readonly PixelText controls;
+    private readonly PixelText rulesReminder;
     private readonly PixelText turn;
     private readonly PixelText face;
     private readonly PixelText orderQuestion;
@@ -75,6 +76,8 @@ public sealed class TwentyOneView : System.IDisposable
         message = Label("Last move", diePanel.transform, "", 14f, new Vector2(0f, -106f), new Vector2(300f, 28f));
         controls = Label("Controls", hud, "", 14f, new Vector2(0f, -338f), new Vector2(1150f, 28f));
         controls.highlightBrackets = true;
+        rulesReminder = Label("Rules reminder", hud, "", 14f, new Vector2(0f, -302f), new Vector2(1150f, 28f));
+        rulesReminder.color = Gold;
 
         orderPanel = Rect("Order question", hud, new Vector2(0f, -205f), new Vector2(800f, 190f)).gameObject;
         Picture("Question border", orderPanel.transform, null, Vector2.zero, new Vector2(800f, 190f)).color = Gold;
@@ -150,6 +153,8 @@ public sealed class TwentyOneView : System.IDisposable
         count.text = "COUNT " + game.VisibleTotal + " / " + limit;
         count.color = game.VisibleTotal >= limit - 3 ? Red : Gold;
         Table.Refresh(game);
+        rulesReminder.gameObject.SetActive(boardGame && !game.Match.Finished);
+        rulesReminder.text = "TAKE 1-3 TILES. DON'T TAKE TILE " + limit + ".";
 
         bool playerTurn = game.Match.Started && game.Match.Turn == TwentyOneMatch.Side.Player;
         bool playerThrew = game.Match.LastMover == TwentyOneMatch.Side.Player;

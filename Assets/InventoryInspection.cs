@@ -48,7 +48,7 @@ public class InventoryInspection : MonoBehaviour
 
     private void Update()
     {
-        if (PauseMenu.IsPaused)
+        if (PauseMenu.IsPaused || GameplayDebugMenu.BlocksInput)
         {
             // Slot keys held through the pause must be pressed again to inspect.
             waitForRelease = true;

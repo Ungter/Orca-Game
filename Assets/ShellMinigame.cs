@@ -2,7 +2,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
-// Three rounds of identity tracking in the magician's window and legacy clue inspections.
+// Four rounds of identity tracking in the magician's window and legacy clue inspections.
 [DefaultExecutionOrder(20)]
 public class ShellMinigame : MonoBehaviour
 {
@@ -11,7 +11,7 @@ public class ShellMinigame : MonoBehaviour
     private const float HatY = 265f;
     private const float HatWidth = 130f;
     private const float HatHeight = 145f;
-    private const int RoundCount = 3;
+    private const int RoundCount = 4;
     private const float ResultSeconds = 0.8f;
     private const float KeywordHoldSeconds = 3f;
     private const float KeywordFadeSeconds = 0.65f;
@@ -27,9 +27,9 @@ public class ShellMinigame : MonoBehaviour
 
     private enum Phase { Reveal, Shuffle, Guess, Found, RoundWon, Won, Lost }
 
-    private static readonly int[] RoundHats = { 2, 3, 5 };
-    private static readonly int[] RoundPanthers = { 1, 1, 2 };
-    private static readonly float[] RevealTimes = { 2.4f, 2.2f, 3.8f };
+    private static readonly int[] RoundHats = { 2, 3, 4, 5 };
+    private static readonly int[] RoundPanthers = { 1, 1, 2, 2 };
+    private static readonly float[] RevealTimes = { 2.4f, 2.2f, 3.8f, 3.8f };
     private static readonly string[] PantherNames = { "Blue Panther", "Yellow Panther", "Green Panther", "Pink Panther", "Purple Panther", "White Panther" };
     private static readonly string[] PantherResources = { "Azure", "Amber", "Jade", "Rose", "Violet", "Pearl" };
     private static readonly Color[] HatColors =
@@ -121,12 +121,13 @@ public class ShellMinigame : MonoBehaviour
         phase == Phase.Guess ? $"Find {PantherName(targetPanther)}" :
         phase == Phase.Found ? $"{PantherName(targetPanther)} FOUND!" :
         phase == Phase.RoundWon ? "FOUND THEM! Ready for the next round?" :
-        phase == Phase.Won ? "ALL THREE ROUNDS CLEARED!" : LossMessage;
-    public string Instructions => phase == Phase.Reveal ? PantherCount == 1 ? "Follow this hat through every swap." : "Follow each panther's hat through every swap." :
+        phase == Phase.Won ? "ALL FOUR ROUNDS CLEARED!" : LossMessage;
+    public string Instructions => phase == Phase.Reveal ? PantherCount == 1 ? "Follow this hat through every swap." : "Find BLUE PANTHER first, then YELLOW PANTHER." :
         phase == Phase.Shuffle ? $"{ShuffleMoves - movesLeft}/{ShuffleMoves} swaps" :
         phase == Phase.Guess ? $"{targetPanther}/{PantherCount} found. " +
             (worldMode ? "Walk up to the requested panther's hat." : "Click the requested panther's hat.") :
-        phase == Phase.RoundWon ? "More hats. More panthers. Faster swaps." : "";
+        phase == Phase.Found ? "Next, find YELLOW PANTHER." :
+        phase == Phase.RoundWon ? $"Next: {RoundHats[roundIndex + 1]} hats. Faster swaps." : "";
     public string ActionLabel => phase == Phase.RoundWon ? "NEXT ROUND" : "RETRY ROUND";
 
     public static string PantherName(int type) => PantherNames[Mathf.Clamp(type, 0, PantherNames.Length - 1)].ToUpperInvariant();
@@ -136,6 +137,25 @@ public class ShellMinigame : MonoBehaviour
     public bool Handles(string itemName) => itemName == ItemName;
 
     public bool IsSolved => phase == Phase.Won;
+
+    public bool DebugComplete()
+    {
+        if (InventorySystem.instance == null) return false;
+        roundIndex = RoundCount - 1;
+        started = true;
+        targetPanther = PantherCount;
+        SetPhase(Phase.Won);
+        if (keywordInk != null)
+        {
+            EnsureKeywordWriter();
+            keywordWriter.Complete();
+        }
+        InventorySystem.instance.RevealClueWords(victoryKeyword);
+        keywordRecorded = true;
+        ShouldClose = true;
+        Hide();
+        return true;
+    }
 
     public bool ShouldClose { get; private set; }
 
@@ -264,6 +284,7 @@ public class ShellMinigame : MonoBehaviour
 
     private void Update()
     {
+        if (GameplayDebugMenu.BlocksInput) return;
         if (!IsShowing) return;
         if (worldMode && !worldPlayback) return;
 

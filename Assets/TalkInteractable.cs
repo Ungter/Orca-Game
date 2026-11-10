@@ -114,7 +114,7 @@ public class TalkInteractable : MonoBehaviour, IInteractable
 
     private void Update()
     {
-        if (PauseMenu.IsPaused)
+        if (PauseMenu.IsPaused || GameplayDebugMenu.BlocksInput)
         {
             // The click that resumes the game must not also dismiss the bubble.
             inputGuard = true;

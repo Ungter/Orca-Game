@@ -50,9 +50,11 @@ public class PlayerController : MonoBehaviour
     // Set while something else owns the keyboard; Space must be released before it jumps again,
     // so the press that ends a skill check or a conversation never also jumps.
     private bool jumpLocked;
-    // Debug fly/noclip, toggled with the backquote key.
+    // Debug fly/noclip is an option in the backquote debug window.
     private bool debugFly;
+    private bool controllerWasEnabledBeforeFly;
     private const float DebugSpeedMultiplier = 5f;
+    public bool DebugFlyEnabled => debugFly;
 
     // Scales walking speed; the clue letter's potion hunt sets it while a hunt is on.
     public float SpeedMultiplier { get; set; } = 1f;
@@ -60,6 +62,8 @@ public class PlayerController : MonoBehaviour
     private void Awake()
     {
         characterController = GetComponent<CharacterController>();
+        if (Application.isPlaying && GetComponent<GameplayDebugMenu>() == null)
+            gameObject.AddComponent<GameplayDebugMenu>();
         spriteRenderer = GetComponent<SpriteRenderer>();
         lantern = GetComponent<PlayerLantern>();
         if (lantern == null)
@@ -119,11 +123,6 @@ public class PlayerController : MonoBehaviour
             transform.LookAt(Camera.main.transform);
             transform.rotation = Quaternion.Euler(0, Camera.main.transform.eulerAngles.y, 0);
         }
-        if (IsDebugTogglePressed())
-        {
-            SetDebugFly(!debugFly);
-        }
-
         if (debugFly)
         {
             UpdateDebugFly();
@@ -174,18 +173,15 @@ public class PlayerController : MonoBehaviour
 
     // The CharacterController is disabled while flying so nothing collides; turning it
     // back on with zero vertical velocity lets gravity drop the player to the ground.
-    private void SetDebugFly(bool on)
+    public void SetDebugFly(bool on)
     {
+        if (debugFly == on) return;
+        if (characterController == null) characterController = GetComponent<CharacterController>();
+        if (on) controllerWasEnabledBeforeFly = characterController.enabled;
         debugFly = on;
-        characterController.enabled = !on;
+        characterController.enabled = on ? false : controllerWasEnabledBeforeFly;
         verticalVelocity = 0f;
         jumpLocked = true;
-    }
-
-    private static bool IsDebugTogglePressed()
-    {
-        Keyboard keyboard = Keyboard.current;
-        return keyboard != null && keyboard.backquoteKey.wasPressedThisFrame;
     }
 
     // W/S (including diagonals) use back/front walks. A/D alone use side walks.

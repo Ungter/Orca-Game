@@ -17,6 +17,15 @@ public sealed class TwentyOneMatch
     public Side? Winner => Loser.HasValue ? Other(Loser.Value) : (Side?)null;
     public bool Started { get; private set; }
     public bool Finished => Loser.HasValue;
+    // After the first 40% of the board, Al stops choosing casually.
+    public bool OpponentPlaysOptimally => Total * 5 >= Limit * 2;
+    public bool HasWinningMove => !Finished && (Limit - 1 - Total) % 4 != 0;
+    // In a losing position all safe rolls tie; take one tile rather than the last tile.
+    public int BestRoll => Finished ? 0 : HasWinningMove ? (Limit - 1 - Total) % 4 : 1;
+
+    // Fixed strategic stops leave the next player 1, 5, 9, ... tiles from the losing tile.
+    // These depend on the board's limit, never the current move.
+    public bool IsOptimalStoppingTile(int tile) => tile > 0 && tile < Limit && (Limit - 1 - tile) % 4 == 0;
 
     public TwentyOneMatch(int limit)
     {
@@ -33,6 +42,16 @@ public sealed class TwentyOneMatch
         Started = true;
     }
 
+    public void DebugComplete()
+    {
+        if (Winner == Side.Player) return;
+        Started = true;
+        Loser = null;
+        Total = Limit - 1;
+        Turn = Side.Opponent;
+        Take(Side.Opponent, 1);
+    }
+
     public bool Take(Side side, int roll)
     {
         if (!Started || Finished || side != Turn || roll < 1 || roll > 3) return false;
@@ -45,16 +64,13 @@ public sealed class TwentyOneMatch
         return true;
     }
 
-    // Whenever possible, leave the total at Limit - 1 minus a multiple of four: each later roll
-    // can then be answered so the pair makes four, until the player has to take the last tile.
-    // Without such a roll there is no forced win, so vary the roll rather than secretly
-    // changing the player's roll.
+    // Casual rolls for the opening 40%, then leave Limit - 1 minus a multiple of four
+    // whenever possible. Neither strategy changes the player's chosen die face.
     public int OpponentRoll()
     {
         if (!Started || Finished || Turn != Side.Opponent)
             throw new InvalidOperationException("It is not the opponent's turn.");
-        int response = (Limit - 1 - Total) % 4;
-        return response == 0 ? 1 + (TurnCount / 2) % 3 : response;
+        return OpponentPlaysOptimally ? BestRoll : UnityEngine.Random.Range(1, 4);
     }
 
     private static Side Other(Side side) => side == Side.Player ? Side.Opponent : Side.Player;

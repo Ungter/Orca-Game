@@ -37,13 +37,14 @@ public class PauseMenu : MonoBehaviour
     private static readonly string[,] Keybinds =
     {
         { "[WASD]", "MOVE" },
-        { "[SPACE]", "JUMP" },
+        { "[SPACE]", "JUMP / STACK LIGHTHOUSE" },
         { "[J] [L]", "TURN CAMERA" },
         { "[I]", "SHOW INVENTORY" },
         { "[E]", "INTERACT" },
         { "[DRAG]", "ARRANGE DOLPHIN LETTERS" },
         { "[1-5]", "OPEN ITEM" },
         { "[ESC]", "PAUSE" },
+        { "[`]", "DEBUG TOOLS" },
     };
 
     // Layout in art pixels, measured down from the menu origin. Track and knob sizes
@@ -114,6 +115,7 @@ public class PauseMenu : MonoBehaviour
 
     private void Update()
     {
+        if (GameplayDebugMenu.BlocksInput) return;
         Keyboard keyboard = Keyboard.current;
         if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
         {
@@ -127,7 +129,8 @@ public class PauseMenu : MonoBehaviour
             }
             else if (!InventoryInspection.IsOpen && !TitleScreen.IsOpen &&
                      !DolphinWordPuzzle.IsOpen && !MagicianEncounter.IsOpen && !AlchemistEncounter.IsOpen &&
-                     !CachudCallout.IsOpen && !TwentyOneGame.IsOpen)
+                     !CachudCallout.IsOpen && !TwentyOneGame.IsOpen &&
+                     !LighthouseStacker.IsOpen && !LighthouseFerry.IsSailing)
             {
                 Pause();
             }

@@ -15,13 +15,13 @@ public static class Interactables
     private static readonly List<IInteractable> All = new List<IInteractable>();
 
     // Reserve interactions even when the outdoor trick allows movement.
-    public static bool Busy => TalkInteractable.IsTalking || DigSite.IsDigging ||
+    public static bool Busy => GameplayDebugMenu.BlocksInput || TalkInteractable.IsTalking || DigSite.IsDigging ||
         DolphinWordPuzzle.IsOpen || MagicianEncounter.IsOpen || AlchemistEncounter.IsOpen || CachudCallout.IsOpen ||
-        TwentyOneGame.IsOpen;
+        TwentyOneGame.IsOpen || LighthouseStacker.IsOpen || LighthouseFerry.IsSailing;
 
-    public static bool BlocksMovement => TalkInteractable.IsTalking || DigSite.IsDigging ||
+    public static bool BlocksMovement => GameplayDebugMenu.BlocksInput || TalkInteractable.IsTalking || DigSite.IsDigging ||
         DolphinWordPuzzle.IsOpen || MagicianEncounter.BlocksMovement || AlchemistEncounter.IsOpen || CachudCallout.IsOpen ||
-        TwentyOneGame.IsOpen;
+        TwentyOneGame.IsOpen || LighthouseStacker.IsOpen || LighthouseFerry.IsSailing;
 
     public static void Add(IInteractable interactable)
     {

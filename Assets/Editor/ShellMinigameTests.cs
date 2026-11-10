@@ -86,12 +86,12 @@ public class ShellMinigameTests
     }
 
     [Test]
-    public void CorrectGuessesAdvanceThroughThreeRoundsAndUnlockKeyword()
+    public void CorrectGuessesAdvanceThroughFourRoundsAndUnlockKeyword()
     {
         float previousDuration = float.MaxValue;
         int previousMoves = 0;
-        int[] counts = { 2, 3, 5 };
-        for (int round = 0; round < 3; round++)
+        int[] counts = { 2, 3, 4, 5 };
+        for (int round = 0; round < 4; round++)
         {
             Assert.AreEqual(counts[round], ActiveCount);
             float duration = Property<float>("SwapSeconds");
@@ -102,11 +102,11 @@ public class ShellMinigameTests
             previousMoves = moves;
             FinishShuffle();
             MatchAllPanthers();
-            Assert.AreEqual(round < 2 ? "RoundWon" : "Won", Phase);
-            Assert.AreEqual(round == 2, game.IsSolved);
+            Assert.AreEqual(round < 3 ? "RoundWon" : "Won", Phase);
+            Assert.AreEqual(round == 3, game.IsSolved);
             Call("Tick", 1f);
             Call("UpdateVisuals");
-            if (round < 2) Click(Get<Image>("roundAction").rectTransform);
+            if (round < 3) Click(Get<Image>("roundAction").rectTransform);
         }
 
         Assert.IsTrue(Get<RectTransform>("victory").gameObject.activeSelf);
@@ -124,7 +124,7 @@ public class ShellMinigameTests
     {
         InventorySystem inventory = root.AddComponent<InventorySystem>();
         typeof(InventorySystem).GetMethod("Awake", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(inventory, null);
-        Call("BeginRound", 2);
+        Call("BeginRound", 3);
         FinishShuffle();
         MatchAllPanthers();
         Assert.IsEmpty(inventory.RevealedWords);
@@ -145,7 +145,7 @@ public class ShellMinigameTests
     {
         InventorySystem inventory = root.AddComponent<InventorySystem>();
         typeof(InventorySystem).GetMethod("Awake", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(inventory, null);
-        Call("BeginRound", 2);
+        Call("BeginRound", 3);
         FinishShuffle();
         MatchAllPanthers();
         game.Hide();
@@ -155,11 +155,12 @@ public class ShellMinigameTests
     [TestCase(0)]
     [TestCase(1)]
     [TestCase(2)]
+    [TestCase(3)]
     public void ShuffleKeepsUniqueSlotsAndEveryPantherIdentity(int round)
     {
         Call("BeginRound", round);
         FinishShuffle();
-        Assert.AreEqual(new[] { 1, 1, 2 }[round], PantherCount());
+        Assert.AreEqual(new[] { 1, 1, 2, 2 }[round], PantherCount());
         for (int i = 0; i < ActiveCount; i++)
         {
             object hat = Hats.GetValue(i);
@@ -226,7 +227,7 @@ public class ShellMinigameTests
     [TestCase(0.00694444f)]
     public void FinalRoundFinishesAtDifferentFrameRates(float deltaTime)
     {
-        Call("BeginRound", 2);
+        Call("BeginRound", 3);
         for (int i = 0; i < 6000 && Phase != "Guess"; i++) Call("Tick", deltaTime);
         Assert.AreEqual("Guess", Phase);
         Assert.AreEqual(0, Get<int>("movesLeft"));
@@ -248,7 +249,7 @@ public class ShellMinigameTests
     [Test]
     public void KeywordWritesThenHoldsFadesAndClosesWithoutClicking()
     {
-        Call("BeginRound", 2);
+        Call("BeginRound", 3);
         FinishShuffle();
         MatchAllPanthers();
         Call("Tick", 1f);
@@ -277,7 +278,7 @@ public class ShellMinigameTests
     [Test]
     public void KeywordWaitsForFinalHatReveal()
     {
-        Call("BeginRound", 2);
+        Call("BeginRound", 3);
         FinishShuffle();
         MatchAllPanthers();
         Call("Tick", 0.4f);
@@ -291,7 +292,7 @@ public class ShellMinigameTests
     [Test]
     public void HidingAndReopeningPreservesRoundAndSolvedReward()
     {
-        Call("BeginRound", 2);
+        Call("BeginRound", 3);
         game.Hide();
         Assert.IsFalse(game.IsShowing);
         game.Show(root.GetComponent<RectTransform>());
@@ -316,7 +317,7 @@ public class ShellMinigameTests
     [Test]
     public void FinishedKeywordClosesInspectionAndRequiresInventoryKeyRelease()
     {
-        Call("BeginRound", 2);
+        Call("BeginRound", 3);
         FinishShuffle();
         MatchAllPanthers();
         game.Hide();
@@ -346,7 +347,7 @@ public class ShellMinigameTests
     [Test]
     public void MagicianCanReplayASolvedTrickWithoutReplayingLegacyClueInspections()
     {
-        Call("BeginRound", 2);
+        Call("BeginRound", 3);
         FinishShuffle();
         MatchAllPanthers();
         game.Hide();
@@ -369,8 +370,11 @@ public class ShellMinigameTests
     public void ThirdRoundRequiresBothCorrectIdentitiesNotJustAnyOccupiedHat()
     {
         Call("BeginRound", 2);
-        Assert.AreEqual(5, ActiveCount);
+        Assert.AreEqual(4, ActiveCount);
         Assert.AreEqual(2, PantherCount());
+        StringAssert.Contains("BLUE PANTHER first, then YELLOW PANTHER", game.Instructions);
+        Assert.AreEqual(game.Instructions, Get<PixelText>("footer").text);
+        Assert.IsFalse(HatImage(4).gameObject.activeSelf);
         FinishShuffle();
         Call("ChooseHat", Winner(1));
         Assert.AreEqual("Lost", Phase, "Yellow Panther cannot stand in for Blue Panther.");
@@ -378,7 +382,7 @@ public class ShellMinigameTests
         game.ContinueRound();
         Assert.AreEqual("Reveal", Phase);
         Assert.AreEqual(0, game.RequestedPanther);
-        Assert.AreEqual(5, ActiveCount);
+        Assert.AreEqual(4, ActiveCount);
         FinishShuffle();
         int first = Winner(0);
         Call("ChooseHat", first);
@@ -391,15 +395,20 @@ public class ShellMinigameTests
         Call("ChooseHat", first);
         Assert.AreEqual("Guess", Phase, "A previously found hat cannot be guessed twice.");
         Call("ChooseHat", Winner(1));
-        Assert.AreEqual("Won", Phase, "The third round is the last.");
+        Assert.AreEqual("RoundWon", Phase, "The inserted third round leads to the five-hat finale.");
+        Assert.IsFalse(game.IsSolved);
+        Call("Tick", 0.81f);
+        game.ContinueRound();
+        Assert.AreEqual("ROUND 4", game.RoundTitle);
+        Assert.AreEqual(5, ActiveCount);
     }
 
     [Test]
     public void FinalRoundPutsTwoDistinctPanthersUnderFiveHats()
     {
-        Call("BeginRound", 2);
+        Call("BeginRound", 3);
         Assert.AreEqual(5, ActiveCount);
-        Assert.AreEqual(5, Hats.Length, "No hats are kept for a removed fourth round.");
+        Assert.AreEqual(5, Hats.Length, "The five-hat finale follows the inserted four-hat round.");
         Assert.AreEqual(2, PantherCount());
         var textures = new System.Collections.Generic.HashSet<Texture2D>();
         for (int type = 0; type < 2; type++)
@@ -426,7 +435,7 @@ public class ShellMinigameTests
     public void PanthersHaveNoIndividualLabelsButThePromptStillIdentifiesTheRequestedColor(float canvasScale)
     {
         root.GetComponent<Canvas>().scaleFactor = canvasScale;
-        Call("BeginRound", 2);
+        Call("BeginRound", 3);
         Call("Tick", 0.4f);
         Call("UpdateVisuals");
         string[] names = { "BLUE PANTHER", "YELLOW PANTHER" };
@@ -457,6 +466,7 @@ public class ShellMinigameTests
     [TestCase(0)]
     [TestCase(1)]
     [TestCase(2)]
+    [TestCase(3)]
     public void RoundHeadingOnlyShowsTheCurrentRound(int round)
     {
         Call("BeginRound", round);
@@ -494,6 +504,7 @@ public class ShellMinigameTests
     [TestCase(0)]
     [TestCase(1)]
     [TestCase(2)]
+    [TestCase(3)]
     public void EveryHatChangesToRandomColorsDuringEverySwapButKeepsItsPanther(int round)
     {
         Call("BeginRound", round);
@@ -536,7 +547,7 @@ public class ShellMinigameTests
         Call("UpdateVisuals");
         Assert.AreEqual(finalColor, HatImage(0).color, "Colors stop changing when it is time to guess.");
         MatchAllPanthers();
-        Assert.AreEqual(round == 2 ? "Won" : "RoundWon", Phase);
+        Assert.AreEqual(round == 3 ? "Won" : "RoundWon", Phase);
         Call("BeginRound", round);
         for (int i = 0; i < ActiveCount; i++) Assert.AreEqual(Color.white, HatImage(i).color);
     }

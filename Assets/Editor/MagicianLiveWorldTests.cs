@@ -177,7 +177,7 @@ public class MagicianLiveWorldTests
         {
             viewport.sizeDelta = size * Mathf.Min(bounds.x / size.x, bounds.y / size.y);
             game.Play(viewport);
-            typeof(ShellMinigame).GetMethod("BeginRound", Private).Invoke(game, new object[] { 2 });
+            typeof(ShellMinigame).GetMethod("BeginRound", Private).Invoke(game, new object[] { 3 });
             for (int i = 0; i < 2000 && !game.AcceptsGuess; i++) tick.Invoke(game, new object[] { 0.05f });
             Assert.IsTrue(game.AcceptsGuess);
             yield return NextFrame();

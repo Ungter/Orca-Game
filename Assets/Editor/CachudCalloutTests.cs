@@ -163,6 +163,27 @@ public class CachudCalloutTests
     }
 
     [Test]
+    public void ABlockedPreferredAngleChoosesAClearShotInsteadOfAnExtremeCloseup()
+    {
+        GameObject wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        wall.transform.SetParent(root.transform);
+        wall.transform.position = callout.transform.position + new Vector3(3f, 1.5f, -1.25f);
+        wall.transform.localScale = new Vector3(1f, 5f, 4f);
+        Physics.SyncTransforms();
+        Assert.IsTrue(callout.TryTalk());
+        callout.Tick(CachudCallout.PanDuration);
+        Call(callout, "LateUpdate");
+        Assert.Greater(Vector3.Distance(view.transform.position, callout.transform.position), 5f);
+        Vector3 focus = callout.transform.position + Vector3.up;
+        Assert.IsFalse(Physics.SphereCast(focus, 0.2f, (view.transform.position - focus).normalized,
+            out _, Vector3.Distance(focus, view.transform.position), Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore));
+        Vector3 head = view.WorldToViewportPoint(callout.transform.position + Vector3.up * 2f);
+        Vector3 feet = view.WorldToViewportPoint(callout.transform.position);
+        Assert.That(head.y, Is.InRange(0.15f, 0.85f));
+        Assert.That(feet.y, Is.InRange(0.15f, 0.85f));
+    }
+
+    [Test]
     public void ReturnBlendsToTheLiveFollowViewWithoutASnap()
     {
         Assert.IsTrue(callout.TryKnock());

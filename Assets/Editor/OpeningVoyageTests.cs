@@ -34,7 +34,6 @@ public class OpeningVoyageTests
         voyage?.Dispose();
         if (voyage != null && voyage.Boat != null)
         {
-            Object.DestroyImmediate(voyage.Boat.GetComponent<Renderer>().sharedMaterial);
             Object.DestroyImmediate(voyage.Boat);
         }
         voyage = null;
@@ -56,15 +55,25 @@ public class OpeningVoyageTests
             Vector3 over = Vector3.Lerp(voyage.StartPoint, voyage.MooredPoint, t) + Vector3.up * 200f;
             Assert.IsFalse(ground.Raycast(new Ray(over, Vector3.down), out _, 600f), "The whole crossing is over the sea.");
         }
-        Assert.AreEqual(voyage.Boat.transform.position.y + 0.4f, Feet(controller), 0.1f, "The player stands on the deck.");
+        BoatFit fit = BoatFit.Fit(voyage.Boat, player);
+        Assert.AreEqual(voyage.Boat.transform.TransformPoint(fit.RidePoint).y, Feet(controller), 0.03f, "The player stands on the aft bench.");
+        Assert.GreaterOrEqual(fit.RidingWidth, BoatFit.PlayerWidth(player) + 0.59f, "The visible player fits inside the boat.");
+        Assert.IsNull(voyage.Boat.GetComponent<MeshRenderer>(), "No placeholder cube remains.");
+        MeshFilter[] boatParts = voyage.Boat.GetComponentsInChildren<MeshFilter>();
+        Assert.AreEqual(6, boatParts.Length);
+        foreach (MeshFilter part in boatParts)
+            Assert.AreEqual("Assets/Models/gameboat.fbx", AssetDatabase.GetAssetPath(part.sharedMesh));
+        Vector3 aboard = voyage.Boat.transform.InverseTransformPoint(player.transform.position);
+        Assert.AreEqual(fit.RidePoint.z, aboard.z, 0.001f, "The player rides on the aft bench.");
 
         voyage.Tick(voyage.CrossingDuration * 0.5f, true);
         Assert.AreEqual(OpeningVoyage.Phase.Drifting, voyage.CurrentPhase, "SPACE does nothing until the boat is in.");
         voyage.Tick(voyage.CrossingDuration, false);
         Assert.IsTrue(voyage.IsWaitingForJump);
         Assert.Less(Flat(voyage.Boat.transform.position - voyage.MooredPoint), 0.01f);
-        Assert.Less(Flat(voyage.MooredPoint - voyage.Landing), 6f, "It moors right by the dock's end.");
-        Assert.AreEqual(voyage.Boat.transform.position.y + 0.4f, Feet(controller), 0.1f);
+        Assert.AreEqual(fit.Length * 0.5f + 2.1f, Flat(voyage.MooredPoint - voyage.Landing), 0.01f,
+            "Its bow stops half a metre beyond the dock tip, whatever the player's size.");
+        Assert.AreEqual(voyage.Boat.transform.TransformPoint(fit.RidePoint).y, Feet(controller), 0.03f);
     }
 
     [Test]

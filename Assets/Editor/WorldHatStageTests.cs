@@ -89,7 +89,7 @@ public class WorldHatStageTests
         Transform player = CreatePlayer();
         game.PlayInWorld(null, Vector3.zero);
         game.StartWorldPlayback();
-        Call("BeginRound", 2);
+        Call("BeginRound", 3);
         for (int i = 0; i < 2000 && !game.AcceptsGuess; i++) Call("Tick", 0.05f);
         Assert.IsTrue(game.AcceptsGuess);
         WorldHatStage stage = root.GetComponent<WorldHatStage>();
@@ -119,7 +119,7 @@ public class WorldHatStageTests
         Transform player = CreatePlayer();
         game.PlayInWorld(null, Vector3.zero);
         game.StartWorldPlayback();
-        Call("BeginRound", 2);
+        Call("BeginRound", 3);
         WorldHatStage stage = root.GetComponent<WorldHatStage>();
         stage.Frame();
         int first = -1;
@@ -161,7 +161,7 @@ public class WorldHatStageTests
     {
         game.PlayInWorld(null, Vector3.zero);
         game.StartWorldPlayback();
-        Call("BeginRound", 2);
+        Call("BeginRound", 3);
         for (int i = 0; i < 2000 && !game.AcceptsGuess; i++) Call("Tick", 0.05f);
         int first = -1;
         for (int i = 0; i < game.HatCount; i++)
@@ -225,11 +225,43 @@ public class WorldHatStageTests
     }
 
     [Test]
+    public void ThirdOutdoorRoundShowsFourHatsAndRequestsBlueThenYellowBeforeTheFinale()
+    {
+        CreatePlayer();
+        game.PlayInWorld(null, Vector3.zero);
+        game.StartWorldPlayback();
+        Call("BeginRound", 2);
+        WorldHatStage stage = root.GetComponent<WorldHatStage>();
+        Assert.AreEqual(4, game.HatCount);
+        Assert.AreEqual(2, game.PantherCount);
+        StringAssert.Contains("BLUE PANTHER first, then YELLOW PANTHER", game.Instructions);
+        Assert.AreEqual(game.Instructions, stage.Hud.Find("Instructions").GetComponent<PixelText>().text);
+        Assert.IsFalse(root.transform.Find("Entrance hat stage/Hat 5").gameObject.activeSelf);
+        for (int i = 0; i < 2000 && !game.AcceptsGuess; i++) Call("Tick", 0.05f);
+        for (int type = 0; type < 2; type++)
+        {
+            stage.Refresh();
+            StringAssert.Contains(type == 0 ? "BLUE PANTHER" : "YELLOW PANTHER",
+                stage.Hud.Find("Message").GetComponent<PixelText>().text);
+            int winner = -1;
+            for (int i = 0; i < game.HatCount; i++)
+                if (game.GetHatPose(i).panther == type) winner = i;
+            game.GuessHat(winner);
+            Call("Tick", 0.81f);
+        }
+        Assert.IsFalse(game.IsSolved);
+        Assert.IsTrue(game.CanContinue);
+        game.ContinueRound();
+        Assert.AreEqual("ROUND 4", game.RoundTitle);
+        Assert.AreEqual(5, game.HatCount);
+    }
+
+    [Test]
     public void FinalIdentityUnlocksTheOutdoorRewardAndTheTrickCanBePlayedAgain()
     {
         game.PlayInWorld(null, Vector3.zero);
         game.StartWorldPlayback();
-        Call("BeginRound", 2);
+        Call("BeginRound", 3);
         for (int i = 0; i < 2000 && !game.AcceptsGuess; i++) Call("Tick", 0.05f);
         int count = game.PantherCount;
         for (int type = 0; type < count; type++)

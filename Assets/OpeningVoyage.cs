@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-// The game's opening: the player rides a boat (a placeholder cube for now) in from near the
+// The game's opening: the player rides the supplied sailboat in from near the
 // edge of the sea to the island's dock (IslandDemo:Dock), along the x axis the dock runs out to
 // sea on, slowing as it comes up to the dock's end. There SPACE jumps the player across onto the
 // dock, which ends the opening; the boat stays moored where it stopped. TitleScreen owns the
@@ -13,6 +13,7 @@ public sealed class OpeningVoyage : IDisposable
     public const string DockName = "IslandDemo:Dock";
     public const string OceanName = "ocean";
     public const string GroundName = "IslandDemo:pCube1";
+    public const float BoatLength = 7f;
 
     // The crossing starts this far inside the sea's edge, at least MinDistance and at most
     // MaxDistance out from the dock, and takes CruiseSpeed's time within MinCrossing-MaxCrossing.
@@ -22,9 +23,8 @@ public sealed class OpeningVoyage : IDisposable
     private const float CruiseSpeed = 9f;
     private const float MinCrossing = 10f;
     private const float MaxCrossing = 20f;
-    // The placeholder hull (width, height, length), how high its deck rides above the water and
+    // The hull's reference size, how high its deck rides above the water and
     // the gap left between its bow and the dock's end.
-    private static readonly Vector3 HullSize = new Vector3(2.4f, 0.8f, 4.2f);
     private const float Freeboard = 0.35f;
     private const float BowGap = 0.5f;
     // The jump lands this far along the dock from its end, RightShift (or more, for a clear follow
@@ -42,13 +42,14 @@ public sealed class OpeningVoyage : IDisposable
     private const float CameraRight = 1.4f;
     private const float CameraHeight = 2.6f;
     private const float CameraLookAhead = 8f;
-    private static readonly Color Wood = new Color(0.45f, 0.3f, 0.18f);
+    private const string BoatResource = "WorldModels/StartingBoat";
 
     private readonly PlayerController player;
     private readonly CharacterController controller;
     private readonly bool controllerWasEnabled;
     private readonly GameObject boat;
     private readonly Collider hull;
+    private readonly BoatFit fit;
     private readonly Quaternion heading;
     // Out from the dock to sea; the boat travels the other way.
     private readonly Vector3 outward;
@@ -81,31 +82,28 @@ public sealed class OpeningVoyage : IDisposable
     // Over the player's head on the boat, for the jump prompt.
     public Vector3 JumpPromptAnchor => deck + Vector3.up * 2.1f;
 
-    private OpeningVoyage(PlayerController player, Vector3 outward, Vector3 landing, float seaLevel, Bounds? sea)
+    private OpeningVoyage(PlayerController player, Vector3 outward, Vector3 landing, float seaLevel, Bounds? sea,
+        GameObject boatPrefab)
     {
         this.player = player;
         this.outward = outward;
         Landing = landing;
+        boat = UnityEngine.Object.Instantiate(boatPrefab);
+        boat.name = "Starting boat";
+        UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(boat, player.gameObject.scene);
+        fit = BoatFit.Fit(boat, player);
+        hull = boat.GetComponent<Collider>();
         // In line with the walkway, its bow just short of the dock's end.
         Vector3 tip = landing + outward * LandingInset;
-        moored = new Vector3(tip.x, seaLevel, tip.z) + outward * (BowGap + HullSize.z * 0.5f);
+        moored = new Vector3(tip.x, seaLevel, tip.z) + outward * (BowGap + fit.Length * 0.5f);
         float distance = sea.HasValue ? DistanceToEdge(moored, outward, sea.Value) - EdgeMargin : 160f;
         distance = Mathf.Clamp(distance, MinDistance, MaxDistance);
         start = moored + outward * distance;
         duration = Mathf.Clamp(distance / CruiseSpeed, MinCrossing, MaxCrossing);
         heading = Quaternion.LookRotation(-outward, Vector3.up);
 
-        boat = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        boat.name = "Boat (placeholder)";
-        boat.transform.localScale = HullSize;
-        hull = boat.GetComponent<Collider>();
         // Scripted while the opening runs; solid once it is moored.
         hull.enabled = false;
-        Renderer body = boat.GetComponent<Renderer>();
-        // Not the primitive's default material: in a build that is built-in Standard, pink under URP.
-        Material wood = PlaceholderMaterials.Lit(Wood);
-        wood.name = "Boat (placeholder)";
-        body.sharedMaterial = wood;
 
         controller = player.GetComponent<CharacterController>();
         controllerWasEnabled = controller.enabled;
@@ -122,6 +120,8 @@ public sealed class OpeningVoyage : IDisposable
         Transform dockObject = map != null ? FindChild(map, DockName) : null;
         if (dockObject == null || player == null || player.GetComponent<CharacterController>() == null) return false;
         if (!TryGetBounds(dockObject, out Bounds dock)) return false;
+        GameObject boatPrefab = Resources.Load<GameObject>(BoatResource);
+        if (boatPrefab == null || boatPrefab.GetComponent<Collider>() == null) return false;
 
         // The dock runs out to sea along x (the pier at the bottom of the island seen from above
         // in the editor): the boat comes in along x from the side away from the island's middle.
@@ -138,7 +138,7 @@ public sealed class OpeningVoyage : IDisposable
         CameraFollow follow = view != null ? view.GetComponent<CameraFollow>() : null;
         if (follow == null) follow = UnityEngine.Object.FindAnyObjectByType<CameraFollow>();
         Vector3 landing = PickLanding(landingX, outward, dock, dockObject, player, follow);
-        voyage = new OpeningVoyage(player, outward, landing, seaLevel, sea);
+        voyage = new OpeningVoyage(player, outward, landing, seaLevel, sea, boatPrefab);
         return true;
     }
 
@@ -193,7 +193,8 @@ public sealed class OpeningVoyage : IDisposable
     {
         Vector3 forward = -outward;
         Vector3 right = Vector3.Cross(Vector3.up, forward);
-        position = anchor - forward * CameraBehind + right * CameraRight + Vector3.up * CameraHeight;
+        position = anchor - forward * Mathf.Max(CameraBehind, fit.Length * 0.45f) +
+            right * CameraRight + Vector3.up * CameraHeight;
         Vector3 focus = anchor + forward * CameraLookAhead + Vector3.up * 1.2f;
         rotation = Quaternion.LookRotation(focus - position, Vector3.up);
     }
@@ -229,6 +230,8 @@ public sealed class OpeningVoyage : IDisposable
             if (CurrentPhase != Phase.Landed) player.PlaceOnGround(Landing);
             player.AnimateCinematicWalk(Vector3.zero, 0f);
             controller.enabled = controllerWasEnabled;
+            LighthouseFerry ferry = boat != null ? boat.GetComponent<LighthouseFerry>() : null;
+            if (ferry != null) ferry.Configure(player, Landing);
         }
     }
 
@@ -238,8 +241,9 @@ public sealed class OpeningVoyage : IDisposable
         float bob = still ? 0f : Mathf.Sin(time * 1.7f) * 0.07f;
         Quaternion rock = still ? Quaternion.identity :
             Quaternion.Euler(Mathf.Sin(time * 0.9f + 1f) * 1.5f, 0f, Mathf.Sin(time * 1.2f) * 2.2f);
-        boat.transform.SetPositionAndRotation(centre + Vector3.up * (Freeboard - HullSize.y * 0.5f + bob), heading * rock);
-        deck = centre + Vector3.up * (Freeboard + bob);
+        boat.transform.SetPositionAndRotation(centre + Vector3.up * (Freeboard - fit.HullDepth * 0.5f + bob), heading * rock);
+        // Stand aft of the mast, so the sail does not hide the player from the riding camera.
+        deck = boat.transform.TransformPoint(fit.RidePoint);
     }
 
     // How far from a point along a flat direction to the edge of an area, in x and z.

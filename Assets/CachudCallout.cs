@@ -65,6 +65,9 @@ public class CachudCallout : MonoBehaviour, IInteractable
     private Quaternion shotRotation;
     private Vector3 returnPosition;
     private Quaternion returnRotation;
+    private Vector3 dialogueStartPosition;
+    private Quaternion dialogueStartRotation;
+    private float shotBlend = 1f;
 
     public float BarsAmount => CurrentPhase == Phase.Panning ? Ease(phaseTime / FadeDuration) :
         CurrentPhase == Phase.Emerging || IsDialogue ? 1f :
@@ -97,6 +100,7 @@ public class CachudCallout : MonoBehaviour, IInteractable
 
     private void Update()
     {
+        if (GameplayDebugMenu.BlocksInput) return;
         if (PauseMenu.IsPaused) return;
         Keyboard keyboard = Keyboard.current;
         Mouse mouse = Mouse.current;
@@ -177,6 +181,7 @@ public class CachudCallout : MonoBehaviour, IInteractable
 
         originalPosition = view.transform.position;
         originalRotation = view.transform.rotation;
+        shotBlend = 1f;
         playerController = player.GetComponent<PlayerController>();
         follow = view.GetComponent<CameraFollow>();
         followWasEnabled = follow != null && follow.enabled;
@@ -202,23 +207,65 @@ public class CachudCallout : MonoBehaviour, IInteractable
         if (towardsPlayer.sqrMagnitude < 0.01f)
             towardsPlayer = Vector3.ProjectOnPlane(view.transform.position - transform.position, Vector3.up).normalized;
         if (towardsPlayer.sqrMagnitude < 0.01f) towardsPlayer = Vector3.back;
-        Vector3 focus = transform.position + Vector3.up * 1.1f;
+        SpriteRenderer sprite = GetComponent<SpriteRenderer>();
+        Bounds bounds = sprite.sprite != null ? sprite.bounds :
+            new Bounds(transform.position + Vector3.up, new Vector3(1.5f, 2f, 0.2f));
+        Vector3 focus = bounds.center;
         // A nearby player would fill the original approach shot. Move to the
         // speaker's side instead, keeping him in front of the player on return visits.
         bool close = Vector3.ProjectOnPlane(player.position - transform.position, Vector3.up).sqrMagnitude < 16f;
         Vector3 desired = transform.position + towardsPlayer * (close ? -2.5f : 6.2f) +
             Vector3.Cross(Vector3.up, towardsPlayer) * (close ? 6f : 1.25f) + Vector3.up * 2.7f;
-        Vector3 direction = desired - focus;
-        float clearDistance = direction.magnitude;
-        direction.Normalize();
-        foreach (RaycastHit hit in Physics.SphereCastAll(focus, 0.2f, direction, clearDistance,
-                     Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+        Vector3 offset = desired - focus;
+        float halfAngle = Mathf.Tan(view.fieldOfView * 0.5f * Mathf.Deg2Rad);
+        float width = sprite.sprite != null ? sprite.sprite.bounds.size.x * Mathf.Abs(transform.lossyScale.x) : 1.5f;
+        float distance = Mathf.Max(offset.magnitude,
+            Mathf.Max(bounds.extents.y, width * 0.5f / Mathf.Max(0.3f, view.aspect)) / halfAngle * 1.8f);
+        float bestScore = float.PositiveInfinity;
+        shotPosition = desired;
+        // Rotate around obstructions instead of pulling the lens into his face. Try both
+        // sides of the house and higher angles, while keeping the full sprite above the dialogue.
+        for (int elevation = 0; elevation < 3; elevation++)
+        for (int step = 0; step < 24; step++)
         {
-            if (hit.collider.transform.IsChildOf(transform) || hit.collider.transform.IsChildOf(player)) continue;
-            clearDistance = Mathf.Min(clearDistance, Mathf.Max(0.5f, hit.distance - 0.15f));
+            float angle = step == 0 ? 0f : ((step + 1) / 2) * 15f * (step % 2 == 0 ? -1f : 1f);
+            Vector3 direction = Quaternion.AngleAxis(angle, Vector3.up) * offset.normalized;
+            direction = (direction + Vector3.up * (elevation * 0.35f)).normalized;
+            Vector3 candidate = focus + direction * distance;
+            if (!ClearShot(focus, candidate)) continue;
+            Quaternion rotation = Quaternion.LookRotation(focus - candidate, Vector3.up);
+            Vector3 right = Vector3.ProjectOnPlane(rotation * Vector3.right, Vector3.up).normalized;
+            bool framed = true;
+            for (int corner = 0; corner < 4; corner++)
+            {
+                Vector3 point = focus + right * (width * 0.5f * ((corner & 1) == 0 ? -1f : 1f)) +
+                    Vector3.up * (bounds.extents.y * ((corner & 2) == 0 ? -1f : 1f));
+                Vector3 local = Quaternion.Inverse(rotation) * (point - candidate);
+                float x = 0.5f + local.x / (2f * local.z * halfAngle * view.aspect);
+                float y = 0.5f + local.y / (2f * local.z * halfAngle);
+                if (local.z <= view.nearClipPlane + 0.2f || x < 0.12f || x > 0.88f || y < 0.16f || y > 0.82f)
+                    framed = false;
+            }
+            if (!framed) continue;
+            float playerDepth = Vector3.Dot(player.position + Vector3.up * 1.1f - candidate, rotation * Vector3.forward);
+            float score = Mathf.Abs(angle) + elevation * 40f;
+            if (playerDepth < distance + 0.2f) score += 100f;
+            if (score >= bestScore) continue;
+            bestScore = score;
+            shotPosition = candidate;
         }
-        shotPosition = focus + direction * clearDistance;
         shotRotation = Quaternion.LookRotation(focus - shotPosition, Vector3.up);
+    }
+
+    private bool ClearShot(Vector3 focus, Vector3 position)
+    {
+        Vector3 delta = position - focus;
+        foreach (RaycastHit hit in Physics.SphereCastAll(focus, 0.25f, delta.normalized, delta.magnitude,
+                     Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            if (!hit.collider.transform.IsChildOf(transform) && !hit.collider.transform.IsChildOf(player)) return false;
+        foreach (Collider collider in Physics.OverlapSphere(position, 0.3f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            if (!collider.transform.IsChildOf(transform) && !collider.transform.IsChildOf(player)) return false;
+        return true;
     }
 
     public void Tick(float deltaTime, bool advance = false, bool chooseQuestion = false, bool escape = false)
@@ -236,6 +283,7 @@ public class CachudCallout : MonoBehaviour, IInteractable
             return;
         }
         float dt = Mathf.Max(0f, deltaTime);
+        shotBlend = Mathf.Min(1f, shotBlend + dt / 0.6f);
         phaseTime += dt;
         if (CurrentPhase == Phase.Panning && phaseTime >= PanDuration)
         {
@@ -280,13 +328,17 @@ public class CachudCallout : MonoBehaviour, IInteractable
         }
     }
 
-    // He is out and the door shut: the conversation keeps the shot the entrance ended on.
+    // Move smoothly from the wide entrance to the same clear, framed conversation shot
+    // used on repeat visits.
     private void FinishEmerging()
     {
         if (doorway == null) return;
-        doorway.GetCameraPose(1f, out shotPosition, out shotRotation);
         doorway.Dispose();
         doorway = null;
+        dialogueStartPosition = view.transform.position;
+        dialogueStartRotation = view.transform.rotation;
+        CalculateShot((player.position - transform.position).normalized);
+        shotBlend = 0f;
     }
 
     private void StartDialogue()
@@ -360,7 +412,8 @@ public class CachudCallout : MonoBehaviour, IInteractable
                 view.transform.SetPositionAndRotation(position, rotation);
             }
             else if (IsDialogue)
-                view.transform.SetPositionAndRotation(shotPosition, shotRotation);
+                view.transform.SetPositionAndRotation(Vector3.Lerp(dialogueStartPosition, shotPosition, Ease(shotBlend)),
+                    Quaternion.Slerp(dialogueStartRotation, shotRotation, Ease(shotBlend)));
             else if (CurrentPhase == Phase.Returning)
             {
                 // The follow rig runs first and supplies the live destination each frame.

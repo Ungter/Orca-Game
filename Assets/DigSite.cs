@@ -209,7 +209,7 @@ public class DigSite : MonoBehaviour, IInteractable
             sparkles.Visible = !finished && revealedBy != null && revealedBy.HasSpoken;
         }
 
-        if (PauseMenu.IsPaused)
+        if (PauseMenu.IsPaused || GameplayDebugMenu.BlocksInput)
         {
             // The press that resumes the game must not also count as a skill check.
             inputGuard = true;
@@ -328,6 +328,15 @@ public class DigSite : MonoBehaviour, IInteractable
         {
             reward.Unearth(RiseDuration);
         }
+    }
+
+    public void DebugComplete()
+    {
+        if (IsDug) return;
+        Round = Mathf.Max(0, RoundCount - 1);
+        shards.Clear();
+        Succeed();
+        SetPhase(Phase.Dug);
     }
 
     // The player is free the moment the check is missed; the dig site answers E again once

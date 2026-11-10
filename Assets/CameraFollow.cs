@@ -72,6 +72,7 @@ public class CameraFollow : MonoBehaviour
 
     private void LateUpdate()
     {
+        if (GameplayDebugMenu.BlocksInput) return;
         bool hasTrick = MagicianEncounter.TryGetGameBounds(out Bounds trickBounds);
         if (target == null || InventoryInspection.IsOpen || (MagicianEncounter.IsOpen && !hasTrick) || AlchemistEncounter.IsOpen)
         {

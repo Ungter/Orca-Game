@@ -326,7 +326,7 @@ public class MagicianEncounterTests
         GiveWand();
         ShellMinigame game = root.GetComponent<ShellMinigame>();
         MethodInfo tick = typeof(ShellMinigame).GetMethod("Tick", PrivateInstance);
-        for (int round = 0; round < 3; round++)
+        for (int round = 0; round < 4; round++)
         {
             for (int frame = 0; frame < 2000 && !game.AcceptsGuess; frame++)
                 tick.Invoke(game, new object[] { 0.05f });
@@ -341,7 +341,7 @@ public class MagicianEncounterTests
                 game.GuessHat(winner);
                 tick.Invoke(game, new object[] { 0.81f });
             }
-            if (round < 2) game.ContinueRound();
+            if (round < 3) game.ContinueRound();
         }
         Assert.IsTrue(game.IsSolved);
         typeof(ShellMinigame).GetMethod("UpdateVisuals", PrivateInstance).Invoke(game, null);

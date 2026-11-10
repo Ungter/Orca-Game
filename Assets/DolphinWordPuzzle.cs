@@ -71,6 +71,7 @@ public class DolphinWordPuzzle : MonoBehaviour, IInteractable
 
     private void Update()
     {
+        if (GameplayDebugMenu.BlocksInput) return;
         if (PauseMenu.IsPaused) return;
         Keyboard keyboard = Keyboard.current;
         if (IsOpen)
@@ -125,6 +126,15 @@ public class DolphinWordPuzzle : MonoBehaviour, IInteractable
     {
         CancelDrag();
         IsOpen = false;
+    }
+
+    public void DebugComplete()
+    {
+        for (int i = 0; i < Answer.Length; i++) { slots[i] = Answer[i]; bank[i] = '\0'; }
+        for (int i = 0; i < revealed.Length; i++) revealed[i] = true;
+        AvailableLetterCount = Answer.Length;
+        IsSolved = true;
+        Close();
     }
 
     private void RefreshClues()

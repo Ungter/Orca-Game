@@ -109,9 +109,10 @@ public class TwentyOneGameTests
         Until(TwentyOneGame.Phase.OpponentRolling);
         game.Tick(0.01f, true);
         Assert.AreEqual(2, game.Match.Total);
+        int decision = (int)typeof(TwentyOneGame).GetField("opponentDecision", Private).GetValue(game);
         Until(TwentyOneGame.Phase.TakingTiles);
-        Assert.AreEqual(4, game.Match.Total);
-        Assert.AreEqual(2, game.Match.LastRoll);
+        Assert.AreEqual(2 + decision, game.Match.Total);
+        Assert.AreEqual(decision, game.Match.LastRoll);
     }
 
     [Test]
@@ -215,7 +216,7 @@ public class TwentyOneGameTests
         Assert.AreEqual("COUNT 0 / " + game.Match.Limit, ViewField<PixelText>("count").text);
     }
     [Test]
-    public void TheRightAnswerToCanIGoSecondDependsOnTheLastTile(
+    public void AFavourableOrderAndOptimalPlayerRollsStillWinWithTheCasualOpening(
         [NUnit.Framework.Range(TwentyOneMatch.MinLimit, TwentyOneMatch.MaxLimit)] int limit)
     {
         // Yes is right exactly when whoever rolls first can force a win.
@@ -223,11 +224,117 @@ public class TwentyOneGameTests
         Play(true, limit);
         Assert.AreEqual(TwentyOneGame.Phase.Drat, game.CurrentPhase, "The right answer and rolls should win.");
         Assert.AreEqual(yesIsRight, game.OpponentGoesSecond);
-        game.Close();
-        Play(false, limit);
-        Assert.AreEqual(TwentyOneGame.Phase.Lost, game.CurrentPhase, "The wrong answer should lose even with the best rolls.");
-        Assert.AreEqual(!yesIsRight, game.OpponentGoesSecond);
-        Assert.AreEqual("YOU TOOK TILE " + limit + ". YOU LOSE!", ViewField<PixelText>("normalSpeech").text);
+    }
+
+    [Test]
+    public void EveryOptimalSpaceKeepsItsOrcaAndOtherAnimalsAreEvenlySpacedThroughoutTheRound(
+        [NUnit.Framework.Range(TwentyOneMatch.MinLimit, TwentyOneMatch.MaxLimit)] int limit)
+    {
+        Assert.IsTrue(game.Begin(actor, player, testCamera));
+        UseLimit(limit);
+        TwentyOneTable table = game.View.Table;
+        bool[] wins = TwentyOneMatchTests.Solve(limit);
+        var layout = new int[limit];
+        var materials = new Material[limit];
+        var counts = new int[animals.Length];
+        for (int i = 0; i < limit; i++)
+        {
+            layout[i] = table.TileAnimal(i);
+            materials[i] = table.TileArt(i).sharedMaterial;
+            counts[layout[i]]++;
+            bool optimalStop = i + 1 < limit && !wins[i + 1];
+            Assert.AreEqual(optimalStop, layout[i] == 0, "Tile " + (i + 1));
+            StringAssert.StartsWith(animals[layout[i]] + "_tile_mono", materials[i].mainTexture.name);
+            if (i >= 4) Assert.AreEqual(layout[i - 4], layout[i], "Animals must be evenly spaced, not clumped.");
+        }
+        Assert.LessOrEqual(Mathf.Max(counts) - Mathf.Min(counts), 1, "Animal counts should differ by at most one.");
+        Assert.AreNotEqual(0, layout[limit - 1], "The losing tile must never be labelled optimal.");
+        Assert.IsTrue(game.ChooseOrder(true));
+        game.Tick(TwentyOneGame.RulesDuration);
+        for (int total = 0; total < limit; total++)
+        {
+            if (total > 0) Assert.IsTrue(game.Match.Take(game.Match.Turn, 1));
+            game.View.Refresh(game);
+            for (int i = 0; i < limit; i++)
+            {
+                Assert.AreEqual(layout[i], table.TileAnimal(i), "Total " + total + ", tile " + (i + 1));
+                Assert.AreSame(materials[i], table.TileArt(i).sharedMaterial, "Moving must not replace tile art.");
+            }
+            Assert.AreEqual("TAKE 1-3 TILES. DON'T TAKE TILE " + limit + ".",
+                ViewField<PixelText>("rulesReminder").text, "Only basic rules, not tactical advice, should be shown.");
+        }
+        Assert.IsTrue(game.Match.Take(game.Match.Turn, 1));
+        game.View.Refresh(game);
+        for (int i = 0; i < limit; i++)
+        {
+            Assert.AreEqual(layout[i], table.TileAnimal(i), "Finishing must not erase the Orcas.");
+            Assert.AreSame(materials[i], table.TileArt(i).sharedMaterial);
+        }
+    }
+
+    [Test]
+    public void NewMatchesVaryTheOtherAnimalsOrderButKeepTheSameOptimalOrcaSpaces()
+    {
+        var layouts = new HashSet<string>();
+        var kinds = new HashSet<int>();
+        for (int deal = 0; deal < 20; deal++)
+        {
+            Assert.IsTrue(game.Begin(actor, player, testCamera));
+            UseLimit(21);
+            var layout = new List<int>();
+            for (int i = 0; i < 21; i++)
+            {
+                layout.Add(game.View.Table.TileAnimal(i));
+                kinds.Add(layout[i]);
+            }
+            layouts.Add(string.Join(",", layout));
+            game.Close();
+        }
+        Assert.Greater(layouts.Count, 1);
+        Assert.LessOrEqual(layouts.Count, 6, "Only the order of the three evenly spaced animals varies.");
+        CollectionAssert.AreEquivalent(new[] { 0, 1, 2, 3 }, kinds);
+    }
+
+    [Test]
+    public void AnimalLabelsStayFixedDuringThrowsHopsAndTheFollowingTurn()
+    {
+        Start(true, 21);
+        var materials = new Material[21];
+        for (int i = 0; i < materials.Length; i++) materials[i] = game.View.Table.TileArt(i).sharedMaterial;
+        for (int roll = 0; roll < 6; roll++)
+        {
+            if (game.CurrentPhase == TwentyOneGame.Phase.PlayerRolling) game.Tick(0f, true);
+            else Until(TwentyOneGame.Phase.Throwing);
+            for (int frame = 0; frame < 100 && !game.IsRolling; frame++)
+            {
+                for (int i = 0; i < materials.Length; i++)
+                    Assert.AreSame(materials[i], game.View.Table.TileArt(i).sharedMaterial,
+                        "Tile " + (i + 1) + " changed during " + game.CurrentPhase);
+                game.Tick(0.04f);
+            }
+            Assert.IsTrue(game.IsRolling);
+        }
+    }
+
+    [Test]
+    public void LiveOpponentTurnsUseRandomOpeningRollsThenTheOptimalRoll(
+        [NUnit.Framework.Range(TwentyOneMatch.MinLimit, TwentyOneMatch.MaxLimit)] int limit)
+    {
+        Start(true, limit);
+        for (int total = 0; total < limit; total++)
+        {
+            game.Match.Start(total % 2 == 1);
+            for (int i = 0; i < total; i++) Assert.IsTrue(game.Match.Take(game.Match.Turn, 1));
+            var decisions = new HashSet<int>();
+            for (int sample = 0; sample < 100; sample++)
+            {
+                Call(game, "BeginTurn");
+                Assert.AreEqual(TwentyOneGame.Phase.OpponentRolling, game.CurrentPhase);
+                decisions.Add((int)typeof(TwentyOneGame).GetField("opponentDecision", Private).GetValue(game));
+            }
+            if ((double)total / limit < 0.4) CollectionAssert.AreEquivalent(new[] { 1, 2, 3 }, decisions);
+            else CollectionAssert.AreEquivalent(new[] { game.Match.BestRoll }, decisions);
+        }
     }
 
     [TestCase(20, "TWENTY")]
@@ -256,6 +363,7 @@ public class TwentyOneGameTests
         {
             ScreenRect(ViewField<GameObject>("diePanel").GetComponent<RectTransform>()),
             ScreenRect(ViewField<GameObject>("rulesPanel").GetComponent<RectTransform>()),
+            ScreenRect(ViewField<PixelText>("rulesReminder").rectTransform),
             ScreenRect(ViewField<PixelText>("controls").rectTransform)
         };
         Assert.AreEqual(limit, table.ShownTiles);
@@ -320,13 +428,20 @@ public class TwentyOneGameTests
     }
 
     [Test]
-    public void StoppingTheDieThrowsItAcrossTheTableThenTheCylinderHopsAlongTheTakenTiles()
+    public void StoppingTheDieThrowsItAcrossTheTableThenTheDolphinHopsAlongTheTakenTiles()
     {
         Start(true, 21);
         TwentyOneTable table = game.View.Table;
         Transform room = table.Room;
         Assert.IsFalse(table.Die.gameObject.activeSelf, "No die is on the table before the first roll.");
-        Assert.AreEqual(PrimitiveType.Cylinder.ToString(), table.Token.GetComponent<MeshFilter>().sharedMesh.name);
+        Assert.AreEqual("Dolphin counter", table.Token.name);
+        Assert.IsNull(table.Token.GetComponent<MeshFilter>(), "No cylinder remains.");
+        MeshFilter statue = table.Token.GetComponentInChildren<MeshFilter>();
+        Assert.AreEqual("Assets/Sprites/DolphinStatue.fbx", AssetDatabase.GetAssetPath(statue.sharedMesh));
+        Bounds statueBounds = table.Token.GetComponentInChildren<Renderer>().bounds;
+        Assert.AreEqual(TwentyOneTable.Surface + 0.006f, statueBounds.min.y - room.position.y, 0.001f);
+        Assert.That(statueBounds.size.y, Is.InRange(0.15f, 0.181f));
+        Assert.LessOrEqual(Mathf.Max(statueBounds.size.x, statueBounds.size.z), 0.121f);
         Vector3 start = room.TransformPoint(table.Spot(0));
         AssertOnSpot(table.Token, start);
         game.Tick(TwentyOneGame.FaceDuration);
@@ -359,7 +474,7 @@ public class TwentyOneGameTests
             "The die should land clear of the tiles.");
         game.Tick(TwentyOneGame.TileDuration * 0.5f);
         Vector3 hop = table.Token.position;
-        Assert.Greater(hop.y, start.y + 0.04f, "The cylinder should hop.");
+        Assert.Greater(hop.y, start.y + 0.04f, "The dolphin should hop.");
         game.Tick(TwentyOneGame.TileDuration * 0.5f + 0.001f);
         Assert.AreEqual(1, game.VisibleTotal);
         AssertOnSpot(table.Token, table.Tile(0).position);
@@ -553,12 +668,22 @@ public class TwentyOneGameTests
         game.Tick(TwentyOneGame.RulesDuration);
     }
 
-    // Answers the order question rightly or wrongly for the drawn last tile, then always stops
-    // the die on a winning roll when there is one.
+    // Winning games use the favourable order and optimal player rolls. Loss tests begin at the
+    // forced final-tile position, because Al's casual opening no longer guarantees a loss.
     private void Play(bool playerWins, int limit = 0)
     {
         if (!TwentyOneGame.IsOpen) Assert.IsTrue(game.Begin(actor, player, testCamera));
         if (limit != 0) UseLimit(limit);
+        if (!playerWins)
+        {
+            Assert.IsTrue(game.ChooseOrder((game.Match.Limit - 1) % 2 == 0));
+            while (game.Match.Total < game.Match.Limit - 1) Assert.IsTrue(game.Match.Take(game.Match.Turn, 1));
+            Call(game, "BeginTurn");
+            Assert.AreEqual(TwentyOneGame.Phase.PlayerRolling, game.CurrentPhase);
+            game.Tick(0f, true);
+            Until(TwentyOneGame.Phase.Lost);
+            return;
+        }
         bool[] wins = TwentyOneMatchTests.Solve(game.Match.Limit);
         Assert.IsTrue(game.ChooseOrder(playerWins == wins[0]));
         game.Tick(TwentyOneGame.RulesDuration);
@@ -590,8 +715,8 @@ public class TwentyOneGameTests
     private static void AssertOnSpot(Transform token, Vector3 spot)
     {
         Vector3 offset = token.position - spot;
-        Assert.Less(new Vector2(offset.x, offset.z).magnitude, 0.01f, "The cylinder is not on its spot.");
-        Assert.That(offset.y, Is.InRange(0f, 0.07f), "The cylinder should stand on the table.");
+        Assert.Less(new Vector2(offset.x, offset.z).magnitude, 0.01f, "The dolphin is not on its spot.");
+        Assert.That(offset.y, Is.InRange(0f, 0.07f), "The dolphin should stand on the table.");
     }
 
     // A tile's outline on screen, from its four corners.

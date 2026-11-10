@@ -168,4 +168,77 @@ public class CachudDoorwayTests
         player.PlaceOnGround(new Vector3(bounds.center.x, bounds.min.y, bounds.center.z) + normal * 2f);
         Physics.SyncTransforms();
     }
+
+    [TestCase(1.77778f)]
+    [TestCase(0.75f)]
+    public void FirstAndRepeatConversationsFrameTheRealSpriteWithoutTheHouseBlockingTheLens(float aspect)
+    {
+        StandAtTheDoor();
+        CachudCallout callout = actor.GetComponent<CachudCallout>();
+        var cameraObject = new GameObject("Cachud camera regression");
+        SceneManager.MoveGameObjectToScene(cameraObject, scene);
+        Camera view = cameraObject.AddComponent<Camera>();
+        view.aspect = aspect;
+        view.transform.position = player.transform.position + Vector3.up * 4f - Vector3.forward * 6f;
+        typeof(CachudCallout).GetField("player", PrivateInstance).SetValue(callout, player.transform);
+        typeof(CachudCallout).GetField("view", PrivateInstance).SetValue(callout, view);
+        try
+        {
+            Call(callout, "Start");
+            Assert.IsTrue(callout.TryKnock());
+            callout.Tick(CachudCallout.PanDuration);
+            Call(callout, "LateUpdate");
+            callout.Tick(CachudDoorway.Duration);
+            Call(callout, "LateUpdate");
+            Vector3 fromEntrance = view.transform.position;
+            callout.Tick(0.6f);
+            Call(callout, "LateUpdate");
+            Assert.Greater(Vector3.Distance(fromEntrance, view.transform.position), 0.1f);
+            AssertFramedAndClear(view);
+            callout.Cancel();
+            for (int visit = 0; visit < 3; visit++)
+            {
+                Vector3 outward = Vector3.ProjectOnPlane(player.transform.position - actor.position, Vector3.up).normalized;
+                player.PlaceOnGround(actor.position + Quaternion.Euler(0f, (visit - 1) * 30f, 0f) * outward * 2.6f);
+                Physics.SyncTransforms();
+                Assert.IsTrue(callout.TryTalk());
+                callout.Tick(CachudCallout.PanDuration);
+                Call(callout, "LateUpdate");
+                AssertFramedAndClear(view);
+                callout.Cancel();
+            }
+        }
+        finally
+        {
+            callout.Cancel();
+            Object.DestroyImmediate(cameraObject);
+        }
+    }
+
+    private void AssertFramedAndClear(Camera view)
+    {
+        SpriteRenderer sprite = actor.GetComponent<SpriteRenderer>();
+        Assert.Greater(Vector3.Distance(view.transform.position, sprite.bounds.center), 4f);
+        Assert.IsFalse(Physics.CheckSphere(view.transform.position, 0.25f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore),
+            "The camera must not be buried in the house or a hedge.");
+        Vector3 delta = view.transform.position - sprite.bounds.center;
+        foreach (RaycastHit hit in Physics.SphereCastAll(sprite.bounds.center, 0.2f, delta.normalized, delta.magnitude,
+                     Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            Assert.IsTrue(hit.collider.transform.IsChildOf(actor) || hit.collider.transform.IsChildOf(player.transform),
+                "The camera is obstructed by " + hit.collider.name);
+        float halfWidth = sprite.sprite.bounds.extents.x * Mathf.Abs(actor.lossyScale.x);
+        Vector3 right = Vector3.ProjectOnPlane(view.transform.right, Vector3.up).normalized;
+        for (int i = 0; i < 4; i++)
+        {
+            Vector3 point = sprite.bounds.center + right * halfWidth * ((i & 1) == 0 ? -1f : 1f) +
+                Vector3.up * sprite.bounds.extents.y * ((i & 2) == 0 ? -1f : 1f);
+            Vector3 screen = view.WorldToViewportPoint(point);
+            Assert.Greater(screen.z, view.nearClipPlane);
+            Assert.That(screen.x, Is.InRange(0.12f, 0.88f));
+            Assert.That(screen.y, Is.InRange(0.16f, 0.82f));
+        }
+    }
+
+    private static void Call(object target, string method) =>
+        target.GetType().GetMethod(method, PrivateInstance).Invoke(target, null);
 }

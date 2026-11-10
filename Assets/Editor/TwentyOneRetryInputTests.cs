@@ -104,15 +104,15 @@ public class TwentyOneRetryInputTests
             Assert.IsTrue(title.text.StartsWith(game.Match.Limit == 30 ? "THIRTY" : "TWENTY"));
         }
     }
-    // Answers the order question wrongly and plays the best rolls, which still loses.
+    // Reach a forced player loss, independent of Al's random opening rolls.
     private void Lose()
     {
-        bool[] wins = TwentyOneMatchTests.Solve(game.Match.Limit);
-        Assert.IsTrue(game.ChooseOrder(!wins[0]));
+        Assert.IsTrue(game.ChooseOrder((game.Match.Limit - 1) % 2 == 0));
+        while (game.Match.Total < game.Match.Limit - 1) Assert.IsTrue(game.Match.Take(game.Match.Turn, 1));
+        typeof(TwentyOneGame).GetMethod("BeginTurn", Private).Invoke(game, null);
         for (int i = 0; i < 20000 && game.CurrentPhase != TwentyOneGame.Phase.Lost; i++)
         {
-            int best = TwentyOneMatchTests.WinningRoll(wins, game.Match.Total);
-            bool stop = game.CurrentPhase == TwentyOneGame.Phase.PlayerRolling && game.Face == (best > 0 ? best : 1);
+            bool stop = game.CurrentPhase == TwentyOneGame.Phase.PlayerRolling && game.Face == 1;
             game.Tick(stop ? 0f : 0.04f, stop);
         }
     }

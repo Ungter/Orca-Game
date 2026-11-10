@@ -276,9 +276,11 @@ public class TitleScreen : MonoBehaviour
     private void FrameIsland()
     {
         GameObject map = GameObject.Find(MapName);
-        Renderer[] renderers = map != null
+        var renderers = new List<Renderer>(map != null
             ? map.GetComponentsInChildren<Renderer>()
-            : FindObjectsByType<MeshRenderer>();
+            : FindObjectsByType<MeshRenderer>());
+        GameObject lighthouse = GameObject.Find("Lighthouse island");
+        if (map != null && lighthouse != null) renderers.AddRange(lighthouse.GetComponentsInChildren<Renderer>());
 
         Bounds bounds = default;
         bool found = false;
@@ -320,6 +322,7 @@ public class TitleScreen : MonoBehaviour
 
     private void Update()
     {
+        if (GameplayDebugMenu.BlocksInput) return;
         float dt = Time.unscaledDeltaTime;
         veil = Mathf.MoveTowards(veil, 0f, dt / FadeInDuration);
         uiOpacity = Mathf.MoveTowards(uiOpacity, starting ? 0f : 1f, dt / UIFadeDuration);

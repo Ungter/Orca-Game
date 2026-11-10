@@ -162,6 +162,27 @@ public class ClueMinigameTests
     }
 
     [Test]
+    public void DebugCompletionClearsAPartialHuntRestoresSpeedAndWritesTheClueOnce()
+    {
+        PlayerController walker = player.AddComponent<PlayerController>();
+        inventory.TryAdd("Clue Letter");
+        Assert.IsTrue(game.StartHunt(player.transform.position));
+        typeof(ClueMinigame).GetMethod("Update", Private).Invoke(game, null);
+        Assert.AreEqual(1.6f, walker.SpeedMultiplier, 1e-4f);
+        Vector3 first = game.PotionPositions[0];
+        game.Track(first + Vector3.up * 1.1f);
+        Assert.Greater(game.PotionsLeft, 0);
+        Assert.IsTrue(game.DebugComplete());
+        Assert.IsTrue(game.IsDelivered);
+        Assert.IsFalse(ClueMinigame.HuntUnderway);
+        Assert.AreEqual(0, game.PotionsLeft);
+        Assert.AreEqual(1f, walker.SpeedMultiplier, 1e-4f);
+        Assert.IsTrue(inventory.HasRevealedWord(ClueMinigame.ClueWord));
+        Assert.IsTrue(game.DebugComplete());
+        Assert.AreEqual(1, inventory.RevealedWords.Count);
+    }
+
+    [Test]
     public void TheMapFillsItsFrameOnTheLetterAndLeavesThePaperAroundIt()
     {
         ClueMap map = Survey();

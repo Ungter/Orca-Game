@@ -241,6 +241,7 @@ public class ClueMinigame : MonoBehaviour
 
     private void Update()
     {
+        if (GameplayDebugMenu.BlocksInput) return;
         if (inventory == null) inventory = InventorySystem.instance;
         if (player == null) player = Interactables.FindPlayer();
         SurveyStep();
@@ -430,6 +431,24 @@ public class ClueMinigame : MonoBehaviour
         State = HuntState.Delivered;
         if (inventory != null) inventory.RevealClueWords(ClueWord);
         pendingClue = true;
+        return true;
+    }
+
+    public bool DebugComplete()
+    {
+        if (inventory == null) inventory = InventorySystem.instance;
+        if (inventory == null) return false;
+        burn?.Cancel();
+        ClearPotions();
+        StepsLeft = 0;
+        Boost(false);
+        if (State != HuntState.Delivered)
+        {
+            State = HuntState.Found;
+            Deliver();
+        }
+        inventory.RevealClueWords(ClueWord);
+        RedrawMarks();
         return true;
     }
 

@@ -3,6 +3,18 @@ using NUnit.Framework;
 
 public class TwentyOneMatchTests
 {
+    private UnityEngine.Random.State randomState;
+
+    [SetUp]
+    public void SetUp()
+    {
+        randomState = UnityEngine.Random.state;
+        UnityEngine.Random.InitState(21);
+    }
+
+    [TearDown]
+    public void TearDown() => UnityEngine.Random.state = randomState;
+
     [TestCase(-1)]
     [TestCase(0)]
     [TestCase(4)]
@@ -53,13 +65,13 @@ public class TwentyOneMatchTests
     }
 
     [Test]
-    public void AlTakesAWinningRollWheneverThereIsOne(
+    public void RecommendedRollWinsWheneverPossibleAndOtherwiseStaysSafe(
         [Range(TwentyOneMatch.MinLimit, TwentyOneMatch.MaxLimit)] int limit)
     {
         bool[] wins = Solve(limit);
         for (int total = 0; total < limit; total++)
         {
-            int roll = OpponentToRollAt(limit, total).OpponentRoll();
+            int roll = OpponentToRollAt(limit, total).BestRoll;
             Assert.That(roll, Is.InRange(1, 3));
             if (wins[total])
                 Assert.IsFalse(total + roll >= limit || wins[total + roll], "Missed the winning roll at " + total);
@@ -69,18 +81,38 @@ public class TwentyOneMatchTests
     }
 
     [Test]
-    public void AlWinsEveryGameWhenTheTurnOrderFavoursHim(
+    public void AlPlaysCasuallyBeforeFortyPercentThenAlwaysChoosesTheBestRoll(
         [Range(TwentyOneMatch.MinLimit, TwentyOneMatch.MaxLimit)] int limit)
     {
-        // Saying yes lets him go second, which only favours him when whoever rolls first loses.
-        bool yes = !Solve(limit)[0];
-        int games = 0;
-        foreach (TwentyOneMatch match in EverySequence(limit, yes, TwentyOneMatch.Side.Player, m => m.OpponentRoll()))
+        for (int total = 0; total < limit; total++)
         {
-            games++;
-            Assert.AreEqual(TwentyOneMatch.Side.Opponent, match.Winner, "Last tile " + limit);
+            TwentyOneMatch match = OpponentToRollAt(limit, total);
+            bool late = (double)total / limit >= 0.4;
+            Assert.AreEqual(late, match.OpponentPlaysOptimally, "Total " + total);
+            var rolls = new HashSet<int>();
+            for (int sample = 0; sample < 100; sample++) rolls.Add(match.OpponentRoll());
+            if (late) CollectionAssert.AreEquivalent(new[] { match.BestRoll }, rolls);
+            else CollectionAssert.AreEquivalent(new[] { 1, 2, 3 }, rolls, "The opening should not use the winning strategy.");
         }
-        Assert.Greater(games, 100);
+    }
+
+    [Test]
+    public void AlWinsEveryLateGameFromAWinningPosition(
+        [Range(TwentyOneMatch.MinLimit, TwentyOneMatch.MaxLimit)] int limit)
+    {
+        bool[] wins = Solve(limit);
+        int games = 0;
+        for (int total = (limit * 2 + 4) / 5; total < limit; total++)
+        {
+            if (!wins[total]) continue;
+            foreach (TwentyOneMatch match in EverySequence(limit, false, TwentyOneMatch.Side.Player,
+                m => m.OpponentRoll(), total))
+            {
+                games++;
+                Assert.AreEqual(TwentyOneMatch.Side.Opponent, match.Winner, "Last tile " + limit + ", starting at " + total);
+            }
+        }
+        Assert.Greater(games, 10);
     }
 
     [Test]
@@ -99,14 +131,39 @@ public class TwentyOneMatchTests
     }
 
     [Test]
-    public void TheRightTurnOrderStillLosesToCarelessRolls(
+    public void CasualOpeningCanGiveAwayTheInitialAdvantage(
         [Range(TwentyOneMatch.MinLimit, TwentyOneMatch.MaxLimit)] int limit)
     {
-        var match = new TwentyOneMatch(limit);
-        match.Start(Solve(limit)[0]);
-        while (!match.Finished)
-            Assert.IsTrue(match.Take(match.Turn, match.Turn == TwentyOneMatch.Side.Opponent ? match.OpponentRoll() : 1));
-        Assert.AreEqual(TwentyOneMatch.Side.Opponent, match.Winner);
+        bool[] wins = Solve(limit);
+        bool playerWon = false;
+        for (int attempt = 0; attempt < 100 && !playerWon; attempt++)
+        {
+            var match = new TwentyOneMatch(limit);
+            match.Start(!wins[0]);
+            while (!match.Finished)
+            {
+                int best = WinningRoll(wins, match.Total);
+                Assert.IsTrue(match.Take(match.Turn, match.Turn == TwentyOneMatch.Side.Opponent ?
+                    match.OpponentRoll() : best > 0 ? best : 1));
+            }
+            playerWon = match.Winner == TwentyOneMatch.Side.Player;
+        }
+        Assert.IsTrue(playerWon, "A casual opening should sometimes surrender the advantage.");
+    }
+
+    [Test]
+    public void RestartingAMatchResetsTheOptimalPlayThresholdAndFinishedGamesHaveNoHint()
+    {
+        TwentyOneMatch match = OpponentToRollAt(20, 19);
+        Assert.IsTrue(match.OpponentPlaysOptimally);
+        Assert.IsFalse(match.HasWinningMove);
+        Assert.AreEqual(1, match.BestRoll);
+        Assert.IsTrue(match.Take(match.Turn, 1));
+        Assert.AreEqual(0, match.BestRoll);
+        Assert.IsFalse(match.HasWinningMove);
+        match.Start(false);
+        Assert.IsFalse(match.OpponentPlaysOptimally);
+        Assert.AreEqual(0, match.Total);
     }
 
     [TestCase(1)]
@@ -125,6 +182,36 @@ public class TwentyOneMatchTests
             Assert.AreEqual(UnityEngine.FilterMode.Point, texture.filterMode);
         }
         finally { UnityEngine.Object.DestroyImmediate(texture); }
+    }
+
+    [Test]
+    public void OptimalStoppingTilesAreFixedForTheBoardAndExcludeTheLosingTile(
+        [Range(TwentyOneMatch.MinLimit, TwentyOneMatch.MaxLimit)] int limit)
+    {
+        var match = new TwentyOneMatch(limit);
+        bool[] wins = Solve(limit);
+        Assert.IsFalse(match.IsOptimalStoppingTile(-1));
+        Assert.IsFalse(match.IsOptimalStoppingTile(0));
+        Assert.IsFalse(match.IsOptimalStoppingTile(limit));
+        Assert.IsFalse(match.IsOptimalStoppingTile(limit + 1));
+        match.Start(true);
+        for (int total = 0; total <= limit; total++)
+        {
+            for (int tile = 1; tile < limit; tile++)
+                Assert.AreEqual(!wins[tile], match.IsOptimalStoppingTile(tile),
+                    "Total " + total + ", tile " + tile);
+            if (!match.Finished) Assert.IsTrue(match.Take(match.Turn, 1));
+        }
+    }
+
+    [Test]
+    public void TwentyOneHasOrcasAtFourEightTwelveSixteenAndTwenty()
+    {
+        var match = new TwentyOneMatch(21);
+        var stops = new List<int>();
+        for (int tile = 1; tile <= match.Limit; tile++)
+            if (match.IsOptimalStoppingTile(tile)) stops.Add(tile);
+        CollectionAssert.AreEqual(new[] { 4, 8, 12, 16, 20 }, stops);
     }
 
     // Brute force from the rules alone: wins[total] says whether the side about to roll can force
@@ -159,7 +246,7 @@ public class TwentyOneMatchTests
     // Every sequence of rolls for one side, the other side answering with its strategy, each
     // played from the start to the end of a match.
     private static IEnumerable<TwentyOneMatch> EverySequence(int limit, bool opponentGoesSecond,
-        TwentyOneMatch.Side enumerated, System.Func<TwentyOneMatch, int> answer)
+        TwentyOneMatch.Side enumerated, System.Func<TwentyOneMatch, int> answer, int startingTotal = 0)
     {
         var pending = new Stack<List<int>>();
         pending.Push(new List<int>());
@@ -167,7 +254,8 @@ public class TwentyOneMatchTests
         {
             List<int> rolls = pending.Pop();
             var match = new TwentyOneMatch(limit);
-            match.Start(opponentGoesSecond);
+            match.Start(opponentGoesSecond != (startingTotal % 2 == 1));
+            for (int i = 0; i < startingTotal; i++) Assert.IsTrue(match.Take(match.Turn, 1));
             int next = 0;
             while (!match.Finished && (match.Turn != enumerated || next < rolls.Count))
                 Assert.IsTrue(match.Take(match.Turn, match.Turn == enumerated ? rolls[next++] : answer(match)));
