@@ -6,7 +6,9 @@
 // geometry stops at the far plane the skybox carries on with the same colour, so there is no line.
 //
 // Round the camera the sea is low-poly waves (OceanWaves): one connected faceted surface, like
-// the shore rocks, made of a grid of points whose vertices say so (uv5.x = 1). Here each point is
+// the shore rocks, made of a grid of points drawn by a renderer that says so (_OceanSurface, set
+// by a property block OceanWaves puts on that renderer alone; a mesh channel would not do, as the
+// other meshes drawn with this water have none and the GPU reads garbage). Here each point is
 // nudged off the grid (the same way every time for the same spot of sea), lifted by the waves, and
 // the grid carried along with the camera, snapped two points at a time; the waves die down with
 // distance from the camera itself, so nothing jumps as it moves. Each flat facet is lit by how it
@@ -28,6 +30,10 @@ Shader "Orca/Pixel Water"
         _HorizonFadeStart ("Fade Into Sky From (share of far plane)", Range(0, 1)) = 0.45
         _HorizonFadeEnd ("Fully Sky At (share of far plane)", Range(0, 1)) = 0.85
         _HorizonFadeMinDistance ("Never Fade Nearer Than (m)", Float) = 150
+        // Set per renderer by OceanWaves (property blocks, each saying both, as Unity carries a
+        // block's value over to the next draw whose block leaves it out); 0 for anything else.
+        [HideInInspector] _OceanSurface ("Is The Wave Surface", Float) = 0
+        [HideInInspector] _OceanFlatCut ("Cut Away Under The Waves", Float) = 0
     }
 
     SubShader
@@ -57,6 +63,9 @@ Shader "Orca/Pixel Water"
                 float _RippleAmplitude, _RippleSpeed;
                 half4 _BaseColor;
                 float _HorizonFadeStart, _HorizonFadeEnd, _HorizonFadeMinDistance;
+                // Per renderer: 1 on the wave surface; 1 on the flat sea where it is cut away
+                // under the waves (the map's ocean and the Far Ocean). 0 on anything else.
+                float _OceanSurface, _OceanFlatCut;
             CBUFFER_END
 
             // The skybox's gradient (Orca/Night Sky Skybox), set by OceanHorizon.
@@ -73,13 +82,10 @@ Shader "Orca/Pixel Water"
             float4 _OceanVoxelLook;        // how much the facets' tilt shows, crests' lightening
             float4 _OceanHull;             // the hull riding the waves: middle x, z, heading x, z
             float4 _OceanHullSize;         // half its length and width, highest water under it, rise per metre out (0: none)
-            // Per renderer (a property block on the flat sea only): cut away under the waves.
-            float _OceanFlatCut;
 
             struct Attributes
             {
                 float4 positionOS : POSITION;
-                float4 kind : TEXCOORD5;
             };
 
             struct Varyings
@@ -88,11 +94,9 @@ Shader "Orca/Pixel Water"
                 float2 waterUV : TEXCOORD0;
                 float fogFactor : TEXCOORD1;
                 float3 positionWS : TEXCOORD2;
-                // 1 on the flat sea, 0 on the wave surface.
-                float flat : TEXCOORD3;
                 // How high the wave stands against its full height: one value per facet, like the
                 // shore rocks' flat tones.
-                nointerpolation float crest : TEXCOORD4;
+                nointerpolation float crest : TEXCOORD3;
             };
 
             // Same as the skybox: horizon to zenith above, sinking to the ground colour below.
@@ -165,15 +169,13 @@ Shader "Orca/Pixel Water"
             {
                 Varyings o;
                 float3 positionWS;
-                o.flat = 1.0;
                 o.crest = 0.0;
-                if (input.kind.x > 0.5)
+                if (_OceanSurface > 0.5)
                 {
                     float2 spot = input.positionOS.xz + PatchCentre();
                     spot += Nudge(spot);
                     float h = SurfaceHeight(spot, _WorldSpaceCameraPos.xz);
                     positionWS = float3(spot.x, _OceanVoxel.z + h, spot.y);
-                    o.flat = 0.0;
                     o.crest = clamp(h / max(_OceanWaveShape.w, 1e-3), -1.0, 1.0);
                 }
                 else
@@ -191,13 +193,13 @@ Shader "Orca/Pixel Water"
             half4 frag(Varyings i) : SV_Target
             {
                 // The flat sea gives way to the wave surface round the camera.
-                if (_OceanFlatCut > 0.5 && i.flat > 0.5 && _OceanReach.z > 0.0)
+                if (_OceanFlatCut > 0.5 && _OceanSurface < 0.5 && _OceanReach.z > 0.0)
                     clip(distance(i.positionWS.xz, PatchCentre()) - _OceanReach.z);
 
                 // Each facet of the wave surface lit by how it tilts against the moon (the main
                 // light), lighter on crests; level water, as the flat sea is, stays as it is.
                 half shade = 1.0;
-                if (i.flat < 0.5)
+                if (_OceanSurface > 0.5)
                 {
                     float3 normal = normalize(cross(ddy(i.positionWS), ddx(i.positionWS)));
                     normal *= normal.y < 0.0 ? -1.0 : 1.0;

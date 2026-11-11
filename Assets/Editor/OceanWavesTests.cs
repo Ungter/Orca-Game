@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 public class OceanWavesTests
 {
@@ -92,11 +94,141 @@ public class OceanWavesTests
         Mesh mesh = OceanWaves.SeaGrid(4, 2f);
         Assert.AreEqual(5 * 5, mesh.vertexCount, "Neighbouring facets share their points, so the surface has no gaps.");
         Assert.AreEqual(4 * 4 * 2 * 3, mesh.GetIndexCount(0), "Two triangles a square.");
-        var kinds = new List<Vector4>();
-        mesh.GetUVs(5, kinds);
-        Assert.IsTrue(kinds.TrueForAll(k => k.x > 0.5f), "Every vertex says it is part of the wave surface.");
         Assert.AreSame(mesh, OceanWaves.SeaGrid(4, 2f), "Made once per size.");
         Assert.AreEqual(7 * 7, OceanWaves.SeaGrid(5, 2f).vertexCount, "Rounded up to an even number of squares across (6, so 7 x 7 points), so the grid can move two at a time.");
+    }
+
+    // The wave surface is marked on its renderer, not in its mesh: the other meshes drawn with the
+    // water (the map's ocean, the Far Ocean) have no channel that could say so, and a missing one
+    // reads as garbage, which once flung their points about and left black holes in the sea.
+    [Test]
+    public void OnlyTheWaveSurfaceIsLiftedAndOtherWaterMeshesDrawWhereTheyAre()
+    {
+        Material water = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/OceanWaterMat.mat");
+        Assert.IsNotNull(water);
+        var flatSea = GameObject.CreatePrimitive(PrimitiveType.Plane);
+        created.Add(flatSea);
+        flatSea.name = "ocean";
+        flatSea.GetComponent<Renderer>().sharedMaterial = water;
+        OceanWaves waves = Waves();
+
+        var block = new MaterialPropertyBlock();
+        MeshRenderer surface = waves.GetComponentInChildren<MeshRenderer>(true);
+        Assert.IsNotNull(surface, "The waves draw their surface.");
+        // Each block says both outright: Unity carries a block's value over to the next draw of
+        // the same material whose block leaves it out, so the flat sea drawn after the surface
+        // would be taken for it.
+        int cutId = Shader.PropertyToID("_OceanFlatCut");
+        surface.GetPropertyBlock(block);
+        Assert.IsTrue(block.HasFloat(OceanWaves.SurfaceId) && block.HasFloat(cutId), "The surface's block says both.");
+        Assert.AreEqual(1f, block.GetFloat(OceanWaves.SurfaceId), "The surface's renderer says it is the wave surface.");
+        Assert.AreEqual(0f, block.GetFloat(cutId), "The surface is not cut away.");
+        Renderer ocean = OceanHorizon.FindOcean(waves.gameObject.scene);
+        Assert.IsNotNull(ocean);
+        ocean.GetPropertyBlock(block);
+        Assert.IsTrue(block.HasFloat(OceanWaves.SurfaceId) && block.HasFloat(cutId), "The flat sea's block says both.");
+        Assert.AreEqual(0f, block.GetFloat(OceanWaves.SurfaceId), "The flat sea is not the wave surface.");
+        Assert.AreEqual(1f, block.GetFloat(cutId), "The flat sea is cut away under the waves.");
+
+        // Drawn with the waves running, a plain mesh (positions only, like the flat sea's) stays
+        // exactly where it is and fills the view; marked as the surface, the same mesh is lifted
+        // and its facets shaded. And the mark never carries over: a plain mesh drawn straight
+        // after the surface (over it: the depth is cleared between them) is still left alone.
+        var material = new Material(water);
+        created.Add(material);
+        material.SetTexture("_BaseMap", Texture2D.redTexture);
+        material.SetColor("_BaseColor", Color.white);
+        material.SetFloat("_RippleAmplitude", 0f);
+        var positions = new List<Vector3>();
+        var indices = new List<int>();
+        const int Squares = 8;
+        for (int j = 0; j <= Squares; j++)
+            for (int i = 0; i <= Squares; i++)
+                positions.Add(new Vector3(i * 2f - Squares, 0f, j * 2f - Squares));
+        for (int j = 0; j < Squares; j++)
+        {
+            for (int i = 0; i < Squares; i++)
+            {
+                int a = j * (Squares + 1) + i, b = a + 1, c = a + Squares + 1, d = c + 1;
+                indices.AddRange(new[] { a, c, b, b, c, d });
+            }
+        }
+        var mesh = new Mesh();
+        created.Add(mesh);
+        mesh.SetVertices(positions);
+        mesh.SetIndices(indices, MeshTopology.Triangles, 0);
+        var view = new GameObject("Wave marker render test", typeof(Camera));
+        created.Add(view);
+        Camera camera = view.GetComponent<Camera>();
+        camera.enabled = false;
+        camera.orthographic = true;
+        camera.orthographicSize = 3f;
+        camera.aspect = 1f;
+        camera.nearClipPlane = 0.1f;
+        camera.farClipPlane = 20f;
+        camera.transform.SetPositionAndRotation(new Vector3(0f, 10f, 0f), Quaternion.Euler(90f, 0f, 0f));
+        RenderTexture target = RenderTexture.GetTemporary(48, 48, 24);
+        RenderTexture previous = RenderTexture.active;
+        var pixels = new Texture2D(48, 48, TextureFormat.RGB24, false);
+        created.Add(pixels);
+        var commands = new CommandBuffer();
+        string[] fogKeywords = { "FOG_LINEAR", "FOG_EXP", "FOG_EXP2" };
+        Vector4 savedCamera = Shader.GetGlobalVector("_WorldSpaceCameraPos");
+        Vector4 savedProjection = Shader.GetGlobalVector("_ProjectionParams");
+        try
+        {
+            Color32[] Frame(params MaterialPropertyBlock[] draws)
+            {
+                commands.Clear();
+                commands.SetRenderTarget(target);
+                commands.ClearRenderTarget(true, true, Color.magenta);
+                commands.SetViewProjectionMatrices(camera.worldToCameraMatrix,
+                    GL.GetGPUProjectionMatrix(camera.projectionMatrix, true));
+                commands.SetGlobalVector("_WorldSpaceCameraPos", camera.transform.position);
+                commands.SetGlobalVector("_ProjectionParams", new Vector4(1f, 0.1f, 20f, 0.05f));
+                foreach (string keyword in fogKeywords) commands.DisableShaderKeyword(keyword);
+                for (int n = 0; n < draws.Length; n++)
+                {
+                    if (n > 0) commands.ClearRenderTarget(true, false, Color.clear);
+                    commands.DrawMesh(mesh, Matrix4x4.Translate(new Vector3(0f, waves.Level, 0f)), material, 0, 0, draws[n]);
+                }
+                foreach (string keyword in fogKeywords)
+                    if (Shader.IsKeywordEnabled(keyword)) commands.EnableShaderKeyword(keyword);
+                commands.SetGlobalVector("_WorldSpaceCameraPos", savedCamera);
+                commands.SetGlobalVector("_ProjectionParams", savedProjection);
+                Graphics.ExecuteCommandBuffer(commands);
+                RenderTexture.active = target;
+                pixels.ReadPixels(new Rect(0, 0, 48, 48), 0, 0);
+                pixels.Apply();
+                return pixels.GetPixels32();
+            }
+
+            var red = new Color32(255, 0, 0, 255);
+            string Moved(Color32[] frame)
+            {
+                int off = 0, darkest = 255;
+                foreach (Color32 pixel in frame)
+                {
+                    if (pixel.Equals(red)) continue;
+                    off++;
+                    darkest = Mathf.Min(darkest, pixel.r);
+                }
+                return off == 0 ? "" : off + " of " + frame.Length + " pixels off, darkest red " + darkest;
+            }
+            Color32[] plain = Frame(new MaterialPropertyBlock());
+            Assert.AreEqual("", Moved(plain), "Every pixel is the flat water, unmoved and unshaded: no holes.");
+            var marked = new MaterialPropertyBlock();
+            marked.SetFloat(OceanWaves.SurfaceId, 1f);
+            Assert.AreNotEqual("", Moved(Frame(marked)), "Marked as the wave surface, the same mesh is lifted and shaded.");
+            Assert.AreEqual("", Moved(Frame(marked, new MaterialPropertyBlock())),
+                "Drawn after the surface, the plain mesh is still unmoved: the mark does not carry over.");
+        }
+        finally
+        {
+            RenderTexture.active = previous;
+            commands.Release();
+            RenderTexture.ReleaseTemporary(target);
+        }
     }
 
     [Test]

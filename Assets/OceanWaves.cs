@@ -102,6 +102,7 @@ public sealed class OceanWaves : MonoBehaviour
     private static readonly int CalmShapeId = Shader.PropertyToID("_OceanCalmShape");
     private static readonly int LookId = Shader.PropertyToID("_OceanVoxelLook");
     private static readonly int FlatCutId = Shader.PropertyToID("_OceanFlatCut");
+    public static readonly int SurfaceId = Shader.PropertyToID("_OceanSurface");
     private static readonly int HullId = Shader.PropertyToID("_OceanHull");
     private static readonly int HullSizeId = Shader.PropertyToID("_OceanHullSize");
     private static readonly Dictionary<(int, float), Mesh> Meshes = new Dictionary<(int, float), Mesh>();
@@ -381,6 +382,10 @@ public sealed class OceanWaves : MonoBehaviour
 
     // The flat sea (the map's ocean and the Far Ocean) is cut away where the waves are, so the
     // troughs show; only those two renderers, so nothing else drawn with the water is touched.
+    // Every block set on the water says both whether it is cut and whether it is the wave
+    // surface: Unity carries a block's value over to the next draw of the same material whose
+    // block leaves it out, so the flat sea drawn just after the surface would otherwise be taken
+    // for it (from some camera positions the whole sea went black).
     private void CutFlatSea(bool cut)
     {
         flatCut ??= new MaterialPropertyBlock();
@@ -399,8 +404,10 @@ public sealed class OceanWaves : MonoBehaviour
         {
             if (flat == null) continue;
             flat.GetPropertyBlock(flatCut);
-            if (flatCut.GetFloat(FlatCutId) == want) continue;
+            if (flatCut.HasFloat(FlatCutId) && flatCut.GetFloat(FlatCutId) == want
+                && flatCut.HasFloat(SurfaceId) && flatCut.GetFloat(SurfaceId) == 0f) continue;
             flatCut.SetFloat(FlatCutId, want);
+            flatCut.SetFloat(SurfaceId, 0f);
             flat.SetPropertyBlock(flatCut);
         }
     }
@@ -422,12 +429,19 @@ public sealed class OceanWaves : MonoBehaviour
         renderer.lightProbeUsage = LightProbeUsage.Off;
         renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
         renderer.motionVectorGenerationMode = MotionVectorGenerationMode.ForceNoMotion;
+        // Marked as the wave surface on its renderer, so the shader lifts its points and nothing
+        // else drawn with the water (the flat sea's meshes have no channel that could say so);
+        // and, said outright, not cut away (see CutFlatSea).
+        var marker = new MaterialPropertyBlock();
+        marker.SetFloat(SurfaceId, 1f);
+        marker.SetFloat(FlatCutId, 0f);
+        renderer.SetPropertyBlock(marker);
     }
 
-    // A square grid of points round the origin, across x across cells of this size, every vertex
-    // marked as part of the wave surface (uv5.x = 1). Each square is cut into two triangles, the
-    // cut running one way and then the other like a chequerboard, so the facets lean every way.
-    // The shader nudges and lifts the points. Made once per size and kept.
+    // A square grid of points round the origin, across x across cells of this size. Each square
+    // is cut into two triangles, the cut running one way and then the other like a chequerboard,
+    // so the facets lean every way. The shader nudges and lifts the points (its renderer is
+    // marked as the wave surface). Made once per size and kept.
     public static Mesh SeaGrid(int across, float cell)
     {
         across += across & 1;
@@ -435,13 +449,11 @@ public sealed class OceanWaves : MonoBehaviour
         float half = across * cell * 0.5f;
         int row = across + 1;
         var positions = new List<Vector3>(row * row);
-        var kinds = new List<Vector4>(row * row);
         for (int j = 0; j <= across; j++)
         {
             for (int i = 0; i <= across; i++)
             {
                 positions.Add(new Vector3(i * cell - half, 0f, j * cell - half));
-                kinds.Add(new Vector4(1f, 0f, 0f, 0f));
             }
         }
         var indices = new List<int>(across * across * 6);
@@ -457,7 +469,6 @@ public sealed class OceanWaves : MonoBehaviour
         var mesh = new Mesh { name = "Wave Surface " + across + " x " + cell + " m", hideFlags = HideFlags.DontSave };
         mesh.indexFormat = positions.Count > 65535 ? IndexFormat.UInt32 : IndexFormat.UInt16;
         mesh.SetVertices(positions);
-        mesh.SetUVs(5, kinds);
         mesh.SetIndices(indices, MeshTopology.Triangles, 0, false);
         // The shader carries it round every camera: never cull it.
         mesh.bounds = new Bounds(Vector3.zero, new Vector3(1e5f, 1e3f, 1e5f));
