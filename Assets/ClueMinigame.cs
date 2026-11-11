@@ -13,6 +13,11 @@ using UnityEngine.UI;
 // again anywhere. E goes to a door, pickup or person in reach before the letter. With all five
 // found the alchemist's house glows on the map, and the alchemist writes the clue word on the
 // letter (Deliver). The survey and routes are ClueMap; the art and meshes ClueMapArt.
+//
+// The lighthouse's final game borrows the letter (BeginBoard / SetBoard / EndBoard): it comes up
+// into the corner for the whole game, its map redrawn turned round to match the view from the
+// lantern and without the hunt's squares, the hunt's marks put away, and the game's hexes laid
+// over the map as the game draws them.
 public class ClueMinigame : MonoBehaviour
 {
     public enum HuntState { Idle, Playing, Found, Delivered }
@@ -149,6 +154,14 @@ public class ClueMinigame : MonoBehaviour
     private Rect house;
     private LetterBurn burn;
 
+    // The lighthouse's board laid over the map while its game runs.
+    private RawImage boardImage;
+    private Texture2D boardTexture;
+    private bool boardShown;
+    private ClueMapArt.Frame boardFrame;
+    private string boardLeft = "", boardRight = "", boardPrompt = "";
+    private readonly List<Graphic> hiddenForBoard = new List<Graphic>();
+
     private GameObject walls;
     private Material wallMaterial;
     private Material beamMaterial;
@@ -168,6 +181,62 @@ public class ClueMinigame : MonoBehaviour
     private bool Owned => inventory != null && inventory.Contains(triggerItem);
 
     private static bool Blocked => PauseMenu.IsPaused || TitleScreen.IsOpen || InventoryInspection.IsOpen || Interactables.Busy;
+
+    // ---- The lighthouse's board -------------------------------------------------------
+
+    public bool ShowingBoard => boardShown;
+    // Where the map is drawn while the board is up: turned to match the view from the lantern.
+    public ClueMapArt.Frame BoardFrame => boardFrame;
+
+    // Brings the letter up for the lighthouse's game, its map turned and bare for the hexes.
+    // False when there is no map of the island to draw on.
+    public bool BeginBoard()
+    {
+        SurveyNow();
+        EnsureView();
+        if (map == null || !map.IsReady || canvas == null) return false;
+        if (boardShown) return true;
+        boardShown = true;
+        boardFrame = frame.Turn();
+        hiddenForBoard.Clear();
+        foreach (Graphic hunt in new Graphic[] { glowImage, marksImage, trailImage, cluePatch, clueInk, markerImage })
+        {
+            if (hunt == null || !hunt.gameObject.activeSelf) continue;
+            hiddenForBoard.Add(hunt);
+            hunt.gameObject.SetActive(false);
+        }
+        mapDrawn = false;
+        DrawMapIfReady();
+        boardImage.gameObject.SetActive(true);
+        return true;
+    }
+
+    // The board's hexes (letter pixels, as ClueMapArt lays them out) and the lines under the map.
+    public void SetBoard(Color32[] pixels, string left, string right, string prompt)
+    {
+        if (!boardShown || boardTexture == null) return;
+        if (pixels != null && pixels.Length == ClueMapArt.LetterWidth * ClueMapArt.LetterHeight)
+        {
+            boardTexture.SetPixels32(pixels);
+            boardTexture.Apply();
+        }
+        boardLeft = left ?? "";
+        boardRight = right ?? "";
+        boardPrompt = prompt ?? "";
+    }
+
+    // Puts the letter back as the hunt left it.
+    public void EndBoard()
+    {
+        if (!boardShown) return;
+        boardShown = false;
+        if (boardImage != null) boardImage.gameObject.SetActive(false);
+        foreach (Graphic hunt in hiddenForBoard)
+            if (hunt != null) hunt.gameObject.SetActive(true);
+        hiddenForBoard.Clear();
+        mapDrawn = false;
+        DrawMapIfReady();
+    }
 
     // Holds the letter up or puts it away. False when there is no letter to hold.
     public bool ToggleHeld() => SetHeld(!IsHeld);
@@ -222,6 +291,7 @@ public class ClueMinigame : MonoBehaviour
             }
         }
         Release(mapTexture);
+        Release(boardTexture);
         Release(marksTexture);
         Release(trailTexture);
         Release(glowTexture);
@@ -633,6 +703,12 @@ public class ClueMinigame : MonoBehaviour
         mapTexture.SetPixels32(new Color32[ClueMapArt.LetterWidth * ClueMapArt.LetterHeight]);
         mapTexture.Apply();
         Layer<RawImage>("Map").texture = mapTexture;
+        boardTexture = ClueMapArt.NewTexture("Lighthouse board", ClueMapArt.LetterWidth, ClueMapArt.LetterHeight);
+        boardTexture.SetPixels32(new Color32[ClueMapArt.LetterWidth * ClueMapArt.LetterHeight]);
+        boardTexture.Apply();
+        boardImage = Layer<RawImage>("Lighthouse board");
+        boardImage.texture = boardTexture;
+        boardImage.gameObject.SetActive(false);
         glowTexture = ClueMapArt.GlowTexture();
         glowImage = Layer<RawImage>("House glow");
         glowImage.texture = glowTexture;
@@ -726,7 +802,8 @@ public class ClueMinigame : MonoBehaviour
         Renderer fountain = fountainObject != null ? fountainObject.GetComponent<Renderer>() : null;
         var lamps = new List<Vector3>();
         foreach (LampGlow lamp in FindObjectsByType<LampGlow>()) lamps.Add(lamp.transform.position);
-        mapTexture.SetPixels32(ClueMapArt.DrawMap(map, frame, fountain != null ? fountain.bounds.center : (Vector3?)null, lamps));
+        mapTexture.SetPixels32(ClueMapArt.DrawMap(map, boardShown ? boardFrame : frame,
+            fountain != null ? fountain.bounds.center : (Vector3?)null, lamps, !boardShown));
         mapTexture.Apply();
         mapDrawn = true;
         LocateHouse();
@@ -813,7 +890,8 @@ public class ClueMinigame : MonoBehaviour
     private void LateUpdate()
     {
         if (canvas == null) return;
-        bool show = IsHeld && !Blocked;
+        // The lighthouse's board stays up through its game, though the game counts as busy.
+        bool show = IsHeld && !Blocked || boardShown && !PauseMenu.IsPaused && !TitleScreen.IsOpen;
         slide = Mathf.MoveTowards(slide, show ? 1f : 0f, Time.unscaledDeltaTime / SlideDuration);
         bool active = slide > 0f || IsBurning;
         if (canvas.gameObject.activeSelf != active) canvas.gameObject.SetActive(active);
@@ -833,8 +911,11 @@ public class ClueMinigame : MonoBehaviour
         statusLabel.fontSize = stepsLabel.fontSize;
         promptLabel.fontSize = stepsLabel.fontSize;
         UpdateLabels();
-        UpdateMarker();
-        UpdateGlow();
+        if (!boardShown)
+        {
+            UpdateMarker();
+            UpdateGlow();
+        }
         if (trailDirty)
         {
             trailTexture.SetPixels32(trailPixels);
@@ -845,6 +926,13 @@ public class ClueMinigame : MonoBehaviour
 
     private void UpdateLabels()
     {
+        if (boardShown)
+        {
+            stepsLabel.text = boardLeft;
+            statusLabel.text = boardRight;
+            promptLabel.text = boardPrompt;
+            return;
+        }
         string steps = "";
         string status;
         if (Time.unscaledTime < messageUntil) status = message;

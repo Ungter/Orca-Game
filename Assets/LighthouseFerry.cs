@@ -278,23 +278,13 @@ public sealed class LighthouseFerry : MonoBehaviour, IInteractable
         active = null;
     }
 
+    // The prompt at the landing. The crossing itself has no words on screen (ESC still cancels it).
     private void OnGUI()
     {
-        if (Event.current.type != EventType.Repaint) return;
-        if (active != this)
-        {
-            if (IsReady) InteractPrompt.Draw((AtLighthouse ? IslandLanding : MainLanding) + Vector3.up * 2f,
-                10f, lighthouse.IsUnlocked ? "E" : "LOCKED",
-                !lighthouse.IsUnlocked ? "Solve anagram to unlock ferry" :
-                AtLighthouse ? "Ferry to main island" : "Ferry to lighthouse", 3, prompt);
-            return;
-        }
-        int p = Mathf.Max(1, Mathf.RoundToInt(3f * InteractPrompt.UIScale()));
-        string text = destinationIsLighthouse ? "SAILING TO THE LIGHTHOUSE" : "RETURNING TO THE MAIN ISLAND";
-        PixelFont.Draw(new Vector2((Screen.width - PixelFont.Measure(text) * p) * 0.5f, 24f),
-            text, p, new Color32(242, 211, 107, 255), Color.black);
-        const string cancel = "[ESC] CANCEL CROSSING";
-        PixelFont.Draw(new Vector2((Screen.width - PixelFont.Measure(cancel) * p) * 0.5f, Screen.height - 48f),
-            cancel, p, Color.white, Color.black);
+        if (Event.current.type != EventType.Repaint || active == this || !IsReady) return;
+        InteractPrompt.Draw((AtLighthouse ? IslandLanding : MainLanding) + Vector3.up * 2f,
+            10f, lighthouse.IsUnlocked ? "E" : "LOCKED",
+            !lighthouse.IsUnlocked ? "Solve anagram to unlock ferry" :
+            AtLighthouse ? "Ferry to main island" : "Ferry to lighthouse", 3, prompt);
     }
 }

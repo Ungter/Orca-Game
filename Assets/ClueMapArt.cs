@@ -78,12 +78,15 @@ public static class ClueMapArt
     public static int PotionArtHeight => PotionArt.Length;
 
     // Where the map sits on the letter. Map up is world +x and map right world -z: the island
-    // as it looks from above in the editor, the pier at the bottom.
+    // as it looks from above in the editor, the pier at the bottom. Turned, it is the other way
+    // round (up is -x, right +z): the island as the lighthouse's lantern sees it, for its final
+    // game.
     public readonly struct Frame
     {
         public readonly Vector2 Centre;
         public readonly Vector2 WorldCentre;
         public readonly float Scale;
+        public readonly bool Turned;
 
         public Frame(Bounds island, RectInt area)
         {
@@ -91,14 +94,33 @@ public static class ClueMapArt
             WorldCentre = new Vector2(island.center.x, island.center.z);
             const float margin = 1.06f;
             Scale = Mathf.Min(area.width / Mathf.Max(1f, island.size.z * margin), area.height / Mathf.Max(1f, island.size.x * margin));
+            Turned = false;
         }
 
-        // Letter pixels from the top-left.
-        public Vector2 ToLetter(Vector3 world) =>
-            new Vector2(Centre.x + (WorldCentre.y - world.z) * Scale, Centre.y - (world.x - WorldCentre.x) * Scale);
+        private Frame(Vector2 centre, Vector2 worldCentre, float scale, bool turned)
+        {
+            Centre = centre;
+            WorldCentre = worldCentre;
+            Scale = scale;
+            Turned = turned;
+        }
 
-        public Vector3 ToWorld(float u, float v) =>
-            new Vector3(WorldCentre.x - (v - Centre.y) / Scale, 0f, WorldCentre.y - (u - Centre.x) / Scale);
+        // The same frame turned half round about the map's middle.
+        public Frame Turn() => new Frame(Centre, WorldCentre, Scale, !Turned);
+
+        // Letter pixels from the top-left.
+        public Vector2 ToLetter(Vector3 world)
+        {
+            var offset = new Vector2((WorldCentre.y - world.z) * Scale, -(world.x - WorldCentre.x) * Scale);
+            return Centre + (Turned ? -offset : offset);
+        }
+
+        public Vector3 ToWorld(float u, float v)
+        {
+            var offset = new Vector2(u - Centre.x, v - Centre.y);
+            if (Turned) offset = -offset;
+            return new Vector3(WorldCentre.x - offset.y / Scale, 0f, WorldCentre.y - offset.x / Scale);
+        }
     }
 
     public static Texture2D NewTexture(string name, int width, int height)
@@ -119,8 +141,9 @@ public static class ClueMapArt
 
     // The island as a hand-coloured map inside an inked frame: washes of sea, grass, paths,
     // trees, roofs and the pier, inked coast and edges, the hunt's cells as a checkerboard with
-    // pen lines, the fountain and lamp posts as landmarks. Transparent outside the frame.
-    public static Color32[] DrawMap(ClueMap map, Frame frame, Vector3? fountain, IReadOnlyList<Vector3> lamps)
+    // pen lines, the fountain and lamp posts as landmarks. Transparent outside the frame. Without
+    // squares, the hunt's checkerboard is left off (the lighthouse game lays its hexes over it).
+    public static Color32[] DrawMap(ClueMap map, Frame frame, Vector3? fountain, IReadOnlyList<Vector3> lamps, bool squares = true)
     {
         var pixels = new Color32[LetterWidth * LetterHeight];
         RectInt area = MapArea;
@@ -180,7 +203,7 @@ public static class ClueMapArt
                         break;
                 }
 
-                if (land && kind != ClueMap.Kind.Building && kind != ClueMap.Kind.Foliage)
+                if (squares && land && kind != ClueMap.Kind.Building && kind != ClueMap.Kind.Foliage)
                 {
                     Vector2Int cell = cells[v * w + u];
                     if (((cell.x + cell.y) & 1) == 1) color = Shade(color, 0.9f);
