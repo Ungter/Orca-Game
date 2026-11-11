@@ -24,7 +24,8 @@ using UnityEngine.Rendering;
 //
 // Tools > Orca > Regrow Island Scenery rebuilds all of it from the same seed; it keeps clear of
 // paths, buildings, lamps and everything the player has to find. Run it after IslandTerrain.
-public static class IslandScenery
+// LighthouseScenery.cs grows the same plants on the lighthouse island.
+public static partial class IslandScenery
 {
     public const string RootName = "Island Scenery";
     private const string Folder = "Assets/Generated/IslandScenery";
@@ -177,23 +178,41 @@ public static class IslandScenery
 
         var root = new GameObject(RootName);
         Undo.RegisterCreatedObjectUndo(root, "Regrow Island Scenery");
+        int vertices = MakeSceneryObjects(root.transform, patches, plants, MeshesPath, false, material, site.FoliageRenderer);
+        Physics.SyncTransforms();
+        Undo.CollapseUndoOperations(undo);
+        EditorSceneManager.MarkSceneDirty(root.scene);
+
+        return "[IslandScenery] " + varied + " of the model's trees turned and resized, " + seated + " set down into the ground. Grew " + counts[0] + " broadleaves, " +
+            counts[1] + " poplars, " + counts[2] + " pines, " + counts[3] + " bushes, " + counts[4] + " ferns, " + counts[5] +
+            " grass tufts, " + counts[6] + " flowers, " + counts[7] + " boulders and " + counts[8] + " stumps; " + shore +
+            " m of shore rocked. " + patches.Count + " meshes, " + vertices + " vertices.";
+    }
+
+    // One mesh per patch, saved into meshesPath (which already exists when assetExists), each
+    // drawn by a child of root, and the plants' colliders under a "Plants" child. The patches
+    // were built in world space and are moved into root's space. Returns the vertices made.
+    private static int MakeSceneryObjects(Transform root, Dictionary<(int, int, Layer), Builder> patches, List<Plant> plants,
+        string meshesPath, bool assetExists, Material material, Renderer like)
+    {
         var drawn = new Dictionary<(int, int, Layer), MeshRenderer>();
-        Renderer like = site.FoliageRenderer;
-        bool first = true;
+        Matrix4x4 toRoot = root.worldToLocalMatrix;
+        bool first = !assetExists;
         int vertices = 0;
         foreach (KeyValuePair<(int, int, Layer), Builder> patch in patches)
         {
             if (patch.Value.Triangles.Count == 0) continue;
             (int px, int pz, Layer layer) = patch.Key;
             string label = (layer == Layer.Trees ? "Trees " : layer == Layer.Cover ? "Ground Cover " : "Shore Rocks ") + px + "_" + pz;
+            if (!toRoot.isIdentity) patch.Value.Move(toRoot);
             Mesh mesh = patch.Value.ToMesh(label);
             vertices += mesh.vertexCount;
-            if (first) AssetDatabase.CreateAsset(mesh, MeshesPath);
-            else AssetDatabase.AddObjectToAsset(mesh, MeshesPath);
+            if (first) AssetDatabase.CreateAsset(mesh, meshesPath);
+            else AssetDatabase.AddObjectToAsset(mesh, meshesPath);
             first = false;
 
             var holder = new GameObject(label);
-            holder.transform.SetParent(root.transform, false);
+            holder.transform.SetParent(root, false);
             holder.AddComponent<MeshFilter>().sharedMesh = mesh;
             var renderer = holder.AddComponent<MeshRenderer>();
             renderer.sharedMaterial = material;
@@ -213,7 +232,7 @@ public static class IslandScenery
 
         // What blocks the way: a trunk, a crown overhead, a bush, a boulder.
         var blockers = new GameObject("Plants");
-        blockers.transform.SetParent(root.transform, false);
+        blockers.transform.SetParent(root, false);
         var numbering = new Dictionary<string, int>();
         foreach (Plant plant in plants)
         {
@@ -246,14 +265,7 @@ public static class IslandScenery
                 blocker.AddComponent<MergedRenderer>().Target = target;
             }
         }
-        Physics.SyncTransforms();
-        Undo.CollapseUndoOperations(undo);
-        EditorSceneManager.MarkSceneDirty(root.scene);
-
-        return "[IslandScenery] " + varied + " of the model's trees turned and resized, " + seated + " set down into the ground. Grew " + counts[0] + " broadleaves, " +
-            counts[1] + " poplars, " + counts[2] + " pines, " + counts[3] + " bushes, " + counts[4] + " ferns, " + counts[5] +
-            " grass tufts, " + counts[6] + " flowers, " + counts[7] + " boulders and " + counts[8] + " stumps; " + shore +
-            " m of shore rocked. " + patches.Count + " meshes, " + vertices + " vertices.";
+        return vertices;
     }
 
     private static (int, int, Layer) PatchOf(Vector3 at, Layer layer)
@@ -366,20 +378,45 @@ public static class IslandScenery
 
     private sealed class Site
     {
-        public readonly MeshCollider Ground;
         public readonly Transform Island;
         public readonly Bounds Land;
         public readonly float SeaLevel;
         public readonly Renderer FoliageRenderer;
         public Bounds? Dock;
+        // What grows where. Another island brings its own.
+        public Zone[] ZoneList = Zones;
+        public Zone Fallback = Elsewhere;
+        public float WoodDensity = IslandScenery.WoodDensity;
+        public float TuftDensity = GrassTufts;
+        public float LampClearance = LampClear;
+        // Also in the way, for things with no collider (the lighthouse island's hedges): whether
+        // any of it is within reach of a spot.
+        public Func<Vector3, float, bool> Occupied;
+        // Plants stand on these; nothing else under them counts as ground.
+        private readonly List<Collider> grounds = new List<Collider>();
         private readonly List<Bounds> buildings = new List<Bounds>();
         private readonly List<Vector2> lamps = new List<Vector2>();
         private readonly List<(Vector2 at, float radius)> keptClear = new List<(Vector2, float)>();
         private readonly Collider[] overlaps = new Collider[32];
 
+        // Another island: the ground plants may stand on, how far they may spread and the sea.
+        // Its buildings, lamps and kept-clear spots are added after.
+        public Site(IEnumerable<Collider> ground, Transform island, Bounds land, float seaLevel, Renderer foliageLike)
+        {
+            grounds.AddRange(ground);
+            Island = island;
+            Land = land;
+            SeaLevel = seaLevel;
+            FoliageRenderer = foliageLike;
+        }
+
+        public void AddBuilding(Bounds bounds) => buildings.Add(bounds);
+        public void AddLamp(Vector3 at) => lamps.Add(new Vector2(at.x, at.z));
+        public void KeepClear(Vector3 at, float radius) => keptClear.Add((new Vector2(at.x, at.z), radius));
+
         public Site(MeshCollider ground, Transform island)
         {
-            Ground = ground;
+            grounds.Add(ground);
             Island = island;
             Land = ground.bounds;
             SeaLevel = -1.83f;
@@ -423,27 +460,34 @@ public static class IslandScenery
             return any;
         }
 
+        // The highest ground straight down from above the island.
         public bool GroundAt(float x, float z, out Vector3 point, out Vector3 normal)
         {
-            if (Ground.Raycast(new Ray(new Vector3(x, Land.max.y + 50f, z), Vector3.down), out RaycastHit hit, Land.size.y + 100f) && hit.normal.y > 0f)
-            {
-                point = hit.point;
-                normal = hit.normal;
-                return true;
-            }
+            var ray = new Ray(new Vector3(x, Land.max.y + 50f, z), Vector3.down);
+            bool found = false;
             point = normal = default;
-            return false;
+            foreach (Collider ground in grounds)
+            {
+                if (ground.Raycast(ray, out RaycastHit hit, Land.size.y + 100f) && hit.normal.y > 0f && (!found || hit.point.y > point.y))
+                {
+                    point = hit.point;
+                    normal = hit.normal;
+                    found = true;
+                }
+            }
+            return found;
         }
 
         // Whether anything but the ground (a path, a wall, a trunk, a post) is within reach of
         // a spot, from just above the grass to overhead.
         public bool Blocked(Vector3 at, float reach)
         {
+            if (Occupied != null && Occupied(at, reach)) return true;
             int count = Physics.OverlapCapsuleNonAlloc(at + Vector3.up * 0.4f, at + Vector3.up * 3f, reach, overlaps,
                 Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
             for (int i = 0; i < count; i++)
             {
-                if (overlaps[i] != Ground && !overlaps[i].name.ToLowerInvariant().Contains("ocean")) return true;
+                if (!grounds.Contains(overlaps[i]) && !overlaps[i].name.ToLowerInvariant().Contains("ocean")) return true;
             }
             return count == overlaps.Length;
         }
@@ -487,9 +531,9 @@ public static class IslandScenery
 
         public Zone ZoneAt(float x, float z)
         {
-            Zone best = Elsewhere;
+            Zone best = Fallback;
             var spot = new Vector2(x, z);
-            foreach (Zone zone in Zones)
+            foreach (Zone zone in ZoneList)
             {
                 if (zone.Area.Contains(spot) && zone.Trees > best.Trees) best = zone;
             }
@@ -528,10 +572,10 @@ public static class IslandScenery
         Scatter(site, random, 3f, (x, z) =>
         {
             Zone zone = site.ZoneAt(x, z);
-            return zone.Trees * (zone.Trees >= WoodDensity ? Clump(x, z) : 1f);
+            return zone.Trees * (zone.Trees >= site.WoodDensity ? Clump(x, z) : 1f);
         }, (point, normal) =>
         {
-            if (normal.y < 0.86f || point.y < site.SeaLevel + 0.8f || site.KeptClearAt(point, 1f) || site.NearLamp(point, LampClear)) return;
+            if (normal.y < 0.86f || point.y < site.SeaLevel + 0.8f || site.KeptClearAt(point, 1f) || site.NearLamp(point, site.LampClearance)) return;
             Zone zone = site.ZoneAt(point.x, point.z);
             float pick = Next(random);
             int kind = pick < zone.Broadleaf ? 0 : pick < zone.Broadleaf + zone.Poplar ? 1 : 2;
@@ -601,7 +645,7 @@ public static class IslandScenery
         });
 
         // Grass tufts, everywhere there is grass.
-        Scatter(site, random, 2f, (x, z) => GrassTufts, (point, normal) =>
+        Scatter(site, random, 2f, (x, z) => site.TuftDensity, (point, normal) =>
         {
             if (normal.y < 0.75f || point.y < site.SeaLevel + 0.4f || site.KeptClearAt(point, 0.25f) || site.Blocked(point, 0.5f)) return;
             GrassTuft(For(patches, point, Layer.Cover), point, random);
@@ -1295,6 +1339,16 @@ public static class IslandScenery
                 Normals[c] += normal;
             }
             for (int i = first; i < Normals.Count; i++) Normals[i] = Normals[i].sqrMagnitude > 0f ? Normals[i].normalized : Vector3.up;
+        }
+
+        // Into another space (a parent that is moved or turned, but not scaled).
+        public void Move(Matrix4x4 into)
+        {
+            for (int i = 0; i < Positions.Count; i++)
+            {
+                Positions[i] = into.MultiplyPoint3x4(Positions[i]);
+                Normals[i] = into.MultiplyVector(Normals[i]).normalized;
+            }
         }
 
         // Packed small (byte normals, 16-bit UVs): these meshes are saved with the project.

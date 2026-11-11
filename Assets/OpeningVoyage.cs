@@ -58,6 +58,8 @@ public sealed class OpeningVoyage : IDisposable
     private readonly Vector3 moored;
     private readonly float duration;
     private Vector3 deck;
+    // Where the boat was last put, on the waterline.
+    private Vector3 placedAt;
     // The player's feet as the camera follows them: on the deck, then along the jump without
     // its arc, so the shot doesn't bounce.
     private Vector3 anchor;
@@ -235,13 +237,27 @@ public sealed class OpeningVoyage : IDisposable
         }
     }
 
-    // The hull at centre (on the waterline), bobbing and rocking a little unless still.
+    // Keeps the boat riding the waves where it is, with the player aboard, before the crossing
+    // starts (while the title's camera flies down to it) or whenever the crossing isn't being
+    // moved on, so the waves never roll through a boat left still.
+    public void Float()
+    {
+        if (released || boat == null || player == null) return;
+        PlaceBoat(placedAt, false);
+        if (CurrentPhase == Phase.Drifting || CurrentPhase == Phase.Waiting)
+        {
+            player.PlaceOnGround(deck);
+            anchor = deck;
+        }
+    }
+
+    // The hull at centre (on the waterline), riding the waves (OceanWaves) unless still.
     private void PlaceBoat(Vector3 centre, bool still)
     {
-        float bob = still ? 0f : Mathf.Sin(time * 1.7f) * 0.07f;
-        Quaternion rock = still ? Quaternion.identity :
-            Quaternion.Euler(Mathf.Sin(time * 0.9f + 1f) * 1.5f, 0f, Mathf.Sin(time * 1.2f) * 2.2f);
-        boat.transform.SetPositionAndRotation(centre + Vector3.up * (Freeboard - fit.HullDepth * 0.5f + bob), heading * rock);
+        placedAt = centre;
+        Vector3 rest = centre + Vector3.up * (Freeboard - fit.HullDepth * 0.5f);
+        Pose pose = still ? new Pose(rest, heading) : OceanWaves.Ride(rest, heading, fit.Length, fit.Beam);
+        boat.transform.SetPositionAndRotation(pose.position, pose.rotation);
         // Stand aft of the mast, so the sail does not hide the player from the riding camera.
         deck = boat.transform.TransformPoint(fit.RidePoint);
     }

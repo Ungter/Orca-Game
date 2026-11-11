@@ -322,7 +322,12 @@ public class TitleScreen : MonoBehaviour
 
     private void Update()
     {
-        if (GameplayDebugMenu.BlocksInput) return;
+        if (GameplayDebugMenu.BlocksInput)
+        {
+            // Held where it is, the boat still rides the waves.
+            if (starting && !handingOff) opening?.Float();
+            return;
+        }
         float dt = Time.unscaledDeltaTime;
         veil = Mathf.MoveTowards(veil, 0f, dt / FadeInDuration);
         uiOpacity = Mathf.MoveTowards(uiOpacity, starting ? 0f : 1f, dt / UIFadeDuration);
@@ -336,7 +341,12 @@ public class TitleScreen : MonoBehaviour
                 if (flightTime >= arrival) Finish();
                 return;
             }
-            if (flightTime < arrival) return;
+            if (flightTime < arrival)
+            {
+                // The boat rides the waves while the camera flies down to it.
+                opening.Float();
+                return;
+            }
             if (!handingOff)
             {
                 // The boat sets off once the camera has reached it; SPACE jumps ashore once it is in.

@@ -150,6 +150,35 @@ public class ClueMinigameTests
     }
 
     [Test]
+    public void TheLetterOffersEToStartTheHuntAndUnderThePotionCountEToStopIt()
+    {
+        inventory.TryAdd("Clue Letter");
+        Assert.IsTrue(game.SetHeld(true));
+        game.SurveyNow();
+        Assert.AreEqual("[E] START THE HUNT", Label("statusLabel"));
+        Assert.AreEqual("", Label("promptLabel"));
+
+        Assert.IsTrue(game.StartHunt(player.transform.position));
+        Assert.AreEqual("POTIONS 0/" + ClueMinigame.PotionCount, Label("statusLabel"));
+        Assert.AreEqual("[E] STOP THE HUNT", Label("promptLabel"));
+        RectTransform counter = ((PixelText)typeof(ClueMinigame).GetField("statusLabel", Private).GetValue(game)).rectTransform;
+        RectTransform prompt = ((PixelText)typeof(ClueMinigame).GetField("promptLabel", Private).GetValue(game)).rectTransform;
+        Assert.Less(prompt.anchorMax.y, counter.anchorMin.y + 1e-4f, "The stop prompt sits under the potion count.");
+    }
+
+    [Test]
+    public void StoppingTheHuntClearsItReadyToStartAgain()
+    {
+        Assert.IsFalse(game.StopHunt(), "No hunt to stop yet.");
+        Assert.IsTrue(game.StartHunt(player.transform.position));
+        Assert.IsTrue(game.StopHunt());
+        Assert.AreEqual(ClueMinigame.HuntState.Idle, game.State);
+        Assert.AreEqual(0, game.PotionsLeft);
+        Assert.IsNull(GameObject.Find("Clue potion (0)"));
+        Assert.IsTrue(game.StartHunt(player.transform.position));
+    }
+
+    [Test]
     public void ThePlayerWalksFasterOnlyWhileHunting()
     {
         PlayerController walker = player.AddComponent<PlayerController>();
@@ -206,6 +235,13 @@ public class ClueMinigameTests
         var glyphs = (System.Collections.IDictionary)typeof(CursiveWriter)
             .GetField("Glyphs", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
         foreach (char c in ClueMinigame.ClueWord) Assert.IsTrue(glyphs.Contains(c), "No cursive glyph for '" + c + "'");
+    }
+
+    // What one of the held letter's lines says.
+    private string Label(string field)
+    {
+        typeof(ClueMinigame).GetMethod("UpdateLabels", Private).Invoke(game, null);
+        return ((PixelText)typeof(ClueMinigame).GetField(field, Private).GetValue(game)).text;
     }
 
     private ClueMap Survey()

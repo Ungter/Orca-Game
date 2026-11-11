@@ -13,6 +13,8 @@ public static class ClueMapArt
     // spans x 6-359, y 12-196); the status line is written under it.
     public static readonly RectInt MapArea = new RectInt(14, 16, 336, 158);
     public const float StatusY = 185f;
+    // A second line under the status, on the paper's shaded foot.
+    public const float PromptY = 199f;
 
     // Muted pigments, the same as the paper board's potions had.
     public static readonly Color32[] PotionColors =

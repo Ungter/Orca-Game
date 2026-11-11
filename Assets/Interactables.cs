@@ -52,6 +52,20 @@ public static class Interactables
         return nearest != null && ReferenceEquals(nearest, interactable);
     }
 
+    // Whether anything is in range to answer E, so E on a held item (the clue letter's hunt)
+    // gives way to the door, pickup or person the player is standing at.
+    public static bool AnyInRange()
+    {
+        foreach (IInteractable candidate in All)
+        {
+            if (candidate.InteractDistanceSqr() < float.MaxValue)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static Transform FindPlayer()
     {
         GameObject playerObject = GameObject.FindGameObjectWithTag("Player");

@@ -23,7 +23,7 @@ public class AlchemistEncounter : MonoBehaviour, IInteractable
         "Mind the bottles, some of them bite. (Placeholder line.)",
         "Someone left something here for you. (Placeholder line.)",
     };
-    public const string LetterGift = "Here, take this letter. Hold it up with its number, then press R to start the hunt.";
+    public const string LetterGift = "Here, take this letter. Hold it up with its number, then press E to start the hunt.";
     public const string LetterNoRoom = "I have a letter for you, but your bag is full! Come back for it.";
     public const string KeepLooking = "My five potions are still out there. Keep looking! (Placeholder line.)";
     public static readonly string[] PotionsFound =

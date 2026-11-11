@@ -5,11 +5,12 @@ using UnityEngine.UI;
 
 // The clue letter's potion hunt, played on the island itself. The letter holds a hand-drawn
 // map of the island cut into the hunt's checkerboard; its inventory number (or a click on its
-// slot) slides it up into the bottom-right corner and puts it away again. [R] starts a hunt
-// from wherever the player stands on the island: five potions, one of each colour, are set out
-// across the map, faint light walls rise from the cell borders round the player, and every
-// border crossed costs a step. A crayon trail follows the player on the map. Out of steps, the
-// letter burns and rebuilds with the hunt cleared, ready to start again anywhere. With all five
+// slot) slides it up into the bottom-right corner and puts it away again. [E] on the held letter
+// starts a hunt from wherever the player stands on the island: five potions, one of each colour,
+// are set out across the map, faint light walls rise from the cell borders round the player, and
+// every border crossed costs a step. A crayon trail follows the player on the map. Out of steps,
+// or stopped with [E] again, the letter burns and rebuilds with the hunt cleared, ready to start
+// again anywhere. E goes to a door, pickup or person in reach before the letter. With all five
 // found the alchemist's house glows on the map, and the alchemist writes the clue word on the
 // letter (Deliver). The survey and routes are ClueMap; the art and meshes ClueMapArt.
 public class ClueMinigame : MonoBehaviour
@@ -137,6 +138,8 @@ public class ClueMinigame : MonoBehaviour
     private RawImage markerImage;
     private PixelText stepsLabel;
     private PixelText statusLabel;
+    // Under the status: how to stop a hunt under way.
+    private PixelText promptLabel;
     private Texture2D mapTexture;
     private Texture2D marksTexture;
     private Texture2D trailTexture;
@@ -263,9 +266,9 @@ public class ClueMinigame : MonoBehaviour
         }
 
         Keyboard keyboard = Keyboard.current;
-        if (IsHeld && !blocked && !IsBurning && keyboard != null && keyboard.rKey.wasPressedThisFrame)
+        if (IsHeld && !blocked && !IsBurning && keyboard != null && keyboard.eKey.wasPressedThisFrame && !Interactables.AnyInRange())
         {
-            if (State == HuntState.Playing) Burn(true);
+            if (State == HuntState.Playing) StopHunt();
             else if (State == HuntState.Idle && player != null) StartHunt(player.position);
         }
 
@@ -407,7 +410,7 @@ public class ClueMinigame : MonoBehaviour
         {
             // No steps left to cross with: the letter goes up in flames.
             StepsLeft = 0;
-            Burn(false);
+            Burn();
             return;
         }
         StepsLeft -= crossed;
@@ -452,25 +455,28 @@ public class ClueMinigame : MonoBehaviour
         return true;
     }
 
-    // The letter burns up from the bottom; while it is ash the hunt is cleared (and a new one
-    // starts where the player stands when regenerate is set), then the letter rebuilds.
-    private void Burn(bool regenerate)
+    // Gives up the hunt under way: the letter burns and rebuilds with it cleared, as when the
+    // steps run out. False when no hunt is being played.
+    public bool StopHunt()
     {
-        void Rebuild()
-        {
-            ResetHunt();
-            if (regenerate && player != null) StartHunt(player.position);
-        }
+        if (State != HuntState.Playing || IsBurning) return false;
+        Burn();
+        return true;
+    }
 
+    // The letter burns up from the bottom; while it is ash the hunt is cleared, then the letter
+    // rebuilds, ready for another.
+    private void Burn()
+    {
         if (Blocked || !SetHeld(true) || surface == null)
         {
-            Rebuild();
+            ResetHunt();
             return;
         }
         canvas.gameObject.SetActive(true);
         Canvas.ForceUpdateCanvases();
         burn ??= new LetterBurn(surface, paper);
-        burn.Play(Rebuild);
+        burn.Play(ResetHunt);
     }
 
     private void ResetHunt()
@@ -654,6 +660,8 @@ public class ClueMinigame : MonoBehaviour
         Place(stepsLabel.rectTransform, new Vector2(100f, ClueMapArt.StatusY), new Vector2(172f, 14f));
         statusLabel = Label("Status", TextAnchor.MiddleRight);
         Place(statusLabel.rectTransform, new Vector2(266f, ClueMapArt.StatusY), new Vector2(168f, 14f));
+        promptLabel = Label("Prompt", TextAnchor.MiddleRight);
+        Place(promptLabel.rectTransform, new Vector2(266f, ClueMapArt.PromptY), new Vector2(168f, 14f));
         root.SetActive(false);
 
         DrawMapIfReady();
@@ -823,6 +831,7 @@ public class ClueMinigame : MonoBehaviour
         float unit = height / ClueMapArt.LetterHeight;
         stepsLabel.fontSize = PixelFont.CapHeight * StatusFontPixels * unit;
         statusLabel.fontSize = stepsLabel.fontSize;
+        promptLabel.fontSize = stepsLabel.fontSize;
         UpdateLabels();
         UpdateMarker();
         UpdateGlow();
@@ -840,7 +849,7 @@ public class ClueMinigame : MonoBehaviour
         string status;
         if (Time.unscaledTime < messageUntil) status = message;
         else if (map == null || !map.IsReady) status = surveyFailed ? "NO MAP OF THIS PLACE" : "MAPPING THE ISLAND...";
-        else if (State == HuntState.Idle) status = "[R] START THE HUNT HERE";
+        else if (State == HuntState.Idle) status = "[E] START THE HUNT";
         else if (State == HuntState.Playing) status = "POTIONS " + (PotionCount - PotionsLeft) + "/" + PotionCount;
         else if (State == HuntState.Found) status = "BACK TO THE ALCHEMIST!";
         else status = "";
@@ -848,6 +857,7 @@ public class ClueMinigame : MonoBehaviour
         else if (State == HuntState.Found) steps = "ALL FIVE FOUND";
         stepsLabel.text = steps;
         statusLabel.text = status;
+        promptLabel.text = State == HuntState.Playing && !IsBurning ? "[E] STOP THE HUNT" : "";
     }
 
     private void UpdateMarker()

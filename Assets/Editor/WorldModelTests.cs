@@ -93,7 +93,9 @@ public class WorldModelTests
             Renderer ocean = map.GetComponentsInChildren<Renderer>().Single(r => r.name == OpeningVoyage.OceanName);
             Renderer land = map.GetComponentsInChildren<Renderer>().Single(r => r.name == OpeningVoyage.GroundName);
             Renderer dock = map.GetComponentsInChildren<Renderer>().Single(r => r.name == OpeningVoyage.DockName);
-            Bounds bounds = BoundsOf(island.GetComponentsInChildren<Renderer>());
+            // The lighthouse's beam is light sweeping out over the water, not part of the island.
+            Bounds bounds = BoundsOf(island.GetComponentsInChildren<Renderer>()
+                .Where(r => r.GetComponentInParent<LighthouseBeam>(true) == null).ToArray());
             Assert.Greater(bounds.min.x, land.bounds.max.x + 20f);
             Assert.Greater(bounds.min.z, dock.bounds.max.z + 20f);
             Assert.Greater(bounds.min.x, ocean.bounds.min.x);

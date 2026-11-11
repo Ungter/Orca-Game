@@ -31,6 +31,7 @@ public sealed class LighthouseFerry : MonoBehaviour, IInteractable
     private Vector3 islandBoatPosition;
     private Vector3 departureBoatPosition;
     private Quaternion departureBoatRotation;
+    private Quaternion sailHeading;
     private Vector3 cameraPosition;
     private Quaternion cameraRotation;
     private Vector3 departureLanding;
@@ -107,6 +108,8 @@ public sealed class LighthouseFerry : MonoBehaviour, IInteractable
 
     private void Update()
     {
+        // Moored: riding the waves at the dock, even while the debug menu holds the game's input.
+        if (IsReady && active != this) Ride(RestPosition(AtLighthouse), RestRotation(AtLighthouse));
         if (GameplayDebugMenu.BlocksInput) return;
         if (PauseMenu.IsPaused) return;
         Keyboard keyboard = Keyboard.current;
@@ -141,8 +144,9 @@ public sealed class LighthouseFerry : MonoBehaviour, IInteractable
         player.enabled = false;
         controller.enabled = false;
         hull.enabled = false;
-        departureBoatPosition = transform.position;
-        departureBoatRotation = transform.rotation;
+        departureBoatPosition = RestPosition(AtLighthouse);
+        departureBoatRotation = RestRotation(AtLighthouse);
+        sailHeading = departureBoatRotation;
         departureLanding = AtLighthouse ? IslandLanding : MainLanding;
         destinationLanding = AtLighthouse ? MainLanding : IslandLanding;
         destinationIsLighthouse = !AtLighthouse;
@@ -161,6 +165,7 @@ public sealed class LighthouseFerry : MonoBehaviour, IInteractable
         phaseTime += Mathf.Max(0f, deltaTime);
         if (CurrentPhase == Phase.Boarding)
         {
+            Ride(departureBoatPosition, departureBoatRotation);
             float t = Mathf.Clamp01(phaseTime / 0.7f);
             Vector3 seat = transform.TransformPoint(Fit.RidePoint);
             player.PlaceOnGround(Vector3.Lerp(boardFrom, seat, t) + Vector3.up * (Mathf.Sin(t * Mathf.PI) * 1.5f));
@@ -175,13 +180,14 @@ public sealed class LighthouseFerry : MonoBehaviour, IInteractable
             float ahead = destinationIsLighthouse ? Mathf.Min(1f, progress + 0.01f) : Mathf.Max(0f, progress - 0.01f);
             Vector3 direction = PointOnRoute(ahead) - position;
             Quaternion rotation = direction.sqrMagnitude > 0.001f ? Quaternion.LookRotation(direction, Vector3.up) :
-                destinationIsLighthouse ? Quaternion.LookRotation(Vector3.right) : mainBoatRotation;
-            transform.SetPositionAndRotation(position, Quaternion.Slerp(transform.rotation, rotation, Mathf.Min(1f, deltaTime * 5f)));
+                RestRotation(destinationIsLighthouse);
+            // Turning to the course is kept apart from the waves' rocking, so neither feeds the other.
+            sailHeading = Quaternion.Slerp(sailHeading, rotation, Mathf.Min(1f, deltaTime * 5f));
+            Ride(position, sailHeading);
             player.PlaceOnGround(transform.TransformPoint(Fit.RidePoint));
             if (t >= 1f)
             {
-                transform.SetPositionAndRotation(destinationIsLighthouse ? islandBoatPosition : mainBoatPosition,
-                    destinationIsLighthouse ? Quaternion.LookRotation(Vector3.right) : mainBoatRotation);
+                Ride(RestPosition(destinationIsLighthouse), RestRotation(destinationIsLighthouse));
                 jumpFrom = transform.TransformPoint(Fit.RidePoint);
                 CurrentPhase = Phase.Landing;
                 phaseTime = 0f;
@@ -189,6 +195,7 @@ public sealed class LighthouseFerry : MonoBehaviour, IInteractable
         }
         else if (CurrentPhase == Phase.Landing)
         {
+            Ride(RestPosition(destinationIsLighthouse), RestRotation(destinationIsLighthouse));
             float t = Mathf.Clamp01(phaseTime / 0.8f);
             player.PlaceOnGround(Vector3.Lerp(jumpFrom, destinationLanding, t) + Vector3.up * (Mathf.Sin(t * Mathf.PI) * 1.5f));
             if (t >= 1f)
@@ -207,6 +214,18 @@ public sealed class LighthouseFerry : MonoBehaviour, IInteractable
             cameraView.transform.SetPositionAndRotation(position, Quaternion.LookRotation(seat + forward * 8f + Vector3.up * 1.2f - position));
             player.AnimateCinematicWalk(Vector3.zero, deltaTime);
         }
+    }
+
+    // Where the boat lies at each dock when the sea is flat: the main island's, where the opening
+    // moored it, or the lighthouse pier's, bow to the east.
+    private Vector3 RestPosition(bool atLighthouse) => atLighthouse ? islandBoatPosition : mainBoatPosition;
+    private Quaternion RestRotation(bool atLighthouse) => atLighthouse ? Quaternion.LookRotation(Vector3.right) : mainBoatRotation;
+
+    // Sets the boat where it rides the waves (OceanWaves) when it would otherwise lie at rest.
+    private void Ride(Vector3 rest, Quaternion heading)
+    {
+        Pose pose = OceanWaves.Ride(rest, heading, Fit.Length, Fit.Beam);
+        transform.SetPositionAndRotation(pose.position, pose.rotation);
     }
 
     private Vector3 Feet()

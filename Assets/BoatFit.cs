@@ -7,6 +7,8 @@ public sealed class BoatFit
     public float Length { get; private set; }
     public float HullDepth { get; private set; }
     public float RidingWidth { get; private set; }
+    // The hull's own width, side to side, for how it rolls on the waves.
+    public float Beam { get; private set; }
 
     public static BoatFit Fit(GameObject boat, PlayerController player)
     {
@@ -22,6 +24,7 @@ public sealed class BoatFit
             RidePoint = new Vector3(seat.center.x, seat.max.y, seat.center.z),
             Length = hull.size.z * Mathf.Abs(boat.transform.lossyScale.z),
             HullDepth = hull.size.y * Mathf.Abs(boat.transform.lossyScale.y),
+            Beam = hull.size.x * Mathf.Abs(boat.transform.lossyScale.x),
             RidingWidth = seat.size.x * Mathf.Abs(boat.transform.lossyScale.x)
         };
     }
