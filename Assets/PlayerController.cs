@@ -64,6 +64,9 @@ public class PlayerController : MonoBehaviour
         characterController = GetComponent<CharacterController>();
         if (Application.isPlaying && GetComponent<GameplayDebugMenu>() == null)
             gameObject.AddComponent<GameplayDebugMenu>();
+        // The sea is lethal: in it, the player is brought back to land.
+        if (Application.isPlaying && GetComponent<SeaRescue>() == null)
+            gameObject.AddComponent<SeaRescue>();
         spriteRenderer = GetComponent<SpriteRenderer>();
         lantern = GetComponent<PlayerLantern>();
         if (lantern == null)

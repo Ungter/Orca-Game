@@ -18,12 +18,12 @@ public static class Interactables
     public static bool Busy => GameplayDebugMenu.BlocksInput || TalkInteractable.IsTalking || DigSite.IsDigging ||
         DolphinWordPuzzle.IsOpen || MagicianEncounter.IsOpen || AlchemistEncounter.IsOpen || CachudCallout.IsOpen ||
         TwentyOneGame.IsOpen || LighthouseStacker.IsOpen || LighthouseFerry.IsSailing ||
-        LighthouseMouseTrap.IsOpen;
+        LighthouseMouseTrap.IsOpen || SeaRescue.IsRescuing;
 
     public static bool BlocksMovement => GameplayDebugMenu.BlocksInput || TalkInteractable.IsTalking || DigSite.IsDigging ||
         DolphinWordPuzzle.IsOpen || MagicianEncounter.BlocksMovement || AlchemistEncounter.IsOpen || CachudCallout.IsOpen ||
         TwentyOneGame.IsOpen || LighthouseStacker.IsOpen || LighthouseFerry.IsSailing ||
-        LighthouseMouseTrap.IsOpen;
+        LighthouseMouseTrap.IsOpen || SeaRescue.IsRescuing;
 
     public static void Add(IInteractable interactable)
     {
