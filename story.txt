@@ -1,0 +1,199 @@
+
+Player enters island from the boat
+
+Orca (physically, Orca Sprite, is near the dock, after the player presses space to jump onto the dock from the boat)
+
+WHO GOES THERE?!?!?!
+
+Player
+
+I am [Insert Name Here (let the player type this, all instances of Player will get replaced by this below this line)] hired by the villagers from islands in this archipelago to investigate this island.
+
+Orca
+
+I used to be a mighty warrior, people once worshiped me as I watched over this island. I dedicated my life to making sure nothing bad happened under my watch but now I am nothing more than a spirit. I do not remember much after becoming a spirit but my colleagues might. Would you like my help with this endeavor?
+
+If [YES] then
+
+Very well! follow me.
+
+If "[NO], I would like to investigate on my own" then Orca just stays at the place and player is free to roam and figure out the game themselves
+
+Very well! Good luck.
+
+---
+
+Player walks to Antelope
+
+AlCaChud
+
+Orca! What happened to you?
+
+Orca 
+
+I have no idea, unfortunately it seems that me and my colleagues all may have fallen.
+
+AlCaChud
+
+But what could have happened?
+
+Orca
+
+I do not know. That is why I am traveling with [Insert Player name here] to uncover the truth.
+
+Player 
+
+Do you remember anything at all?
+
+AlCaChud
+
+Not much, I was walking around the island as normal with my friend. As the day ended he said he was going to the fountain to enjoy the scenary. So I left him for the night, and my attendant seemed to have disappeared today.
+
+Player
+
+Interesting. For now I'll go check the fountain and see if anything was left behind.
+
+AlCaChud
+
+If you find anything, come back and let me know immediately it may help me remember something.
+---
+Player walks to the fountain picks up dice and takes it back to ACC (AlCaChud)
+---
+ACC
+
+I remember these, we used to play games when there was nothing happening on the island. Do you want me to show you? I think playing a round might help me remember something.
+
+Player plays minigame
+
+ACC
+
+Haha! That was fun!
+
+Player
+
+Did you remember anything?
+
+ACC
+
+Unfortunately no but you're way more fun to play with. My attendant always says I'm a real *Jerk* when he lost. Sorry I couldn’t remember anything but if you ever want to play again come back any time!
+
+Orca
+
+That wasn't very helpful but hopefully Iguana will know something more useful. Follow me!
+---
+Player goes to Iguana at Alch house
+---
+Iguana
+
+Orca! Long time no see.
+
+Orca
+
+Yes, it's good to see you again too, Iguana. I’m traveling with [Insert Player Name here] to try and figure out what might have happened to us. Do you remember anything?
+
+Iguana
+
+No, I’ve been looking all around the island too, I've been trying to stur up a special potion that would give us a clue, could you grab them for me, I seem to have dropped them all around the map.
+
+Player
+
+ Interesting. I’m gonna take a closer look at it.
+---
+Player picks up paper and plays the potion hunting minigame
+---
+Player, after winning and talking to the Alch (Iguana) at the house
+
+Here are your potions
+
+Iguana
+
+Thanks! now lets see...
+
+---
+The FELL drawing animation plays on the map (note for the dev (you), this should appear not on the map, but below the actual map on the Clue Letter object the player is holding, we don't want to obstruct their view)
+---
+Iguana
+
+Huh, "fell"? What does that mean?
+
+Player
+
+Hmm, I have no idea but I'll keep this in my pockets for now.
+
+Orca
+
+Agreed. Iguana, we're going to go talk to Panther next and see if he knows anything. Just be warned [Insert Player Name here] Panther can be pretty eccentric at times.
+
+Iguana
+
+Isn’t that the truth! I’ll wait here and see if my attendant comes back.
+
+Orca leads player to Magician's house (front door)
+
+Orca
+
+Magician, I know it's been hard with panther passing away, but do you know anything about what could've happened?
+
+Magician (get rid of the png placeholder, use a big pixel question mark)
+
+I could, but I lost my wand when I passed out in the forest that night, panther's spirit might know where it is, his grave is behind my house... I need that wand to gather some clues.
+
+Orca
+
+...Ok, [player name], lets go check out panther's grave
+
+---
+Player and orca walks to panther's grave stone behind the magician's house"
+---
+
+Panther, [Insert Player name here] and I are going around the island trying to figure out who did this to all of us. Do you know where the Magician's wand is? That could help us.
+
+Panther
+
+Oh sure, last I remembered, we were behind a tree in the forest next to our house, it might be somewhere there.
+
+---
+Player goes to the dig site and grabs the wand, then walks back to the magician's front door to give back the wand
+---
+
+Magician
+
+My wand! Thank you, now every trick needs a trade off to reveal a secret, are you ready?
+
+---
+Player has two choices: YES or NO, YES starts the game right away, NO leaves the convo, player can come back to play the game any time
+---
+
+---
+After the player wins the shell(hat) game
+---
+Magician
+
+The magic is fulfilled, now let thy secret be revealed!
+
+---
+Needs to implement: Magic wand draws in the air with the unity particle engine, spelling out "THIEF", and a rough pixel sketch of the orca statue.
+
+Orca
+
+That's my statue! Lets go check it out! Thank you Magician.
+
+---
+Player goes to Orca Statue and solves the anagram
+---
+
+---
+After the player spells out JEFF THE KILLER
+---
+
+Orca
+
+Jeff??? That's Al CaChud! It's his real name! Wait, he's trying to escape! Quick, go back to the dock, we'll go to the light house to spot him out!
+
+---
+Player goes to the boat, travels to lighthouse, plays the mouse game (needs to implement, change the cube place holder to AlCaChud's sprite
+---
+
+
+
+ 
