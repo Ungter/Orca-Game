@@ -222,7 +222,7 @@ public class TwentyOneGameTests
         // Yes is right exactly when whoever rolls first can force a win.
         bool yesIsRight = TwentyOneMatchTests.Solve(limit)[0];
         Play(true, limit);
-        Assert.AreEqual(TwentyOneGame.Phase.Drat, game.CurrentPhase, "The right answer and rolls should win.");
+        Assert.AreEqual(TwentyOneGame.Phase.Talking, game.CurrentPhase, "The right answer and rolls should win.");
         Assert.AreEqual(yesIsRight, game.OpponentGoesSecond);
     }
 
@@ -518,62 +518,45 @@ public class TwentyOneGameTests
         }
     }
     [Test]
-    public void VictorySaysDratThenHighlightsAndRevealsJerkWithoutRemovingOtherWords()
+    public void AfterAWinAlCachudTalksOverTheTableAndTheAntelopesWordRevealsJerk()
     {
         inventory.RevealClueWords("FELL");
         Play(true);
-        Assert.AreEqual(TwentyOneGame.Phase.Drat, game.CurrentPhase);
+        Assert.AreEqual(TwentyOneGame.Phase.Talking, game.CurrentPhase);
         Assert.IsTrue(game.IsSolved);
+        Assert.IsTrue(TwentyOneGame.IsOpen, "The table stays up behind the conversation.");
+        Assert.AreEqual(Speaker.AlCachud, game.Runner.Npc);
+        Assert.AreEqual(StoryScript.CachudBeaten[0].Text, game.Runner.RawText);
+        Assert.IsFalse(ViewField<GameObject>("diePanel").activeSelf);
         Assert.IsFalse(inventory.HasRevealedWord(TwentyOneGame.Keyword));
-        game.Tick(0f, false, true);
-        Assert.AreEqual(TwentyOneGame.Phase.Drat, game.CurrentPhase, "First press only finishes typing.");
-        game.Tick(0f, false, true);
-        Assert.AreEqual(TwentyOneGame.Phase.Insult, game.CurrentPhase);
-        game.Tick(0.1f);
-        Assert.IsFalse(inventory.HasRevealedWord(TwentyOneGame.Keyword));
+        for (int i = 0; i < 20 && game.Runner.RawText != StoryScript.JerkLine; i++)
+        {
+            game.Tick(0f, false, true);
+            game.Tick(0f, false, true);
+        }
+        Assert.AreEqual(StoryScript.JerkLine, game.Runner.RawText);
+        Assert.IsFalse(inventory.HasRevealedWord(TwentyOneGame.Keyword), "Not before the line is out.");
         game.Tick(10f);
-        Assert.AreEqual("You're a JERK!", game.Speech);
-        Assert.AreEqual("JERK", game.View.KeywordLabel.text);
-        Assert.AreEqual((Color)new Color32(242, 211, 107, 255), game.View.KeywordLabel.color);
         Assert.IsTrue(inventory.HasRevealedWord("JERK"));
         Assert.IsTrue(inventory.HasRevealedWord("FELL"));
         Assert.AreEqual(2, inventory.RevealedWords.Count);
         game.Tick(10f);
         Assert.AreEqual(2, inventory.RevealedWords.Count);
-        game.Tick(0f, false, true);
+        for (int i = 0; i < 20 && TwentyOneGame.IsOpen; i++) game.Tick(0f, false, true);
         Assert.IsFalse(TwentyOneGame.IsOpen);
         Assert.IsFalse(Interactables.BlocksMovement);
     }
 
-    [TestCase(0.75f)]
-    [TestCase(1f)]
-    [TestCase(2f)]
-    public void VictoryTextUsesTheSnappedFontWidthAtEachCanvasScale(float scale)
+    [Test]
+    public void LeavingTheWinConversationEarlyStillKeepsJerkAndALaterWinIsShort()
     {
         Play(true);
-        game.Tick(0f, false, true);
-        game.Tick(0f, false, true);
-        game.Tick(10f);
-        var keyword = game.View.KeywordLabel;
-        var canvas = keyword.canvas;
-        canvas.GetComponent<CanvasScaler>().enabled = false;
-        canvas.scaleFactor = scale;
-        game.Tick(0f);
-        var prefix = ViewField<PixelText>("prefix");
-        var suffix = ViewField<PixelText>("suffix");
-        Assert.AreEqual("You're a JERK!", prefix.text + keyword.text + suffix.text);
-        float pixel = prefix.PixelSize();
-        Assert.AreEqual(PixelFont.Measure(prefix.text) * pixel, prefix.rectTransform.rect.width, 0.001f);
-        Assert.AreEqual(PixelFont.Measure(keyword.text) * pixel, keyword.rectTransform.rect.width, 0.001f);
-        Assert.AreEqual(PixelFont.Measure(suffix.text) * pixel, suffix.rectTransform.rect.width, 0.001f);
-        float prefixRight = prefix.rectTransform.anchoredPosition.x + prefix.rectTransform.rect.xMax;
-        float wordLeft = keyword.rectTransform.anchoredPosition.x + keyword.rectTransform.rect.xMin;
-        float wordRight = keyword.rectTransform.anchoredPosition.x + keyword.rectTransform.rect.xMax;
-        float suffixLeft = suffix.rectTransform.anchoredPosition.x + suffix.rectTransform.rect.xMin;
-        Assert.AreEqual(PixelFont.Spacing * pixel, wordLeft - prefixRight, 0.001f);
-        Assert.AreEqual(PixelFont.Spacing * pixel, suffixLeft - wordRight, 0.001f);
-        Assert.AreEqual(TextAnchor.MiddleLeft, prefix.alignment);
-        Assert.AreEqual(TextAnchor.MiddleLeft, keyword.alignment);
+        game.Close();
+        Assert.IsTrue(inventory.HasRevealedWord("JERK"));
+        Play(true);
+        Assert.AreEqual(TwentyOneGame.Phase.Talking, game.CurrentPhase);
+        Assert.AreEqual(StoryScript.CachudBeatenAgain[0].Text, game.Runner.RawText);
+        Assert.AreEqual(1, game.Runner.LineCount);
     }
 
     [Test]
@@ -625,7 +608,7 @@ public class TwentyOneGameTests
         Set(actor, "diceGame", game);
         Assert.IsTrue(actor.TryTalk());
         actor.Tick(CachudCallout.PanDuration);
-        Assert.AreEqual(CachudCallout.Ready, actor.CurrentLine);
+        Assert.AreEqual(StoryScript.CachudRematch[0].Text, actor.CurrentLine);
         actor.Tick(0f, true);
         actor.Tick(0f, true);
         Assert.IsFalse(TwentyOneGame.IsOpen);
@@ -689,7 +672,7 @@ public class TwentyOneGameTests
         game.Tick(TwentyOneGame.RulesDuration);
         for (int i = 0; i < 5000; i++)
         {
-            if (game.CurrentPhase == TwentyOneGame.Phase.Lost || game.CurrentPhase == TwentyOneGame.Phase.Drat) return;
+            if (game.CurrentPhase == TwentyOneGame.Phase.Lost || game.CurrentPhase == TwentyOneGame.Phase.Talking) return;
             int best = TwentyOneMatchTests.WinningRoll(wins, game.Match.Total);
             int desired = best > 0 ? best : 1;
             bool stop = game.CurrentPhase == TwentyOneGame.Phase.PlayerRolling && game.Face == desired;

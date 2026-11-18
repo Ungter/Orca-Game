@@ -8,11 +8,11 @@ using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.TestTools;
 
-// Real E/Space/R/Esc presses through Update, not just calls to the game logic.
+// Real E/Esc presses through Update, not just calls to the ferry's logic.
 public class LighthouseInputTests
 {
     private GameObject root;
-    private LighthouseStacker stacker;
+    private LighthouseIsland lighthouse;
     private LighthouseFerry ferry;
     private PlayerController player;
     private Camera cameraView;
@@ -38,12 +38,12 @@ public class LighthouseInputTests
         keyboard = InputSystem.AddDevice<Keyboard>();
         InputSystem.onBeforeUpdate += FeedInput;
         root = new GameObject("Lighthouse input test");
-        stacker = root.AddComponent<LighthouseStacker>();
+        lighthouse = root.AddComponent<LighthouseIsland>();
         Transform tower = Child("Supplied tower", new Vector3(50f, 0f, 0f));
-        Transform entry = Child("Stacking entrance", new Vector3(50f, 0f, 0f));
+        Transform entry = Child("Tower entrance", new Vector3(50f, 0f, 0f));
         Transform pier = Child("Lighthouse pier", new Vector3(40f, 0f, 0f));
         Transform berth = Child("Ferry berth", new Vector3(36f, 0f, 0f));
-        stacker.Configure(tower, entry, pier, berth);
+        lighthouse.Configure(tower, entry, pier, berth);
         GameObject visitor = Child("Test player", new Vector3(-40f, 0f, 0f)).gameObject;
         visitor.tag = "Player";
         visitor.AddComponent<SpriteRenderer>().sprite = AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Sprites/Player_Front_Idle.png");
@@ -66,7 +66,6 @@ public class LighthouseInputTests
     {
         InputSystem.onBeforeUpdate -= FeedInput;
         if (keyboard != null && keyboard.added) InputSystem.RemoveDevice(keyboard);
-        stacker?.Close();
         ferry?.Cancel();
         if (root != null) Object.DestroyImmediate(root);
         if (settings != null)
@@ -100,40 +99,7 @@ public class LighthouseInputTests
     }
 
     [UnityTest]
-    public IEnumerator SpaceStacksOncePerPressAwardsTenAndKeepsPlaying()
-    {
-        LighthouseTestProgress.Solve(root);
-        ArriveAtLighthouse();
-        player.PlaceOnGround(stacker.Entrance);
-        int wins = 0;
-        stacker.Won += () => wins++;
-        keys = new KeyboardState(Key.E);
-        yield return NextFrame();
-        Assert.IsTrue(LighthouseStacker.IsOpen);
-        Assert.IsTrue(Interactables.BlocksMovement);
-        for (int section = 1; section <= 12; section++)
-        {
-            keys = new KeyboardState();
-            yield return NextFrame();
-            stacker.Match.Tick(-stacker.Match.Offset / stacker.Match.Speed);
-            keys = new KeyboardState(Key.Space);
-            yield return NextFrame();
-            Assert.AreEqual(section, stacker.Match.Score, "Space did not place section " + section);
-            Assert.AreEqual(section >= 10, stacker.HasWon);
-            yield return NextFrame();
-            Assert.AreEqual(section, stacker.Match.Score, "Holding Space placed a second section.");
-        }
-        Assert.AreEqual(1, wins);
-        keys = new KeyboardState(Key.Escape);
-        yield return NextFrame();
-        Assert.IsFalse(LighthouseStacker.IsOpen);
-        Assert.IsFalse(PauseMenu.IsPaused);
-        Assert.IsFalse(Interactables.Busy);
-        Assert.IsTrue(cameraView.GetComponent<CameraFollow>().enabled);
-    }
-
-    [UnityTest]
-    public IEnumerator DisablingAnActivityMidRunReleasesControls()
+    public IEnumerator DisablingTheFerryMidRunReleasesControls()
     {
         LighthouseTestProgress.Solve(root);
         player.enabled = false;
@@ -144,63 +110,24 @@ public class LighthouseInputTests
         Assert.IsFalse(LighthouseFerry.IsSailing);
         Assert.IsFalse(player.enabled);
         Assert.IsFalse(player.GetComponent<CharacterController>().enabled);
-        player.enabled = true;
-        player.GetComponent<CharacterController>().enabled = true;
-        Assert.IsTrue(stacker.Begin(player.transform, cameraView));
-        stacker.enabled = false;
-        yield return NextFrame();
-        Assert.IsFalse(LighthouseStacker.IsOpen);
         Assert.IsFalse(Interactables.Busy);
-        Assert.IsTrue(cameraView.GetComponent<CameraFollow>().enabled);
     }
 
     [UnityTest]
-    public IEnumerator MissingShowsFailureAndRStartsAFreshRun()
-    {
-        LighthouseTestProgress.Solve(root);
-        ArriveAtLighthouse();
-        player.PlaceOnGround(stacker.Entrance);
-        keys = new KeyboardState(Key.E);
-        yield return NextFrame();
-        keys = new KeyboardState(Key.Space);
-        yield return NextFrame();
-        Assert.IsTrue(stacker.Match.Failed);
-        keys = new KeyboardState(Key.R);
-        yield return NextFrame();
-        Assert.IsFalse(stacker.Match.Failed);
-        Assert.AreEqual(0, stacker.Match.Score);
-        Assert.IsTrue(LighthouseStacker.IsOpen);
-    }
-
-    [UnityTest]
-    public IEnumerator LockedEPressesDoNothingAndSolvingRevealsTheStartMarker()
+    public IEnumerator LockedEPressesDoNothingAndTheTowerHasNothingToStart()
     {
         keys = new KeyboardState(Key.E);
         yield return NextFrame();
         Assert.IsFalse(LighthouseFerry.IsSailing);
-        player.PlaceOnGround(stacker.Entrance);
-        keys = new KeyboardState();
-        yield return NextFrame();
-        keys = new KeyboardState(Key.E);
-        yield return NextFrame();
-        Assert.IsFalse(LighthouseStacker.IsOpen);
-        LighthouseStartMarker marker = root.GetComponentInChildren<LighthouseStartMarker>(true);
-        Assert.IsNotNull(marker);
-        Assert.IsFalse(marker.gameObject.activeSelf);
-        keys = new KeyboardState();
         LighthouseTestProgress.Solve(root);
+        ArriveAtLighthouse();
+        player.PlaceOnGround(lighthouse.Entrance);
+        keys = new KeyboardState();
         yield return NextFrame();
-        Assert.IsTrue(marker.gameObject.activeSelf);
-        Assert.Less(Vector3.Distance(marker.transform.position, stacker.Entrance), 0.001f);
-        Assert.AreEqual(2, marker.GetComponentsInChildren<MeshRenderer>().Length);
-        Assert.IsEmpty(marker.GetComponentsInChildren<Collider>(), "The marker must not obstruct walking.");
         keys = new KeyboardState(Key.E);
         yield return NextFrame();
-        Assert.IsTrue(LighthouseStacker.IsOpen);
-        Assert.IsFalse(marker.gameObject.activeSelf);
-        keys = new KeyboardState(Key.Escape);
-        yield return NextFrame();
-        Assert.IsTrue(marker.gameObject.activeSelf);
+        Assert.IsFalse(Interactables.Busy, "No game starts at the tower's foot.");
+        Assert.IsTrue(player.enabled);
     }
 
     private void ArriveAtLighthouse()

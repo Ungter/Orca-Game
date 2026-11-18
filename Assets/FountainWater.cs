@@ -266,7 +266,14 @@ public class FountainWater : MonoBehaviour
                 Launch(tip);
             }
         }
-        if (pool != null)
+        // A script reload keeps the pool renderer but not its property block (not serializable).
+        if (pool != null && poolBlock == null && poolFrames != null && poolFrames.Length > 0)
+        {
+            poolBlock = new MaterialPropertyBlock();
+            poolBlock.SetVector(BaseMapStId, new Vector4(1f, 1f, 0f, 0f));
+            poolFrame = -1;
+        }
+        if (pool != null && poolBlock != null && poolFrames != null && poolFrames.Length == FountainWaterArt.FrameCount)
         {
             // The texture only changes ten times a second; don't re-set the block every frame.
             int frame = (int)(Time.time * PoolFramesPerSecond) % FountainWaterArt.FrameCount;

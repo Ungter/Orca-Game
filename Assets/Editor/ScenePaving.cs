@@ -11,6 +11,9 @@ using UnityEngine.SceneManagement;
 // from every top edge down to the ground. The map's own slabs get this when the model imports
 // (IslandLampLights), but these live in the scene, so their meshes are baked into
 // Assets/Generated/<group> and rebuilt whenever a slab in the group moves, is added or removed.
+// Slabs may sit in sub-groups, and the group itself anywhere in the hierarchy. A generated mesh is
+// only deleted once nothing in the scene uses it, so moving slabs out of (or around in) the group
+// never leaves them without a mesh; a slab that has lost its mesh is paved again from a cube.
 [InitializeOnLoad]
 public static class ScenePaving
 {
@@ -134,7 +137,9 @@ public static class ScenePaving
         foreach (MeshFilter slab in slabs)
         {
             string name = UniqueName(slab.name, names);
-            Mesh paved = UnityEngine.Object.Instantiate(slab.sharedMesh);
+            // A slab whose mesh asset was deleted would draw nothing: pave a cube in its place.
+            Mesh source = slab.sharedMesh != null ? slab.sharedMesh : Resources.GetBuiltinResource<Mesh>("Cube.fbx");
+            Mesh paved = UnityEngine.Object.Instantiate(source);
             paved.name = name + " Paving";
             paved.uv = SidewalkSpill.MetreUVs(paved, toMetres * slab.transform.localToWorldMatrix);
             paved.RecalculateTangents();
@@ -145,6 +150,11 @@ public static class ScenePaving
                 changed = true;
             }
             changed |= Paint(slab.GetComponent<MeshRenderer>(), material);
+            if (slab.TryGetComponent(out MeshCollider solid) && solid.sharedMesh == null)
+            {
+                solid.sharedMesh = paved;
+                changed = true;
+            }
         }
 
         var spills = new HashSet<Transform>();
@@ -195,10 +205,20 @@ public static class ScenePaving
                 changed = true;
             }
         }
+        // Generated meshes nothing uses any more; one a scene object still shows or collides with
+        // (a slab moved out of the group) stays.
+        var inScene = new HashSet<string>();
+        foreach (GameObject root in group.gameObject.scene.GetRootGameObjects())
+        {
+            foreach (MeshFilter filter in root.GetComponentsInChildren<MeshFilter>(true))
+                if (filter.sharedMesh != null) inScene.Add(AssetDatabase.GetAssetPath(filter.sharedMesh));
+            foreach (MeshCollider collider in root.GetComponentsInChildren<MeshCollider>(true))
+                if (collider.sharedMesh != null) inScene.Add(AssetDatabase.GetAssetPath(collider.sharedMesh));
+        }
         foreach (string guid in AssetDatabase.FindAssets("t:Mesh", new[] { folder }))
         {
             string path = AssetDatabase.GUIDToAssetPath(guid);
-            if (!used.Contains(path))
+            if (!used.Contains(path) && !inScene.Contains(path))
             {
                 AssetDatabase.DeleteAsset(path);
             }
@@ -294,16 +314,18 @@ public static class ScenePaving
         return existing;
     }
 
+    // Every slab in the group, sub-groups included (but not the spills), even one whose mesh is
+    // missing, so it can be paved again.
     private static List<MeshFilter> Slabs(Transform group)
     {
         var slabs = new List<MeshFilter>();
-        foreach (Transform child in group)
+        foreach (MeshFilter filter in group.GetComponentsInChildren<MeshFilter>(true))
         {
-            if (child.name.StartsWith(SpillPrefix, StringComparison.Ordinal))
+            if (filter.transform == group || filter.name.StartsWith(SpillPrefix, StringComparison.Ordinal))
             {
                 continue;
             }
-            if (child.TryGetComponent(out MeshFilter filter) && filter.sharedMesh != null && child.TryGetComponent(out MeshRenderer _))
+            if (filter.TryGetComponent(out MeshRenderer _))
             {
                 slabs.Add(filter);
             }
@@ -326,7 +348,7 @@ public static class ScenePaving
             hash.Append(slab.gameObject.activeSelf ? 1 : 0);
             Matrix4x4 pose = slab.transform.localToWorldMatrix;
             hash.Append(ref pose);
-            Bounds bounds = slab.sharedMesh.bounds;
+            Bounds bounds = slab.sharedMesh != null ? slab.sharedMesh.bounds : default;
             hash.Append(ref bounds);
         }
         return hash;
@@ -348,9 +370,12 @@ public static class ScenePaving
             }
             foreach (GameObject root in scene.GetRootGameObjects())
             {
-                if (Array.IndexOf(GroupNames, root.name) >= 0)
+                foreach (Transform candidate in root.GetComponentsInChildren<Transform>(true))
                 {
-                    yield return root.transform;
+                    if (Array.IndexOf(GroupNames, candidate.name) >= 0)
+                    {
+                        yield return candidate;
+                    }
                 }
             }
         }

@@ -70,19 +70,19 @@ public class AlchemistEncounterTests
         Assert.IsTrue(AlchemistEncounter.IsOpen);
         Assert.IsTrue(Interactables.Busy);
         Assert.IsTrue(Interactables.BlocksMovement);
-        foreach (string line in AlchemistEncounter.Introduction)
+        foreach (DialogueLine line in StoryScript.IguanaMeeting)
         {
             RunUntil(AlchemistEncounter.Phase.Waiting);
-            Assert.AreEqual(line, encounter.CurrentLine);
+            Assert.AreEqual(line.Text, encounter.CurrentLine);
+            Assert.AreEqual(Speaker.Iguana, encounter.Runner.Npc);
             Assert.IsFalse(inventory.Contains(AlchemistEncounter.LetterItemName));
             Advance();
         }
-        Assert.AreEqual(AlchemistEncounter.LetterGift, encounter.CurrentLine);
+        Assert.AreEqual(StoryScript.LetterGiven[0].Text, encounter.CurrentLine);
         Assert.IsTrue(encounter.HasGivenLetter);
         Assert.AreEqual(AlchemistEncounter.LetterItemName, inventory.GetItem(0));
         Assert.AreEqual(letterSprite, inventory.GetSprite(0));
-        RunUntil(AlchemistEncounter.Phase.Waiting);
-        Advance();
+        ReadThrough();
         Assert.AreEqual(AlchemistEncounter.Phase.LeavingRoom, encounter.CurrentPhase);
         RunUntil(AlchemistEncounter.Phase.Idle);
         Assert.IsFalse(AlchemistEncounter.IsOpen);
@@ -91,10 +91,23 @@ public class AlchemistEncounterTests
 
         encounter.Begin();
         RunUntil(AlchemistEncounter.Phase.Waiting);
-        Assert.AreEqual(AlchemistEncounter.Farewell, encounter.CurrentLine);
+        Assert.AreEqual(StoryScript.IguanaFarewell[0].Text, encounter.CurrentLine, "Without a hunt to check, she just says goodbye.");
         Advance();
         RunUntil(AlchemistEncounter.Phase.Idle);
         Assert.AreEqual(1, inventory.ItemCount(), "The letter is only given once.");
+    }
+
+    [Test]
+    public void WithOrcaAlongIguanaGreetsHimFirst()
+    {
+        StoryDirector.SetFollowing(true);
+        try
+        {
+            encounter.Begin();
+            Assert.AreEqual("Orca! Long time no see.", encounter.CurrentLine);
+            CollectionAssert.AreEqual(new[] { Speaker.Orca, Speaker.Player }, encounter.Runner.RightSide);
+        }
+        finally { StoryDirector.SetFollowing(false); }
     }
 
     [Test]
@@ -102,7 +115,7 @@ public class AlchemistEncounterTests
     {
         for (int i = 0; i < inventory.SlotCount(); i++) inventory.TryAdd("Filler " + i);
         HearIntroduction();
-        Assert.AreEqual(AlchemistEncounter.LetterNoRoom, encounter.CurrentLine);
+        Assert.AreEqual(StoryScript.LetterNoRoom[0].Text, encounter.CurrentLine);
         Assert.IsFalse(encounter.HasGivenLetter);
         Assert.IsFalse(inventory.Contains(AlchemistEncounter.LetterItemName));
         Advance();
@@ -110,7 +123,7 @@ public class AlchemistEncounterTests
 
         inventory.TryRemove("Filler 0");
         encounter.Begin();
-        Assert.AreEqual(AlchemistEncounter.LetterGift, encounter.CurrentLine);
+        Assert.AreEqual(StoryScript.LetterGiven[0].Text, encounter.CurrentLine);
         Assert.IsTrue(encounter.HasGivenLetter);
         Assert.IsTrue(inventory.Contains(AlchemistEncounter.LetterItemName));
     }
@@ -125,7 +138,7 @@ public class AlchemistEncounterTests
         Assert.AreEqual(0, encounter.VisibleCharacters);
         Advance();
         Assert.AreEqual(AlchemistEncounter.Phase.Waiting, encounter.CurrentPhase);
-        Assert.AreEqual(AlchemistEncounter.Introduction[0], encounter.CurrentLine);
+        Assert.AreEqual(StoryScript.IguanaMeeting[0].Text, encounter.CurrentLine);
         encounter.Tick(0.01f, false, true);
         Assert.AreEqual(AlchemistEncounter.Phase.LeavingRoom, encounter.CurrentPhase);
         RunUntil(AlchemistEncounter.Phase.Idle);
@@ -133,18 +146,28 @@ public class AlchemistEncounterTests
         Assert.IsFalse(encounter.HasGivenLetter);
         Assert.IsFalse(inventory.Contains(AlchemistEncounter.LetterItemName));
         encounter.Begin();
-        Assert.AreEqual(AlchemistEncounter.Introduction[0], encounter.CurrentLine);
+        Assert.AreEqual(StoryScript.IguanaMeeting[0].Text, encounter.CurrentLine);
     }
 
     private void HearIntroduction()
     {
         encounter.Begin();
-        foreach (string _ in AlchemistEncounter.Introduction)
+        foreach (DialogueLine _ in StoryScript.IguanaMeeting)
         {
             RunUntil(AlchemistEncounter.Phase.Waiting);
             Advance();
         }
         RunUntil(AlchemistEncounter.Phase.Waiting);
+    }
+
+    private void ReadThrough()
+    {
+        for (int i = 0; i < 50 && (encounter.CurrentPhase == AlchemistEncounter.Phase.Typing ||
+            encounter.CurrentPhase == AlchemistEncounter.Phase.Waiting); i++)
+        {
+            if (encounter.CurrentPhase == AlchemistEncounter.Phase.Typing) Advance();
+            Advance();
+        }
     }
 
     private void Advance() => encounter.Tick(0.01f, true);

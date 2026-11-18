@@ -102,6 +102,32 @@ public class ScenePavingTests
         Assert.IsNotNull(AssetDatabase.LoadAssetAtPath<Mesh>(Folder + "/First Paving.asset"));
     }
 
+    [Test]
+    public void SlabsMovedIntoASubGroupKeepTheirPavingAndALostMeshIsPavedAgain()
+    {
+        Transform first = AddSlab("First", new Vector3(0f, 0.2f, 0f));
+        ScenePaving.Pave(group, pavement, new[] { ground }, Folder);
+        var sub = new GameObject("Sub group").transform;
+        sub.SetParent(group, false);
+        first.SetParent(sub, true);
+        ScenePaving.Pave(group, pavement, new[] { ground }, Folder);
+        Assert.IsNotNull(first.GetComponent<MeshFilter>().sharedMesh, "Grouping must not delete the slab's mesh.");
+        Assert.IsNotNull(AssetDatabase.LoadAssetAtPath<Mesh>(Folder + "/First Paving.asset"));
+        Assert.IsNotNull(group.Find("Sidewalk Spill (First)"));
+
+        first.SetParent(null, true);
+        try
+        {
+            ScenePaving.Pave(group, pavement, new[] { ground }, Folder);
+            Assert.IsNotNull(first.GetComponent<MeshFilter>().sharedMesh, "Still shown by a slab outside the group, so kept.");
+        }
+        finally { first.SetParent(sub, true); }
+
+        first.GetComponent<MeshFilter>().sharedMesh = null;
+        ScenePaving.Pave(group, pavement, new[] { ground }, Folder);
+        Assert.IsNotNull(first.GetComponent<MeshFilter>().sharedMesh, "A slab that lost its mesh is paved again.");
+    }
+
     // A 4 x 1 x 10 m box in the group.
     private Transform AddSlab(string name, Vector3 position)
     {

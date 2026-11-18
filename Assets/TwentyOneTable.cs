@@ -316,7 +316,7 @@ public sealed class TwentyOneTable : System.IDisposable
         if (thrown) PlaceDie(game.Match.TurnCount, game.Match.LastMover == TwentyOneMatch.Side.Player,
             game.Match.LastRoll, game.ThrowProgress);
 
-        float shake = game.CurrentPhase == TwentyOneGame.Phase.Drat ? Mathf.Sin(game.PhaseTime * 25f) * 0.02f : 0f;
+        float shake = game.CurrentPhase == TwentyOneGame.Phase.Talking && game.PhaseTime < 0.6f ? Mathf.Sin(game.PhaseTime * 25f) * 0.02f : 0f;
         opponent.transform.localPosition = OpponentOffset + Vector3.right * shake;
     }
 

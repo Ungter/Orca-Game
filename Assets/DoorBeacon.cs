@@ -4,7 +4,8 @@ using UnityEngine.SceneManagement;
 
 // A soft white column of light rising from the foot of each door the player can knock on
 // (alchDoor, magDoor, chudDoor), brightest at the ground and fading out upwards, so the doors
-// read as interactable from across the island. It thins out as the player walks up and is gone
+// read as interactable from across the island. They only light once the player has turned down
+// Orca's help at the dock (StoryDirector.ExploringAlone); with Orca along, he shows the way. It thins out as the player walks up and is gone
 // by the time the door's own [E] prompt shows. It also fades away while a conversation or
 // cinematic is running, and Al Cachud's goes out once he has come out of his door (from then on
 // E talks to him, not the door). Sized from the door, so it fits whatever scale the map is at.
@@ -151,6 +152,7 @@ public class DoorBeacon : MonoBehaviour
     // Shown while the door can be knocked on and nothing else holds the screen.
     private bool Wanted()
     {
+        if (!StoryDirector.ExploringAlone) return false;
         if (door == null || !door.gameObject.activeInHierarchy || Interactables.Busy) return false;
         if (door.name != CachudDoorway.DoorName) return true;
         if (!lookedForCachud)

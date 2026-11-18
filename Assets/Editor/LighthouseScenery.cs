@@ -59,8 +59,8 @@ public static partial class IslandScenery
     private const float HillSink = 0.08f;
     private const float HedgeMargin = 0.3f;
 
-    // Kept clear for the player: around where the ferry lands and the stacking game starts, and
-    // a lane between the two.
+    // Kept clear for the player: around where the ferry lands and the tower's foot, and a lane
+    // between the two.
     private const float EntranceClear = 6f, LandingClear = 5f, LaneClear = 2f;
 
     [MenuItem("Tools/Orca/Regrow Lighthouse Scenery")]
@@ -73,8 +73,8 @@ public static partial class IslandScenery
     {
         if (EditorApplication.isPlayingOrWillChangePlaymode) return "[IslandScenery] Not in play mode: nothing would be kept.";
         GameObject island = GameObject.Find(WorldModelSetup.IslandName);
-        LighthouseStacker stacker = island != null ? island.GetComponent<LighthouseStacker>() : null;
-        if (stacker == null) return "[IslandScenery] No " + WorldModelSetup.IslandName + " in the open scene.";
+        LighthouseIsland lighthouse = island != null ? island.GetComponent<LighthouseIsland>() : null;
+        if (lighthouse == null) return "[IslandScenery] No " + WorldModelSetup.IslandName + " in the open scene.";
 
         MeshCollider grass = null;
         var hedges = new List<MeshFilter>();
@@ -89,7 +89,7 @@ public static partial class IslandScenery
             else if (Array.Exists(LighthouseBuildings, prefix => name.StartsWith(prefix, StringComparison.Ordinal)) && part.TryGetComponent(out Renderer building)) buildings.Add(building);
         }
         if (grass == null || !grass.TryGetComponent(out Renderer grassRenderer)) return "[IslandScenery] No " + LighthouseGrass + " grass on the lighthouse island.";
-        Transform tower = LighthouseTower(stacker);
+        Transform tower = LighthouseTower(lighthouse);
         if (tower != null) buildings.AddRange(tower.GetComponentsInChildren<Renderer>(true));
 
         Undo.SetCurrentGroupName("Regrow Lighthouse Scenery");
@@ -106,7 +106,7 @@ public static partial class IslandScenery
         bool[,] hedgeCells = grid.Rasterize(hedges);
         bool[,] lampCells = grid.Rasterize(lamps);
         List<Vector3> lampSpots = grid.Clumps(lampCells, top);
-        Vector3 entrance = stacker.Entrance, landing = stacker.PierLanding;
+        Vector3 entrance = lighthouse.Entrance, landing = lighthouse.PierLanding;
 
         // Hills.
         var random = new System.Random(LighthouseSeed);
@@ -193,11 +193,11 @@ public static partial class IslandScenery
             counts[6] + " flowers and " + counts[7] + " boulders. " + patches.Count + " meshes, " + (vertices + (hillMesh != null ? hillMesh.vertexCount : 0)) + " vertices.";
     }
 
-    // The tower the stacking game hides: LighthouseStacker's own reference to it.
-    internal static Transform LighthouseTower(LighthouseStacker stacker)
+    // The island's tower: LighthouseIsland's own reference to it.
+    internal static Transform LighthouseTower(LighthouseIsland lighthouse)
     {
-        var tower = new SerializedObject(stacker).FindProperty("originalTower").objectReferenceValue as Transform;
-        return tower != null ? tower : stacker.transform.Find("Supplied lighthouse");
+        Transform tower = lighthouse.Tower;
+        return tower != null ? tower : lighthouse.transform.Find("Supplied lighthouse");
     }
 
     private static float FlatDistance(Vector3 offset)

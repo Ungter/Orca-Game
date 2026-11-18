@@ -10,7 +10,7 @@ using UnityEngine;
 // coast is wherever the ground (or a dock, a pier) is the first thing under the player's feet
 // rather than that plane. While the player stands on land, where they stand is remembered every so
 // often, so the way back is always somewhere they have just been. Nothing happens while the
-// player isn't walking themselves (the ferry, the opening voyage, the lighthouse's game, debug
+// player isn't walking themselves (the ferry, the opening voyage, debug
 // fly): their character controller is off then.
 [DisallowMultipleComponent]
 [RequireComponent(typeof(PlayerController))]
@@ -53,7 +53,7 @@ public sealed class SeaRescue : MonoBehaviour
     private Collider ocean;
     private float seaLevel;
     private Transform lighthouseIsland;
-    private LighthouseStacker lighthouse;
+    private LighthouseIsland lighthouse;
     private Phase phase;
     private float phaseTime;
     private float fade;
@@ -112,7 +112,7 @@ public sealed class SeaRescue : MonoBehaviour
         foreach (GameObject root in gameObject.scene.GetRootGameObjects())
         {
             if (root.name == "Lighthouse island") lighthouseIsland = root.transform;
-            if (lighthouse == null) lighthouse = root.GetComponentInChildren<LighthouseStacker>(true);
+            if (lighthouse == null) lighthouse = root.GetComponentInChildren<LighthouseIsland>(true);
         }
         return true;
     }

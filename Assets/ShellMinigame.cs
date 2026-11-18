@@ -18,7 +18,7 @@ public class ShellMinigame : MonoBehaviour
     private const string ItemName = "Clue Letter 2";
     private const string LossMessage = "OUTPLAYED BY A HAT.";
 
-    [SerializeField] private string victoryKeyword = "Jerk";
+    [SerializeField] private string victoryKeyword = "Thief";
 
     private static readonly Color Ink = new Color32(60, 42, 30, 255);
     private static readonly Color Gold = new Color32(242, 211, 107, 255);
@@ -95,7 +95,10 @@ public class ShellMinigame : MonoBehaviour
     private int swapB;
     private int previousA = -1;
     private int previousB = -1;
+    // The hat picked with A/D in the window (the outdoor stage sets it from the nearest hat).
     private int hoveredHat = -1;
+    // Where the A/D selection starts when a guess opens: the middle, then the last hat chosen.
+    private float selectionX = CanvasWidth * 0.5f;
     private float keywordHoldElapsed;
     private int targetPanther;
     private bool started;
@@ -125,7 +128,7 @@ public class ShellMinigame : MonoBehaviour
     public string Instructions => phase == Phase.Reveal ? PantherCount == 1 ? "Follow this hat through every swap." : "Find BLUE PANTHER first, then YELLOW PANTHER." :
         phase == Phase.Shuffle ? $"{ShuffleMoves - movesLeft}/{ShuffleMoves} swaps" :
         phase == Phase.Guess ? $"{targetPanther}/{PantherCount} found. " +
-            (worldMode ? "Walk up to the requested panther's hat." : "Click the requested panther's hat.") :
+            (worldMode ? "Walk up to the requested panther's hat." : "Pick the requested panther's hat with A and D.") :
         phase == Phase.Found ? "Next, find YELLOW PANTHER." :
         phase == Phase.RoundWon ? $"Next: {RoundHats[roundIndex + 1]} hats. Faster swaps." : "";
     public string ActionLabel => phase == Phase.RoundWon ? "NEXT ROUND" : "RETRY ROUND";
@@ -137,6 +140,10 @@ public class ShellMinigame : MonoBehaviour
     public bool Handles(string itemName) => itemName == ItemName;
 
     public bool IsSolved => phase == Phase.Won;
+    // The hat the A/D selection is on (-1 for none).
+    public int SelectedHat => AcceptsGuess && hoveredHat >= 0 && hoveredHat < ActiveHatCount && !hats[hoveredHat].revealed ? hoveredHat : -1;
+    // The win has been on screen long enough to read; the magician takes over from here.
+    public bool WinShown => phase == Phase.Won && phaseElapsed >= ResultSeconds;
 
     public bool DebugComplete()
     {
@@ -159,14 +166,15 @@ public class ShellMinigame : MonoBehaviour
 
     public bool ShouldClose { get; private set; }
 
-    // Outdoors the player walks up to a hat and presses E; the letter inspection uses the mouse.
+    // Outdoors the player walks up to a hat and presses E; in the window A/D pick a hat and Enter
+    // (or Space or E) lifts it.
     public string Controls
     {
         get
         {
-            string act = worldMode ? "[E]" : "[CLICK]";
+            string act = worldMode ? "[E]" : "[ENTER]";
             string close = worldMode ? "[ESC] END" : "[ESC] CLOSE";
-            return phase == Phase.Guess ? $"{act} CHOOSE A HAT    {close}" :
+            return phase == Phase.Guess ? (worldMode ? $"{act} CHOOSE A HAT    {close}" : $"[A/D] PICK A HAT    {act} LIFT IT    {close}") :
                 phase == Phase.RoundWon ? $"{act} NEXT ROUND    {close}" :
                 phase == Phase.Lost ? $"{act} RETRY ROUND    {close}" : close;
         }
@@ -295,16 +303,67 @@ public class ShellMinigame : MonoBehaviour
             UpdateVisuals();
             return;
         }
-        hoveredHat = -1;
-        if (Mouse.current != null &&
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                surface, Mouse.current.position.ReadValue(), null, out Vector2 point) &&
-            surface.rect.Contains(point))
+        Keyboard keyboard = Keyboard.current;
+        if (keyboard != null)
         {
-            if (phase == Phase.Guess) hoveredHat = HatAt(point);
-            if (Mouse.current.leftButton.wasPressedThisFrame) HandleClick(point);
+            bool left = keyboard.aKey.wasPressedThisFrame || keyboard.leftArrowKey.wasPressedThisFrame;
+            bool right = keyboard.dKey.wasPressedThisFrame || keyboard.rightArrowKey.wasPressedThisFrame;
+            bool confirm = keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame ||
+                keyboard.spaceKey.wasPressedThisFrame || keyboard.eKey.wasPressedThisFrame;
+            HandleKeys(left ? -1 : right ? 1 : 0, confirm);
         }
         UpdateVisuals();
+    }
+
+    // The window's controls: A/D (or the arrows) move between the hats still down, and Enter, Space
+    // or E lifts the picked one, or goes on to the next round (or a retry) once the result has shown.
+    public void HandleKeys(int move, bool confirm)
+    {
+        if (worldMode) return;
+        if (phase == Phase.Guess)
+        {
+            if (SelectedHat < 0) SelectNearest(selectionX);
+            if (move != 0) MoveSelection(move);
+            if (confirm) ChooseHat(SelectedHat);
+        }
+        else if (confirm && CanContinue) ContinueRound();
+    }
+
+    // To the next hat still down to the left (-1) or right (+1) on screen; stays put at the end.
+    public bool MoveSelection(int direction)
+    {
+        if (!AcceptsGuess || direction == 0) return false;
+        int from = SelectedHat;
+        if (from < 0) return SelectNearest(selectionX);
+        int best = -1;
+        float bestGap = float.MaxValue;
+        for (int i = 0; i < ActiveHatCount; i++)
+        {
+            if (i == from || hats[i].revealed) continue;
+            float gap = (hats[i].x - hats[from].x) * Mathf.Sign(direction);
+            if (gap <= 0f || gap >= bestGap) continue;
+            bestGap = gap;
+            best = i;
+        }
+        if (best < 0) return false;
+        hoveredHat = best;
+        return true;
+    }
+
+    private bool SelectNearest(float x)
+    {
+        int best = -1;
+        float bestGap = float.MaxValue;
+        for (int i = 0; i < ActiveHatCount; i++)
+        {
+            if (hats[i].revealed) continue;
+            float gap = Mathf.Abs(hats[i].x - x);
+            if (gap >= bestGap) continue;
+            bestGap = gap;
+            best = i;
+        }
+        hoveredHat = best;
+        return best >= 0;
     }
 
     private void Tick(float deltaTime)
@@ -364,37 +423,10 @@ public class ShellMinigame : MonoBehaviour
         }
     }
 
-    private int HatAt(Vector2 point)
-    {
-        for (int i = 0; i < ActiveHatCount; i++)
-            if (Mathf.Abs(point.x - (hats[i].x - CanvasWidth * 0.5f)) <= HatWidth * 0.5f &&
-                Mathf.Abs(point.y - (CanvasHeight * 0.5f - HatY)) <= HatHeight * 0.5f)
-                return i;
-        return -1;
-    }
-
-    private void HandleClick(Vector2 point)
-    {
-        if (phase == Phase.Guess)
-        {
-            ChooseHat(HatAt(point));
-        }
-        else if ((phase == Phase.RoundWon || phase == Phase.Lost) && phaseElapsed >= ResultSeconds &&
-                 Contains(roundAction.rectTransform, point))
-        {
-            ContinueRound();
-        }
-    }
-
-    private bool Contains(RectTransform rect, Vector2 surfacePoint)
-    {
-        Vector3 local = rect.InverseTransformPoint(surface.TransformPoint(surfacePoint));
-        return rect.rect.Contains(new Vector2(local.x, local.y));
-    }
-
     private void ChooseHat(int index)
     {
         if (phase != Phase.Guess || index < 0 || index >= ActiveHatCount || hats[index].revealed) return;
+        selectionX = hats[index].x;
         hats[index].revealed = true;
         hats[index].revealedAt = animationElapsed;
         if (hats[index].pantherType == targetPanther)
@@ -420,6 +452,8 @@ public class ShellMinigame : MonoBehaviour
         phase = next;
         phaseElapsed = 0f;
         hoveredHat = -1;
+        // In the window a guess opens with a hat already picked, ready for A/D.
+        if (next == Phase.Guess && !worldMode) SelectNearest(selectionX);
     }
 
     private void EnsureKeywordWriter()
@@ -475,6 +509,7 @@ public class ShellMinigame : MonoBehaviour
         roundIndex = index;
         started = true;
         targetPanther = 0;
+        selectionX = CanvasWidth * 0.5f;
         float spacing = Mathf.Min(175f, 660f / (ActiveHatCount - 1));
         for (int i = 0; i < hats.Length; i++)
         {

@@ -106,12 +106,12 @@ public class ShellMinigameTests
             Assert.AreEqual(round == 3, game.IsSolved);
             Call("Tick", 1f);
             Call("UpdateVisuals");
-            if (round < 3) Click(Get<Image>("roundAction").rectTransform);
+            if (round < 3) game.HandleKeys(0, true);
         }
 
         Assert.IsTrue(Get<RectTransform>("victory").gameObject.activeSelf);
         Assert.IsFalse(Get<RectTransform>("gameRoot").gameObject.activeSelf);
-        Assert.AreEqual("Jerk", Get<string>("victoryKeyword"));
+        Assert.AreEqual("Thief", Get<string>("victoryKeyword"));
         Assert.AreEqual(Get<CursiveWriter>("keywordWriter").Texture, Get<RawImage>("keywordInk").texture);
         Assert.IsTrue(Get<CursiveWriter>("keywordWriter").IsPlaying);
         Assert.IsEmpty(Get<RectTransform>("victory").GetComponentsInChildren<PixelText>());
@@ -132,12 +132,12 @@ public class ShellMinigameTests
         Assert.IsTrue(Get<CursiveWriter>("keywordWriter").IsPlaying);
         Assert.IsEmpty(inventory.RevealedWords);
         game.Hide();
-        Assert.IsTrue(inventory.HasRevealedWord("Jerk"));
+        Assert.IsTrue(inventory.HasRevealedWord("Thief"));
         Assert.AreEqual(1, inventory.RevealedWords.Count);
         game.Show(root.GetComponent<RectTransform>());
         Assert.AreEqual(1, inventory.RevealedWords.Count);
         Assert.IsFalse(inventory.HasRevealedWord("Fell"));
-        Assert.IsFalse(inventory.HasRevealedWord("Thief"));
+        Assert.IsFalse(inventory.HasRevealedWord("Jerk"));
     }
 
     [Test]
@@ -181,7 +181,7 @@ public class ShellMinigameTests
         Assert.IsTrue(game.GetHatPose(winner).revealed);
         Call("Tick", 1f);
         Call("UpdateVisuals");
-        Click(Get<Image>("roundAction").rectTransform);
+        game.HandleKeys(0, true);
         Assert.AreEqual("Reveal", Phase);
         Assert.AreEqual(3, ActiveCount);
         Assert.IsFalse(Get<RectTransform>("victory").gameObject.activeSelf);
@@ -198,10 +198,52 @@ public class ShellMinigameTests
         Call("ChooseHat", 2);
         Call("ChooseHat", 3);
         Assert.AreEqual("Guess", Phase);
-        object winner = Hats.GetValue(Winner());
-        Vector2 point = new Vector2(HatField<float>(winner, "x") - 400f, -15f);
-        Call("HandleClick", point);
+        SelectWithKeys(Winner());
+        game.HandleKeys(0, true);
         Assert.AreEqual("RoundWon", Phase);
+    }
+
+    [Test]
+    public void ADMoveThePickAlongTheHatsOnScreenSkippingLiftedOnesAndEnterLiftsIt()
+    {
+        Call("BeginRound", 3);
+        Assert.AreEqual(-1, game.SelectedHat, "Nothing is picked before the guess.");
+        game.HandleKeys(1, true);
+        Assert.AreNotEqual("Guess", Phase, "Keys do nothing during the reveal.");
+        FinishShuffle();
+        int count = ActiveCount;
+        var order = new System.Collections.Generic.List<int>();
+        for (int i = 0; i < count; i++) order.Add(i);
+        order.Sort((a, b) => game.GetHatPose(a).x.CompareTo(game.GetHatPose(b).x));
+        Assert.AreEqual(order[count / 2], game.SelectedHat, "The guess opens on the middle hat.");
+        Assert.IsTrue(game.GetHatPose(game.SelectedHat).hovered, "The picked hat is raised and marked.");
+        for (int i = 0; i < count; i++) game.HandleKeys(-1, false);
+        Assert.AreEqual(order[0], game.SelectedHat, "A stops at the leftmost hat.");
+        for (int i = 1; i < count; i++)
+        {
+            game.HandleKeys(1, false);
+            Assert.AreEqual(order[i], game.SelectedHat, "D steps one hat to the right on screen.");
+        }
+        game.HandleKeys(1, false);
+        Assert.AreEqual(order[count - 1], game.SelectedHat, "D stops at the rightmost hat.");
+
+        // Lift the first panther with Enter, then the pick skips that hat.
+        int first = Winner(0);
+        SelectWithKeys(first);
+        game.HandleKeys(0, true);
+        Assert.AreEqual("Found", Phase);
+        Call("Tick", 0.81f);
+        Assert.AreEqual("Guess", Phase);
+        Assert.GreaterOrEqual(game.SelectedHat, 0);
+        Assert.AreNotEqual(first, game.SelectedHat, "A lifted hat can't be picked.");
+        for (int i = 0; i < count; i++)
+        {
+            game.HandleKeys(i < count / 2 ? -1 : 1, false);
+            Assert.AreNotEqual(first, game.SelectedHat);
+        }
+        SelectWithKeys(Winner(1));
+        game.HandleKeys(0, true);
+        Assert.AreEqual("Won", Phase);
     }
 
     [Test]
@@ -220,7 +262,9 @@ public class ShellMinigameTests
         Assert.Greater(Mathf.Abs(HatField<float>(Hats.GetValue(winner), "arc")), 1f);
         Assert.Greater(Mathf.Abs(HatField<float>(Hats.GetValue(winner), "tilt")), 1f);
         FinishShuffle();
-        Assert.AreEqual(-15f, HatImage(winner).rectTransform.anchoredPosition.y, 0.001f);
+        // Back at rest, raised only if the A/D pick is on it.
+        float picked = game.GetHatPose(winner).hovered ? 8f : 0f;
+        Assert.AreEqual(-15f + picked, HatImage(winner).rectTransform.anchoredPosition.y, 0.001f);
     }
 
     [TestCase(0.03333333f)]
@@ -240,7 +284,7 @@ public class ShellMinigameTests
         FinishShuffle();
         Call("ChooseHat", Winner());
         Call("UpdateVisuals");
-        Click(Get<Image>("roundAction").rectTransform);
+        game.HandleKeys(0, true);
         Assert.AreEqual("RoundWon", Phase);
         Assert.AreEqual(2, ActiveCount);
         Assert.IsFalse(Get<Image>("roundAction").gameObject.activeSelf);
@@ -258,8 +302,8 @@ public class ShellMinigameTests
         for (int i = 0; i < 500 && writer.IsPlaying; i++) Call("Tick", 0.05f);
         Assert.IsFalse(writer.IsPlaying, "The clue writing must finish.");
         Assert.IsFalse(game.ShouldClose, "Writing must not consume the reading time.");
-        Call("HandleClick", Vector2.zero);
-        Assert.IsTrue(game.IsSolved, "A click cannot restart the solved letter.");
+        game.HandleKeys(0, true);
+        Assert.IsTrue(game.IsSolved, "A key press cannot restart the solved letter.");
         Call("Tick", 2.9f);
         Call("UpdateVisuals");
         Assert.AreEqual(1f, Get<CanvasGroup>("victoryFade").alpha);
@@ -454,8 +498,8 @@ public class ShellMinigameTests
         FinishShuffle();
         StringAssert.Contains("Find BLUE PANTHER", game.Message);
         StringAssert.DoesNotContain("#", game.Message);
-        StringAssert.Contains("Click", game.Instructions);
-        StringAssert.Contains("[CLICK]", game.Controls);
+        StringAssert.Contains("A and D", game.Instructions);
+        StringAssert.Contains("[A/D]", game.Controls);
         game.GuessHat(Winner(0));
         Call("Tick", 0.81f);
         StringAssert.Contains("Find YELLOW PANTHER", game.Message);
@@ -612,9 +656,10 @@ public class ShellMinigameTests
         Call("UpdateVisuals");
     }
 
-    private void Click(RectTransform rect)
+    private void SelectWithKeys(int hat)
     {
-        Vector3 point = Get<RectTransform>("surface").InverseTransformPoint(rect.TransformPoint(Vector3.zero));
-        Call("HandleClick", new Vector2(point.x, point.y));
+        for (int i = 0; i < 8 && game.SelectedHat != hat; i++)
+            game.HandleKeys(game.GetHatPose(hat).x > game.GetHatPose(game.SelectedHat).x ? 1 : -1, false);
+        Assert.AreEqual(hat, game.SelectedHat);
     }
 }

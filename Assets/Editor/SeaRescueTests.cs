@@ -11,7 +11,7 @@ public class SeaRescueTests
     private PlayerController player;
     private CharacterController body;
     private SeaRescue rescue;
-    private LighthouseStacker lighthouse;
+    private LighthouseIsland lighthouse;
     private Transform lighthouseIsland;
     private Collider ocean;
     private Collider ground;
@@ -24,7 +24,7 @@ public class SeaRescueTests
         foreach (GameObject root in scene.GetRootGameObjects())
         {
             if (root.TryGetComponent(out PlayerController p)) player = p;
-            if (root.TryGetComponent(out LighthouseStacker s)) lighthouse = s;
+            if (root.TryGetComponent(out LighthouseIsland s)) lighthouse = s;
             if (root.name == "Lighthouse island") lighthouseIsland = root.transform;
             foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
                 if (t.name == MouseTrapIsland.GroundName) ground = t.GetComponent<Collider>();

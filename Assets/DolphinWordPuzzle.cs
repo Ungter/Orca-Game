@@ -25,6 +25,10 @@ public class DolphinWordPuzzle : MonoBehaviour, IInteractable
 
     public static bool IsOpen { get; private set; }
     public bool IsSolved { get; private set; }
+    // Seconds the solved answer stays up before the statue closes by itself.
+    public const float SolvedHold = 1.6f;
+    public bool HasNamedKiller { get; private set; }
+    private float solvedFor;
     public bool IsDragging => dragged >= 0;
     public string ArrangedLetters => new string(slots).Replace('\0', '_');
     public string BankLetters => new string(bank).Replace('\0', '_');
@@ -83,6 +87,12 @@ public class DolphinWordPuzzle : MonoBehaviour, IInteractable
                 return;
             }
             RefreshClues();
+            if (IsSolved)
+            {
+                solvedFor += Time.unscaledDeltaTime;
+                if (solvedFor >= SolvedHold) Close();
+                return;
+            }
             Mouse mouse = Mouse.current;
             if (mouse == null) { CancelDrag(); return; }
             int p = PixelSize();
@@ -114,18 +124,45 @@ public class DolphinWordPuzzle : MonoBehaviour, IInteractable
         return new Vector3(nearest.x, Mathf.Min(renderedBounds.max.y, renderedBounds.min.y + 2.5f), nearest.z);
     }
 
+    // Orca, waiting here for a player who went alone, speaks before the statue opens.
     public void Begin()
     {
         if (IsOpen || Interactables.Busy || InventoryInspection.IsOpen || PauseMenu.IsPaused || TitleScreen.IsOpen) return;
+        if (StoryDirector.InterceptStatue(Open)) return;
+        Open();
+    }
+
+    private void Open()
+    {
         RefreshClues();
         CancelDrag();
+        solvedFor = 0f;
         IsOpen = true;
     }
 
+    // Closing a solved statue names the killer (once).
     public void Close()
     {
         CancelDrag();
+        bool wasOpen = IsOpen;
         IsOpen = false;
+        if (!wasOpen || !IsSolved || HasNamedKiller) return;
+        HasNamedKiller = true;
+        StoryDirector.Say(Speaker.None, StoryScript.KillerNamed);
+        // Found out, Al Cachud runs from his house for the lighthouse island.
+        CachudCallout cachud = FindAnyObjectByType<CachudCallout>();
+        if (cachud != null && cachud.IsReadyForGame) cachud.gameObject.SetActive(false);
+    }
+
+    // Where Orca waits for the player: just outside the statue on the side facing from.
+    public Vector3 OrcaWaitingSpot(Vector3 from)
+    {
+        Vector3 edge = bounds.ClosestPoint(new Vector3(from.x, bounds.center.y, from.z));
+        Vector3 outward = edge - bounds.center;
+        outward.y = 0f;
+        if (outward.sqrMagnitude < 0.01f) outward = Vector3.back;
+        Vector3 spot = edge + outward.normalized * 1.6f;
+        return new Vector3(spot.x, bounds.min.y, spot.z);
     }
 
     public void DebugComplete()
@@ -256,7 +293,7 @@ public class DolphinWordPuzzle : MonoBehaviour, IInteractable
         Fill(new Rect(0, 0, PanelWidth, PanelHeight), Frame);
         Fill(new Rect(2, 2, PanelWidth - 4, PanelHeight - 4), Wood);
         Fill(new Rect(4, 4, PanelWidth - 8, PanelHeight - 8), Well);
-        DrawCentred(11, "DOLPHIN STATUE", Gold);
+        DrawCentred(11, "ORCA STATUE", Gold);
         DrawCentred(30, "REVEALED WORDS", Gold);
         string words = "";
         for (int i = 0; i < ClueWords.Length; i++)
@@ -277,7 +314,7 @@ public class DolphinWordPuzzle : MonoBehaviour, IInteractable
                 IsDragging && hovering && !hoverSlot && hoverIndex == i, false, !Usable(false, i));
         }
         DrawCentred(158, AvailableLetterCount < Answer.Length ? "MORE CLUES ADD MORE LETTERS" : "ALL CLUE LETTERS FOUND", Muted);
-        DrawCentred(177, IsSolved ? "JEFF THE KILLER  [ESC] CLOSE" : "[DRAG] MOVE TILES    [ESC] CLOSE", Paper);
+        DrawCentred(177, IsSolved ? "JEFF THE KILLER" : "[DRAG] MOVE TILES    [ESC] CLOSE", Paper);
         if (IsDragging)
         {
             char letter = (draggedSlot ? slots : bank)[dragged];

@@ -16,7 +16,7 @@ public sealed class LighthouseFerry : MonoBehaviour, IInteractable
     public Vector3[] Route { get; private set; }
     public float CrossingDuration { get; private set; }
     public BoatFit Fit { get; private set; }
-    private LighthouseStacker lighthouse;
+    private LighthouseIsland lighthouse;
     private PlayerController player;
     private CharacterController controller;
     private BoxCollider hull;
@@ -52,7 +52,7 @@ public sealed class LighthouseFerry : MonoBehaviour, IInteractable
     {
         if (IsReady || visitor == null) return;
         foreach (GameObject root in gameObject.scene.GetRootGameObjects())
-            if (root.TryGetComponent(out LighthouseStacker found)) { lighthouse = found; break; }
+            if (root.TryGetComponent(out LighthouseIsland found)) { lighthouse = found; break; }
         if (lighthouse == null) return;
         player = visitor;
         MainLanding = mainLanding;
@@ -119,10 +119,11 @@ public sealed class LighthouseFerry : MonoBehaviour, IInteractable
             Tick(Time.deltaTime);
             return;
         }
-        bool usable = IsReady && !TitleScreen.IsOpen && !InventoryInspection.IsOpen &&
-            !Interactables.Busy && (lighthouse.IsUnlocked ? Interactables.IsNearest(this) : DockDistanceSqr() != float.MaxValue);
+        // Until the anagram is solved the ferry doesn't answer at all (no prompt either).
+        bool usable = IsReady && lighthouse.IsUnlocked && !TitleScreen.IsOpen && !InventoryInspection.IsOpen &&
+            !Interactables.Busy && Interactables.IsNearest(this);
         prompt = Mathf.MoveTowards(prompt, usable ? 1f : 0f, Time.unscaledDeltaTime * 8f);
-        if (usable && lighthouse.IsUnlocked && keyboard != null && keyboard.eKey.wasPressedThisFrame) Begin();
+        if (usable && keyboard != null && keyboard.eKey.wasPressedThisFrame) Begin();
     }
 
     public bool Begin(Camera view = null)
@@ -281,10 +282,8 @@ public sealed class LighthouseFerry : MonoBehaviour, IInteractable
     // The prompt at the landing. The crossing itself has no words on screen (ESC still cancels it).
     private void OnGUI()
     {
-        if (Event.current.type != EventType.Repaint || active == this || !IsReady) return;
+        if (Event.current.type != EventType.Repaint || active == this || !IsReady || !lighthouse.IsUnlocked) return;
         InteractPrompt.Draw((AtLighthouse ? IslandLanding : MainLanding) + Vector3.up * 2f,
-            10f, lighthouse.IsUnlocked ? "E" : "LOCKED",
-            !lighthouse.IsUnlocked ? "Solve anagram to unlock ferry" :
-            AtLighthouse ? "Ferry to main island" : "Ferry to lighthouse", 3, prompt);
+            10f, "E", AtLighthouse ? "Ferry to main island" : "Ferry to lighthouse", 3, prompt);
     }
 }

@@ -3,7 +3,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 
-// The final game, played from the top of the lighthouse once the dolphin anagram is solved. The
+// The final game, played from the top of the lighthouse once the Orca statue's anagram is solved. The
 // player presses E at the foot of the lighthouse's stair (trigger); the screen fades to black,
 // they are carried up into the lantern (lookout) and look out over the main island in the first
 // person. The island splits into hexes (MouseTrapIsland), the houses stand as walls, and the
@@ -127,8 +127,14 @@ public sealed class LighthouseMouseTrap : MonoBehaviour, IInteractable
     private Vector3 hopFrom, hopTo;
     private Quaternion mouseTurn = Quaternion.identity;
     private Vector3 rollAxis;
-    private float anchorX;
+    // The line of hexes the aim keeps to while one axis is held: up/down zigzag along a column,
+    // left/right along a row, in world space so the camera turning after the aim doesn't bend it.
+    private bool hasLine;
+    private Vector3 lineAnchor;
+    private Vector3 lineAcross;
     private bool lastVertical;
+    // A move pressed while the strike or the villain's hop plays, made once aiming resumes.
+    private Vector2Int queuedMove;
     private Vector2Int heldMove;
     private float holdTime;
     private float repeatTime;
@@ -317,13 +323,17 @@ public sealed class LighthouseMouseTrap : MonoBehaviour, IInteractable
                 if (fade <= 0f && !Island.IsSplitting) Enter(Phase.Aiming);
                 break;
             case Phase.Aiming:
+                if (move == Vector2Int.zero && queuedMove != Vector2Int.zero) move = queuedMove;
+                queuedMove = Vector2Int.zero;
                 if (move != Vector2Int.zero) MoveAim(move);
                 if (strike) TryStrike();
                 break;
             case Phase.Striking:
+                if (move != Vector2Int.zero) queuedMove = move;
                 if (phaseTime >= StrikeDelay) MouseTurn();
                 break;
             case Phase.MouseMoving:
+                if (move != Vector2Int.zero) queuedMove = move;
                 if (phaseTime >= HopTime)
                 {
                     mouseTurn = Quaternion.AngleAxis(90f, rollAxis) * mouseTurn;
@@ -367,28 +377,44 @@ public sealed class LighthouseMouseTrap : MonoBehaviour, IInteractable
         phaseTime = 0f;
     }
 
-    // Moves the aim to the neighbouring hex that lies most nearly the way pressed on screen. Up
-    // and down zigzag between the two hexes either side, keeping to the column they started in.
+    // Moves the aim to the neighbouring hex that lies most nearly the way pressed. Directions are
+    // taken on the ground from the lantern's point of view: up is away from the lighthouse through
+    // the aimed hex (which is up on screen, as the camera looks from the lantern at the aim), right
+    // is across that. Where no neighbour lies straight that way (up and down on this grid), it
+    // zigzags between the two either side, keeping to the line it started on.
     public bool MoveAim(Vector2Int move)
     {
-        if (Board == null || view == null || move == Vector2Int.zero) return false;
-        Vector3 here = view.WorldToScreenPoint(Island.Top(Aim));
+        if (Board == null || move == Vector2Int.zero) return false;
+        Vector3 here = Island.Top(Aim);
+        Vector3 forward = here - (view != null ? view.transform.position : Eye);
+        forward.y = 0f;
+        if (forward.sqrMagnitude < 0.01f) forward = view != null ? Vector3.ProjectOnPlane(view.transform.forward, Vector3.up) : Vector3.forward;
+        forward.Normalize();
+        Vector3 right = Vector3.Cross(Vector3.up, forward);
         bool vertical = move.x == 0;
-        if (vertical && !lastVertical) anchorX = here.x;
+        if (!hasLine || vertical != lastVertical)
+        {
+            hasLine = true;
+            lineAnchor = here;
+            // The line runs the way pressed; distance off it is measured across.
+            lineAcross = vertical ? right : forward;
+        }
         lastVertical = vertical;
-        Vector2 key = ((Vector2)move).normalized;
+        Vector3 key = (right * move.x + forward * move.y).normalized;
         Hex? best = null;
-        float bestScore = 0.3f;
+        float bestScore = 0.2f;
         for (int d = 0; d < 6; d++)
         {
             Hex next = Aim.Neighbour(d);
             if (!Board.Contains(next)) continue;
-            Vector3 there = view.WorldToScreenPoint(Island.Top(next));
-            if (there.z <= 0f) continue;
-            Vector2 step = there - here;
-            if (step.sqrMagnitude < 1f) continue;
-            float score = Vector2.Dot(step.normalized, key);
-            if (vertical) score -= 0.25f * Mathf.Abs(there.x - anchorX) / step.magnitude;
+            Vector3 there = Island.Top(next);
+            Vector3 step = there - here;
+            step.y = 0f;
+            if (step.sqrMagnitude < 0.01f) continue;
+            float score = Vector3.Dot(step.normalized, key);
+            Vector3 fromLine = there - lineAnchor;
+            fromLine.y = 0f;
+            score -= 0.3f * Mathf.Abs(Vector3.Dot(fromLine, lineAcross)) / step.magnitude;
             if (score > bestScore)
             {
                 bestScore = score;
@@ -405,6 +431,7 @@ public sealed class LighthouseMouseTrap : MonoBehaviour, IInteractable
     {
         if (Board == null || !Board.Contains(hex)) return false;
         Aim = hex;
+        hasLine = false;
         return true;
     }
 
@@ -568,18 +595,7 @@ public sealed class LighthouseMouseTrap : MonoBehaviour, IInteractable
             if (distance < nearest) { nearest = distance; Aim = next; }
         }
 
-        mouse = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        mouse.name = "Villain (mouse)";
-        if (mouse.TryGetComponent(out Collider box))
-        {
-            if (Application.isPlaying) Destroy(box);
-            else DestroyImmediate(box);
-        }
-        mouse.transform.localScale = Vector3.one * MouseSize;
-        mouseMaterial = PlaceholderMaterials.Unlit(new Color(0.93f, 0.9f, 0.82f));
-        mouseMaterial.name = "Villain";
-        mouse.GetComponent<MeshRenderer>().sharedMaterial = mouseMaterial;
-        mouse.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+        mouse = CreateVillain(out mouseMaterial);
         SceneManager.MoveGameObjectToScene(mouse, gameObject.scene);
         mouseTurn = Quaternion.identity;
 
@@ -767,6 +783,47 @@ public sealed class LighthouseMouseTrap : MonoBehaviour, IInteractable
 
     // ---- Each frame --------------------------------------------------------------------------
 
+    // Al Cachud's sprite, standing on its hex and always facing the lantern's camera (a plain
+    // cube without his art).
+    private GameObject CreateVillain(out Material material)
+    {
+        Sprite art = VillainSprite();
+        if (art == null)
+        {
+            GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cube.name = "Villain (mouse)";
+            if (cube.TryGetComponent(out Collider box)) DestroyNow(box);
+            cube.transform.localScale = Vector3.one * MouseSize;
+            material = PlaceholderMaterials.Unlit(new Color(0.93f, 0.9f, 0.82f));
+            material.name = "Villain";
+            cube.GetComponent<MeshRenderer>().sharedMaterial = material;
+            cube.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+            return cube;
+        }
+        var root = new GameObject("Villain (Al Cachud)");
+        var figure = new GameObject("Al Cachud");
+        figure.transform.SetParent(root.transform, false);
+        SpriteRenderer drawn = figure.AddComponent<SpriteRenderer>();
+        drawn.sprite = art;
+        material = new Material(Shader.Find("Sprites/Default")) { name = "Villain" };
+        drawn.sharedMaterial = material;
+        drawn.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+        // Taller than the cube was, feet on the hex (the root sits MouseSize / 2 above it).
+        float scale = MouseSize * 1.5f / Mathf.Max(0.01f, art.bounds.size.y);
+        figure.transform.localScale = Vector3.one * scale;
+        figure.transform.localPosition = Vector3.up * (-MouseSize * 0.5f - art.bounds.min.y * scale);
+        return root;
+    }
+
+    private static Sprite VillainSprite()
+    {
+        CachudCallout cachud = FindAnyObjectByType<CachudCallout>(FindObjectsInactive.Include);
+        if (cachud != null && cachud.TryGetComponent(out SpriteRenderer suit) && suit.sprite != null) return suit.sprite;
+        DialoguePortraitSet set = Resources.Load<DialoguePortraitSet>(DialoguePortraits.SetResource);
+        DialoguePortraitSet.Entry entry = set != null ? set.Find(Speaker.AlCachud) : null;
+        return entry != null ? entry.sprite : null;
+    }
+
     private Vector3 MouseRest(Hex hex) => Island.Surface(hex) + Vector3.up * (MouseSize * 0.5f);
 
     private void PoseMouse()
@@ -806,6 +863,13 @@ public sealed class LighthouseMouseTrap : MonoBehaviour, IInteractable
                 position = hopTo + Vector3.up * (Mathf.Sin(bob * 2.1f) * 0.35f);
                 rotation = Quaternion.AngleAxis(180f, rollAxis) * mouseTurn * Quaternion.Euler(Mathf.Sin(bob * 1.7f) * 6f, 0f, Mathf.Sin(bob * 1.3f) * 6f);
             }
+        }
+        // A sprite can't roll: it faces the camera and leans into its hops instead.
+        if (mouse.GetComponentInChildren<SpriteRenderer>() != null && view != null)
+        {
+            float lean = CurrentPhase == Phase.MouseMoving ? Mathf.Sin(Mathf.Clamp01(phaseTime / HopTime) * Mathf.PI) * 12f :
+                escaped ? Mathf.Sin(Time.time * 1.7f) * 6f : 0f;
+            rotation = Quaternion.Euler(0f, view.transform.eulerAngles.y, lean);
         }
         mouse.transform.SetPositionAndRotation(position, rotation);
     }

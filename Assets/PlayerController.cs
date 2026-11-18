@@ -55,9 +55,13 @@ public class PlayerController : MonoBehaviour
     private bool controllerWasEnabledBeforeFly;
     private const float DebugSpeedMultiplier = 5f;
     public bool DebugFlyEnabled => debugFly;
+    // The standing front view, for the dialogue box's portrait.
+    public Sprite FrontIdle => frontIdle;
 
     // Scales walking speed; the clue letter's potion hunt sets it while a hunt is on.
     public float SpeedMultiplier { get; set; } = 1f;
+    // How fast the player walks right now (Orca keeps pace with it).
+    public float WalkSpeed => moveSpeed * SpeedMultiplier;
 
     private void Awake()
     {

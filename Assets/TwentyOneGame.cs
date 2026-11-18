@@ -5,11 +5,11 @@ using UnityEngine.InputSystem;
 [DisallowMultipleComponent]
 public class TwentyOneGame : MonoBehaviour
 {
-    public enum Phase { Closed, ChoosingOrder, Rules, PlayerRolling, OpponentRolling, Throwing, TakingTiles, Lost, Drat, Insult }
+    // Talking: after a win Al Cachud talks over the table in the shared dialogue box
+    // (StoryScript.CachudBeaten); the line about the Antelope reveals JERK.
+    public enum Phase { Closed, ChoosingOrder, Rules, PlayerRolling, OpponentRolling, Throwing, TakingTiles, Lost, Talking }
     public const string Keyword = "JERK";
     public const string OrderQuestion = "Can I go second?";
-    public const string DratLine = "Drat!";
-    public const string InsultLine = "You're a JERK!";
     public const float FaceDuration = 0.6f;
     public const float RulesDuration = 1.2f;
     public const float ThrowDuration = 1.1f;
@@ -24,10 +24,11 @@ public class TwentyOneGame : MonoBehaviour
     public float PhaseTime { get; private set; }
     public int Face { get; private set; } = 1;
     public int SelectedOrder { get; private set; }
-    public int VisibleCharacters { get; private set; }
     public bool OpponentGoesSecond { get; private set; }
     public bool IsSolved { get; private set; }
     public bool KeywordRecorded { get; private set; }
+    public int Wins { get; private set; }
+    public DialogueRunner Runner => runner;
     // Where the counter is along the tiles: it stays put while the die is in the air, then hops
     // one tile per TileDuration.
     public float TokenProgress => CurrentPhase == Phase.Throwing ? beforeRoll :
@@ -35,7 +36,6 @@ public class TwentyOneGame : MonoBehaviour
     public int VisibleTotal => Mathf.FloorToInt(TokenProgress);
     public float ThrowProgress => CurrentPhase == Phase.Throwing ? Mathf.Clamp01(PhaseTime / ThrowDuration) : 1f;
     public bool IsRolling => CurrentPhase == Phase.PlayerRolling || CurrentPhase == Phase.OpponentRolling;
-    public string Speech => CurrentPhase == Phase.Drat ? DratLine : InsultLine;
     public TwentyOneView View => view;
 
     private TwentyOneView view;
@@ -46,7 +46,7 @@ public class TwentyOneGame : MonoBehaviour
     private int beforeRoll;
     private int opponentDecision;
     private int dealtLimit;
-    private float typed;
+    private readonly DialogueRunner runner = new DialogueRunner();
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetStatics() => active = null;
@@ -107,6 +107,11 @@ public class TwentyOneGame : MonoBehaviour
             view.Refresh(this);
             return;
         }
+        if (CurrentPhase == Phase.Talking)
+        {
+            Talk(Time.unscaledDeltaTime, DialogueInput.Read());
+            return;
+        }
         bool stop = keyboard != null && keyboard.spaceKey.wasPressedThisFrame;
         Tick(Time.unscaledDeltaTime, stop, enter);
     }
@@ -144,25 +149,31 @@ public class TwentyOneGame : MonoBehaviour
         {
             if (!Match.Finished) BeginTurn();
             else if (Match.Loser == TwentyOneMatch.Side.Player) SetPhase(Phase.Lost);
-            else
-            {
-                IsSolved = true;
-                SetPhase(Phase.Drat);
-            }
+            else Win();
         }
         else if (CurrentPhase == Phase.Lost && advance) ChooseAgain();
-        else if (CurrentPhase == Phase.Drat || CurrentPhase == Phase.Insult)
+        else if (CurrentPhase == Phase.Talking)
         {
-            bool finished = VisibleCharacters >= Speech.Length;
-            typed = advance ? Speech.Length : Mathf.Min(Speech.Length, typed + dt * 34f);
-            VisibleCharacters = Mathf.FloorToInt(typed);
-            if (CurrentPhase == Phase.Insult && VisibleCharacters == Speech.Length) RememberKeyword();
-            if (advance && finished)
-            {
-                if (CurrentPhase == Phase.Drat) SetPhase(Phase.Insult);
-                else Close();
-            }
+            Talk(dt, advance ? DialogueInput.Continue : DialogueInput.None);
+            return;
         }
+        if (active == this) view.Refresh(this);
+    }
+
+    private void Win()
+    {
+        IsSolved = true;
+        Wins++;
+        SetPhase(Phase.Talking);
+        runner.Play(Speaker.AlCachud, Wins == 1 ? StoryScript.CachudBeaten : StoryScript.CachudBeatenAgain, Close);
+    }
+
+    // The conversation after a win; JERK is revealed once the Antelope's line is out in full.
+    private void Talk(float deltaTime, DialogueInput input)
+    {
+        PhaseTime += Mathf.Max(0f, deltaTime);
+        runner.Tick(deltaTime, input);
+        if (runner.IsWaiting && runner.RawText == StoryScript.JerkLine) RememberKeyword();
         if (active == this) view.Refresh(this);
     }
 
@@ -205,8 +216,7 @@ public class TwentyOneGame : MonoBehaviour
     private void SetPhase(Phase next)
     {
         CurrentPhase = next;
-        PhaseTime = typed = 0f;
-        VisibleCharacters = 0;
+        PhaseTime = 0f;
     }
 
     private void RememberKeyword()
@@ -232,11 +242,21 @@ public class TwentyOneGame : MonoBehaviour
         // A won clue must survive Escape or a scene exit during the victory dialogue.
         if (Match.Winner == TwentyOneMatch.Side.Player) RememberKeyword();
         active = null;
+        runner.Stop();
         CurrentPhase = Phase.Closed;
         if (view != null) view.Hide();
         if (follow != null) follow.enabled = followWasEnabled;
         Cursor.lockState = cursorLock;
         Cursor.visible = cursorVisible;
+    }
+
+    private void OnGUI()
+    {
+        if (active != this || CurrentPhase != Phase.Talking) return;
+        int depth = GUI.depth;
+        GUI.depth = -900;
+        runner.Draw();
+        GUI.depth = depth;
     }
 
     private void OnDisable() => Close();

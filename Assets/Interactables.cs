@@ -16,13 +16,15 @@ public static class Interactables
 
     // Reserve interactions even when the outdoor trick allows movement.
     public static bool Busy => GameplayDebugMenu.BlocksInput || TalkInteractable.IsTalking || DigSite.IsDigging ||
+        StoryDirector.IsTalking || WandSpell.IsCasting ||
         DolphinWordPuzzle.IsOpen || MagicianEncounter.IsOpen || AlchemistEncounter.IsOpen || CachudCallout.IsOpen ||
-        TwentyOneGame.IsOpen || LighthouseStacker.IsOpen || LighthouseFerry.IsSailing ||
+        TwentyOneGame.IsOpen || LighthouseFerry.IsSailing ||
         LighthouseMouseTrap.IsOpen || SeaRescue.IsRescuing;
 
     public static bool BlocksMovement => GameplayDebugMenu.BlocksInput || TalkInteractable.IsTalking || DigSite.IsDigging ||
+        StoryDirector.IsTalking || WandSpell.IsCasting ||
         DolphinWordPuzzle.IsOpen || MagicianEncounter.BlocksMovement || AlchemistEncounter.IsOpen || CachudCallout.IsOpen ||
-        TwentyOneGame.IsOpen || LighthouseStacker.IsOpen || LighthouseFerry.IsSailing ||
+        TwentyOneGame.IsOpen || LighthouseFerry.IsSailing ||
         LighthouseMouseTrap.IsOpen || SeaRescue.IsRescuing;
 
     public static void Add(IInteractable interactable)

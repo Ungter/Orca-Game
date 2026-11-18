@@ -7,9 +7,9 @@ using UnityEngine.InputSystem;
 [RequireComponent(typeof(PlayerController))]
 public sealed class GameplayDebugMenu : MonoBehaviour
 {
-    public enum Minigame { PotionHunt, Hats, TwentyOne, Digging, Anagram, Lighthouse }
+    public enum Minigame { PotionHunt, Hats, TwentyOne, Digging, Anagram }
     private static readonly string[] Names =
-        { "Potion hunt", "Panther hats", "21 game", "Digging skill checks", "Dolphin anagram", "Lighthouse stacker" };
+        { "Potion hunt", "Panther hats", "21 game", "Digging skill checks", "Orca statue anagram" };
     private static GameplayDebugMenu active;
     private static int closingFrame = -1;
     public static bool IsOpen => active != null;
@@ -92,10 +92,6 @@ public sealed class GameplayDebugMenu : MonoBehaviour
             case Minigame.Anagram:
                 DolphinWordPuzzle puzzle = FindInScene<DolphinWordPuzzle>();
                 if (puzzle != null) { puzzle.DebugComplete(); completed = true; }
-                break;
-            case Minigame.Lighthouse:
-                LighthouseStacker lighthouse = FindInScene<LighthouseStacker>();
-                if (lighthouse != null) { lighthouse.DebugComplete(); completed = true; }
                 break;
         }
         if (open)

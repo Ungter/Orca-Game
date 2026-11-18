@@ -11,7 +11,7 @@ public class LighthouseWorldTests
     private Scene scene;
     private PlayerController player;
     private Transform map;
-    private LighthouseStacker lighthouse;
+    private LighthouseIsland lighthouse;
     private OpeningVoyage voyage;
     private LighthouseFerry ferry;
     private const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
@@ -23,7 +23,7 @@ public class LighthouseWorldTests
         foreach (GameObject root in scene.GetRootGameObjects())
         {
             if (root.TryGetComponent(out PlayerController p)) player = p;
-            if (root.TryGetComponent(out LighthouseStacker s)) lighthouse = s;
+            if (root.TryGetComponent(out LighthouseIsland s)) lighthouse = s;
             if (root.name == "IslanddemoV3") map = root.transform;
         }
         Assert.IsNotNull(lighthouse);
@@ -39,7 +39,6 @@ public class LighthouseWorldTests
     [TearDown]
     public void TearDown()
     {
-        lighthouse?.Close();
         ferry?.Cancel();
         voyage?.Dispose();
         if (voyage != null && voyage.Boat != null) Object.DestroyImmediate(voyage.Boat);
@@ -123,44 +122,7 @@ public class LighthouseWorldTests
     }
 
     [Test]
-    public void StackerAwardsOneWinContinuesPastTenAndRestoresTheCameraOnExit()
-    {
-        LighthouseTestProgress.Solve(lighthouse.gameObject);
-        Camera camera = Camera.main;
-        Vector3 position = camera.transform.position;
-        Quaternion rotation = camera.transform.rotation;
-        float fov = camera.fieldOfView;
-        int wins = 0;
-        lighthouse.Won += () => wins++;
-        Assert.IsTrue(lighthouse.Begin(player.transform, camera));
-        Assert.IsTrue(Interactables.BlocksMovement);
-        for (int i = 0; i < 1000; i++)
-        {
-            lighthouse.Tick(-lighthouse.Match.Offset / lighthouse.Match.Speed);
-            lighthouse.Tick(0f, true);
-            Assert.IsFalse(lighthouse.Match.Failed, "Section " + i);
-            Assert.LessOrEqual(lighthouse.View.SectionCount, LighthouseStackView.VisibleSections);
-            Assert.LessOrEqual(lighthouse.View.Moving.localPosition.y, LighthouseStackView.VisibleSections * LighthouseStackView.SectionHeight + 0.01f);
-        }
-        Assert.AreEqual(1000, lighthouse.Match.Score);
-        Assert.IsTrue(lighthouse.HasWon);
-        Assert.AreEqual(1, wins);
-        lighthouse.Tick(0f, true); // New piece is outside the tower: a complete miss.
-        Assert.IsTrue(lighthouse.Match.Failed);
-        lighthouse.Tick(0f, false, true);
-        Assert.AreEqual(0, lighthouse.Match.Score);
-        Assert.IsTrue(lighthouse.HasWon, "Retrying cannot erase the earned win.");
-        Assert.AreEqual(1, wins);
-        lighthouse.Close();
-        Assert.IsFalse(LighthouseStacker.IsOpen);
-        Assert.IsFalse(Interactables.Busy);
-        Assert.AreEqual(position, camera.transform.position);
-        Assert.Less(Quaternion.Angle(rotation, camera.transform.rotation), 0.001f);
-        Assert.AreEqual(fov, camera.fieldOfView);
-    }
-
-    [Test]
-    public void DisablingEitherActivityRestoresControlsAndDoesNotEnableSomeoneElsesController()
+    public void DisablingTheFerryMidCrossingRestoresControlsAndDoesNotEnableSomeoneElsesController()
     {
         LighthouseTestProgress.Solve(lighthouse.gameObject);
         player.enabled = false;
@@ -171,33 +133,34 @@ public class LighthouseWorldTests
         Assert.IsFalse(LighthouseFerry.IsSailing);
         Assert.IsFalse(player.enabled);
         Assert.IsFalse(player.GetComponent<CharacterController>().enabled);
-        Assert.IsTrue(lighthouse.Begin(player.transform, Camera.main));
-        lighthouse.enabled = false;
-        typeof(LighthouseStacker).GetMethod("OnDisable", Private).Invoke(lighthouse, null);
-        Assert.IsFalse(LighthouseStacker.IsOpen);
         Assert.IsFalse(Interactables.Busy);
     }
 
     [Test]
-    public void LighthouseFerryAndStackerUnlockOnlyAfterTheActualAnagramIsSolved()
+    public void TheFerryUnlocksOnlyAfterTheActualAnagramIsSolved()
     {
         Assert.IsFalse(lighthouse.IsUnlocked);
         Assert.AreEqual(float.MaxValue, ferry.InteractDistanceSqr());
         Assert.IsFalse(ferry.Begin(Camera.main));
-        player.PlaceOnGround(lighthouse.Entrance);
-        Assert.AreEqual(float.MaxValue, lighthouse.InteractDistanceSqr());
-        Assert.IsFalse(lighthouse.Begin(player.transform, Camera.main), "Walking to the island cannot bypass the anagram.");
         Assert.IsFalse(Interactables.Busy);
         DolphinWordPuzzle puzzle = LighthouseTestProgress.Solve(lighthouse.gameObject);
         Assert.IsTrue(lighthouse.IsUnlocked);
-        Assert.Less(lighthouse.InteractDistanceSqr(), float.MaxValue);
-        Assert.IsTrue(lighthouse.Begin(player.transform, Camera.main));
-        lighthouse.Close();
         puzzle.gameObject.SetActive(false);
         Assert.IsTrue(lighthouse.IsUnlocked, "Closing or hiding the solved puzzle must keep access unlocked.");
         player.PlaceOnGround(ferry.MainLanding);
         Assert.IsTrue(ferry.Begin(Camera.main));
         ferry.Cancel();
+    }
+
+    [Test]
+    public void TheStackingGameIsGone()
+    {
+        Assert.IsNull(typeof(LighthouseIsland).Assembly.GetType("LighthouseStacker"));
+        Assert.IsNull(lighthouse.GetComponent<IInteractable>(), "Nothing to start at the tower's foot.");
+        Assert.IsNull(Resources.Load<GameObject>("WorldModels/LighthouseSection"));
+        Assert.IsNull(Resources.Load<GameObject>("WorldModels/LighthouseLantern"));
+        Assert.IsNotNull(lighthouse.Tower, "The island still knows its tower.");
+        Assert.IsTrue(lighthouse.Tower.gameObject.activeInHierarchy);
     }
 
     private void Cross()

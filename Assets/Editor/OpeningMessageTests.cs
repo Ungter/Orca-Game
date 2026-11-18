@@ -6,31 +6,10 @@ public class OpeningMessageTests
     private const BindingFlags PrivateStatic = BindingFlags.Static | BindingFlags.NonPublic;
 
     [Test]
-    public void OpeningMessageUsesTheRequestedText()
+    public void TheOpeningHasNoMessageOverTheBoatRide()
     {
-        Assert.AreEqual("SOMEONE'S BEEN MURDERED!",
-            typeof(TitleScreen).GetField("OpeningMessage", PrivateStatic).GetRawConstantValue());
-    }
-
-    [TestCase(-1f)]
-    [TestCase(0f)]
-    [TestCase(1f)]
-    public void MessageWaitsUntilTheBoatIsUnderWay(float time)
-    {
-        Assert.AreEqual(0f, MessageOpacity(time));
-    }
-
-    [Test]
-    public void MessageStaysReadableAWhileThenFadesOut()
-    {
-        float start = Constant("MessageStart");
-        float duration = Constant("MessageDuration");
-        float fade = Constant("MessageFadeDuration");
-        Assert.GreaterOrEqual(duration, 2.5f);
-        foreach (float fraction in new[] { 0.15f, 0.5f, 0.85f })
-            Assert.AreEqual(1f, MessageOpacity(start + duration * fraction), 0.001f);
-        Assert.AreEqual(0.5f, MessageOpacity(start + duration - fade * 0.5f), 0.001f);
-        Assert.AreEqual(0f, MessageOpacity(start + duration), 0.001f);
+        Assert.IsNull(typeof(TitleScreen).GetField("OpeningMessage", PrivateStatic));
+        Assert.IsNull(typeof(TitleScreen).GetMethod("OpeningMessageOpacity", PrivateStatic));
     }
 
     [Test]
@@ -48,7 +27,6 @@ public class OpeningMessageTests
         return (float)typeof(TitleScreen).GetField(name, PrivateStatic).GetRawConstantValue();
     }
 
-    private static float MessageOpacity(float time) => Invoke("OpeningMessageOpacity", time);
     private static float BarsAmount(float handoff) => Invoke("CinematicBarsAmount", handoff);
 
     private static float Invoke(string method, float time)

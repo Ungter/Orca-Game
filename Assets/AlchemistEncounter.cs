@@ -4,69 +4,46 @@ using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 // Knocking on the alchemist's door (alchDoor) plays the magician's doorway cinematic: fade
-// into the room, typed lines with [ENTER] to continue and [ESC] to leave, fade back out. After
-// the introduction the alchemist hands over the Clue Letter, whose map leads the potion hunt
-// (ClueMinigame). Until all five potions are found he sends the player back out; once they are,
-// he writes the clue word on the letter. It sets itself up at the door on every scene load and
-// keeps the letter out of the world until then. The lines are placeholders and the portrait is
-// the magician's for now.
+// into the room, where Iguana's spirit talks in the shared dialogue box (DialogueRunner, Enter to
+// continue, Esc to leave), then fade back out. After the introduction Iguana hands over the Clue
+// Letter, whose map leads the potion hunt (ClueMinigame). Until all five potions are found she
+// sends the player back out; once they are, the letter comes up over the room and FELL is written
+// on it, under its map. It sets itself up at the door on every scene load and keeps the letter out
+// of the world until then.
 [DefaultExecutionOrder(-50)]
 public class AlchemistEncounter : MonoBehaviour, IInteractable
 {
-    public enum Phase { Idle, FadingToRoom, EnteringRoom, Typing, Waiting, LeavingRoom, Returning }
+    public enum Phase { Idle, FadingToRoom, EnteringRoom, Typing, Waiting, Writing, LeavingRoom, Returning }
 
     public const string DoorName = "alchDoor";
     public const string LetterItemName = "Clue Letter";
-    public static readonly string[] Introduction =
-    {
-        "Ah, a visitor! Come in, come in. (Placeholder greeting.)",
-        "Mind the bottles, some of them bite. (Placeholder line.)",
-        "Someone left something here for you. (Placeholder line.)",
-    };
-    public const string LetterGift = "Here, take this letter. Hold it up with its number, then press E to start the hunt.";
-    public const string LetterNoRoom = "I have a letter for you, but your bag is full! Come back for it.";
-    public const string KeepLooking = "My five potions are still out there. Keep looking! (Placeholder line.)";
-    public static readonly string[] PotionsFound =
-    {
-        "You found all five potions! (Placeholder line.)",
-        "Hand me that letter for a moment... (Placeholder line.)",
-    };
-    public const string ClueGift = "There. I wrote a word on it for you. (Placeholder line.)";
-    public const string Farewell = "Good luck with that letter. (Placeholder line.)";
     public const float FadeDuration = 0.35f;
     public const float RoomEnterDuration = 0.6f;
+    // How long the written word stays up before Iguana reads it.
+    public const float WrittenHold = 0.9f;
 
     public static bool IsOpen { get; private set; }
     public bool HasHeardIntroduction { get; private set; }
     public bool HasGivenLetter { get; private set; }
     public Phase CurrentPhase { get; private set; }
     public float PhaseTime { get; private set; }
-    public string CurrentLine { get; private set; } = Introduction[0];
-    public int VisibleCharacters { get; private set; }
+    public string CurrentLine => runner.RawText;
+    public int VisibleCharacters => runner.VisibleCharacters;
+    public DialogueRunner Runner => runner;
 
     [SerializeField] private float talkRadius = 3f;
-    [SerializeField] private float charactersPerSecond = 40f;
     // The world's Clue Letter, handed over instead of picked up.
     [SerializeField] private PickupItem letter;
 
+    private readonly DialogueRunner runner = new DialogueRunner();
     private Transform player;
-    // Lines played in a row this visit, and what follows the last of them.
-    private string[] script;
-    private System.Action afterScript;
-    private int lineIndex;
     private float promptAlpha;
-    private float typed;
     private float roomTime;
-    private string wrappedLine;
-    private int wrapWidth;
     private Canvas canvas;
     private RectTransform stage;
     private RectTransform room;
-    private RectTransform portrait;
     private Image veil;
     private Image backdrop;
-    private PixelText speech;
-    private PixelText enterHint;
     private PixelText controls;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -142,10 +119,7 @@ public class AlchemistEncounter : MonoBehaviour, IInteractable
         Keyboard keyboard = Keyboard.current;
         if (CurrentPhase != Phase.Idle)
         {
-            bool advance = keyboard != null &&
-                (keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame);
-            bool escape = keyboard != null && keyboard.escapeKey.wasPressedThisFrame;
-            Tick(Time.unscaledDeltaTime, advance, escape);
+            Tick(Time.unscaledDeltaTime, DialogueInput.Read());
             return;
         }
 
@@ -174,12 +148,10 @@ public class AlchemistEncounter : MonoBehaviour, IInteractable
         IsOpen = true;
         promptAlpha = 0f;
         roomTime = 0f;
-        script = null;
-        afterScript = null;
         ClueMinigame clue = ClueMinigame.Current;
         if (!HasGivenLetter && !HasHeardIntroduction)
         {
-            Play(Introduction, () =>
+            Play(StoryScript.IguanaMeeting, () =>
             {
                 HasHeardIntroduction = true;
                 OfferLetter();
@@ -188,26 +160,34 @@ public class AlchemistEncounter : MonoBehaviour, IInteractable
         else if (!HasGivenLetter) OfferLetter();
         else if (clue != null && clue.IsFound)
         {
-            Play(PotionsFound, () =>
+            Play(StoryScript.PotionsFound, () =>
             {
                 clue.Deliver();
-                SetLine(ClueGift);
+                if (clue.PresentClue()) SetPhase(Phase.Writing);
+                else ReadClue();
             });
         }
-        else if (clue == null || clue.IsDelivered) SetLine(Farewell);
-        else SetLine(KeepLooking);
+        else if (clue == null || clue.IsDelivered) Play(StoryScript.IguanaFarewell, Exit);
+        else Play(StoryScript.KeepLooking, Exit);
         SetPhase(Phase.FadingToRoom);
         stage.gameObject.SetActive(false);
         canvas.gameObject.SetActive(true);
         UpdateVisuals();
     }
 
-    // Enter finishes typing first; a separate press advances the conversation.
     public void Tick(float deltaTime, bool advance, bool escape = false)
+    {
+        DialogueInput input = advance ? DialogueInput.Continue : DialogueInput.None;
+        input.Escape = escape;
+        Tick(deltaTime, input);
+    }
+
+    // Enter finishes typing first; a separate press advances the conversation.
+    public void Tick(float deltaTime, DialogueInput input)
     {
         if (CurrentPhase == Phase.Idle) return;
         promptAlpha = 0f;
-        if (escape)
+        if (input.Escape && CurrentPhase != Phase.Writing)
         {
             Exit();
             UpdateVisuals();
@@ -226,16 +206,25 @@ public class AlchemistEncounter : MonoBehaviour, IInteractable
                 }
                 break;
             case Phase.EnteringRoom:
-                if (PhaseTime >= RoomEnterDuration) SetPhase(Phase.Typing);
+                if (PhaseTime >= RoomEnterDuration)
+                {
+                    if (runner.IsActive) SyncDialoguePhase();
+                    else Exit();
+                }
                 break;
             case Phase.Typing:
-                typed = advance ? wrappedLine.Length :
-                    Mathf.Min(wrappedLine.Length, typed + deltaTime * charactersPerSecond);
-                VisibleCharacters = Mathf.FloorToInt(typed);
-                if (VisibleCharacters >= wrappedLine.Length) SetPhase(Phase.Waiting);
-                break;
             case Phase.Waiting:
-                if (advance) AdvanceLine();
+                runner.Tick(deltaTime, input);
+                SyncDialoguePhase();
+                break;
+            case Phase.Writing:
+                ClueMinigame clue = ClueMinigame.Current;
+                if (clue == null || !clue.IsPresenting) ReadClue();
+                else if (clue.ClueWritten && PhaseTime >= WrittenHold && (input.Advance || PhaseTime >= WrittenHold * 2f))
+                {
+                    clue.EndPresentation();
+                    ReadClue();
+                }
                 break;
             case Phase.LeavingRoom:
                 if (PhaseTime >= FadeDuration)
@@ -251,41 +240,34 @@ public class AlchemistEncounter : MonoBehaviour, IInteractable
         UpdateVisuals();
     }
 
-    private void Play(string[] lines, System.Action then)
+    private void Play(DialogueLine[] lines, System.Action then)
     {
-        script = lines;
-        afterScript = then;
-        lineIndex = 0;
-        SetLine(lines[0]);
+        runner.Play(Speaker.Iguana, lines, then);
+        if (CurrentPhase == Phase.Typing || CurrentPhase == Phase.Waiting || CurrentPhase == Phase.Writing)
+            SyncDialoguePhase();
     }
 
-    // The next line of the visit's script, then whatever follows it; a lone line just leaves.
-    private void AdvanceLine()
+    private void SyncDialoguePhase()
     {
-        if (script == null)
-        {
-            Exit();
-            return;
-        }
-        if (lineIndex + 1 < script.Length)
-        {
-            SetLine(script[++lineIndex]);
-        }
-        else
-        {
-            System.Action then = afterScript;
-            script = null;
-            afterScript = null;
-            then?.Invoke();
-        }
+        if (runner.IsActive) SetDialoguePhase(runner.IsTyping ? Phase.Typing : Phase.Waiting);
+    }
+
+    private void SetDialoguePhase(Phase phase)
+    {
+        if (CurrentPhase != phase) SetPhase(phase);
+    }
+
+    private void ReadClue()
+    {
         SetPhase(Phase.Typing);
+        Play(StoryScript.ClueRead, Exit);
     }
 
     private void OfferLetter()
     {
         HasGivenLetter = letter != null ? letter.Collect() :
             InventorySystem.instance != null && InventorySystem.instance.TryAdd(LetterItemName);
-        SetLine(HasGivenLetter ? LetterGift : LetterNoRoom);
+        Play(HasGivenLetter ? StoryScript.LetterGiven : StoryScript.LetterNoRoom, Exit);
     }
 
     public bool DebugCompleteHunt()
@@ -305,6 +287,8 @@ public class AlchemistEncounter : MonoBehaviour, IInteractable
     {
         if (CurrentPhase == Phase.Idle || CurrentPhase == Phase.LeavingRoom ||
             CurrentPhase == Phase.Returning) return;
+        runner.Stop();
+        ClueMinigame.Current?.EndPresentation();
         SetPhase(stage.gameObject.activeSelf ? Phase.LeavingRoom : Phase.Returning);
     }
 
@@ -312,27 +296,11 @@ public class AlchemistEncounter : MonoBehaviour, IInteractable
     public void Cancel()
     {
         if (CurrentPhase == Phase.Idle) return;
+        runner.Stop();
+        ClueMinigame.Current?.EndPresentation();
         canvas.gameObject.SetActive(false);
         SetPhase(Phase.Idle);
         IsOpen = false;
-    }
-
-    private void SetLine(string line)
-    {
-        CurrentLine = line;
-        wrapWidth = 0;
-        WrapLine();
-        typed = 0f;
-        VisibleCharacters = 0;
-    }
-
-    private void WrapLine()
-    {
-        int width = Mathf.Max(1, Mathf.FloorToInt(speech.rectTransform.rect.width / speech.PixelSize()));
-        if (width == wrapWidth) return;
-        wrapWidth = width;
-        wrappedLine = string.Join("\n", PixelFont.Wrap(CurrentLine, width));
-        if (CurrentPhase == Phase.Waiting) VisibleCharacters = wrappedLine.Length;
     }
 
     private void SetPhase(Phase phase)
@@ -346,7 +314,6 @@ public class AlchemistEncounter : MonoBehaviour, IInteractable
         if (CurrentPhase == Phase.Idle) return;
         Rect bounds = ((RectTransform)canvas.transform).rect;
         stage.localScale = Vector3.one * Mathf.Min(bounds.width / 1280f, bounds.height / 720f);
-        WrapLine();
         UpdateVisuals();
     }
 
@@ -361,22 +328,25 @@ public class AlchemistEncounter : MonoBehaviour, IInteractable
         veil.color = new Color(0f, 0f, 0f, Mathf.SmoothStep(0f, 1f, fade));
         room.localScale = Vector3.one * (CurrentPhase == Phase.EnteringRoom ?
             Mathf.Lerp(1.04f, 1f, Mathf.SmoothStep(0f, 1f, PhaseTime / RoomEnterDuration)) : 1f);
-        float bob = CurrentPhase == Phase.Typing ? Mathf.Sin(roomTime * 12f) * 7f : 0f;
-        portrait.anchoredPosition = new Vector2(0f, -4f + bob);
-        speech.text = wrappedLine.Substring(0, Mathf.Clamp(VisibleCharacters, 0, wrappedLine.Length));
-        enterHint.gameObject.SetActive(CurrentPhase == Phase.Waiting);
-        enterHint.rectTransform.anchoredPosition = new Vector2(410f, -48f + Mathf.Sin(roomTime * 4f) * 2f);
-        controls.text = "[ENTER] CONTINUE    [ESC] LEAVE";
+        controls.text = CurrentPhase == Phase.Writing ? "" : "[ENTER] CONTINUE    [ESC] LEAVE";
     }
 
     private void OnGUI()
     {
-        if (CurrentPhase == Phase.Idle && Event.current.type == EventType.Repaint)
+        if (Event.current.type != EventType.Repaint) return;
+        if (CurrentPhase == Phase.Idle)
+        {
             InteractPrompt.Draw(transform.position + Vector3.up * 1.7f, 10f, "E", "Knock", 3, promptAlpha);
+            return;
+        }
+        if (CurrentPhase != Phase.Typing && CurrentPhase != Phase.Waiting) return;
+        int depth = GUI.depth;
+        GUI.depth = -900;
+        runner.Draw();
+        GUI.depth = depth;
     }
 
-    // The magician's room layout, with the alchemist's title. Swap the Resources paths when
-    // the alchemist's own artwork exists.
+    // The magician's room layout as the backdrop; the conversation itself is the shared dialogue box.
     private void BuildView()
     {
         var root = new GameObject("Alchemist room", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler));
@@ -399,29 +369,11 @@ public class AlchemistEncounter : MonoBehaviour, IInteractable
         black.color = Color.black;
         room = Picture("Room", stage, Resources.Load<Sprite>("Magician/Room"),
             Vector2.zero, new Vector2(1125f, 720f)).rectTransform;
-        RectTransform conversation = Rect("Conversation", stage, Vector2.zero, new Vector2(1280f, 720f));
-        Sprite art = Resources.Load<Sprite>("Magician/Magician");
-        portrait = Picture("Alchemist", conversation, art, new Vector2(0f, -4f),
-            new Vector2(430f * art.rect.width / art.rect.height, 430f)).rectTransform;
-        Image bubble = Picture("Speech bubble", conversation, Resources.Load<Sprite>("Magician/SpeechBubble"),
-            new Vector2(0f, -237f), new Vector2(1120f, 168f));
-        bubble.type = Image.Type.Sliced;
-        bubble.pixelsPerUnitMultiplier = 2f;
-        speech = Label("Dialogue", bubble.transform, 21f, new Vector2(0f, -6f), new Vector2(1030f, 96f));
-        speech.alignment = TextAnchor.UpperLeft;
-        speech.color = new Color32(30, 35, 58, 255);
-        enterHint = Label("Enter hint", bubble.transform, 14f, new Vector2(410f, -48f), new Vector2(200f, 28f));
-        enterHint.text = "[ENTER]";
-        enterHint.color = new Color32(48, 62, 106, 255);
-        PixelText title = Label("Alchemist title", conversation, 21f,
-            new Vector2(0f, 303f), new Vector2(1000f, 32f));
-        title.text = "THE ALCHEMIST";
-        title.color = new Color32(242, 211, 107, 255);
         Image top = Picture("Top letterbox", stage, null, new Vector2(0f, 344f), new Vector2(1280f, 32f));
         top.color = Color.black;
         Image bottom = Picture("Bottom letterbox", stage, null, new Vector2(0f, -344f), new Vector2(1280f, 32f));
         bottom.color = Color.black;
-        controls = Label("Controls", stage, 12f, new Vector2(0f, -344f), new Vector2(1240f, 28f));
+        controls = Label("Controls", stage, 12f, new Vector2(0f, 344f), new Vector2(1240f, 28f));
         controls.color = new Color32(233, 214, 168, 255);
         controls.highlightBrackets = true;
         veil = Picture("Transition", root.transform, null, Vector2.zero, Vector2.zero);

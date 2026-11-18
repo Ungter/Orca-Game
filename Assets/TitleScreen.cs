@@ -4,7 +4,7 @@ using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 
 // Title screen shown when the game starts. The camera circles high above the island while a
-// parchment "ORCA PLACEHOLDER" scroll floats over the island, the orca leaps
+// parchment "The Magic of Moore Isle" scroll floats over the island, the orca leaps
 // out from behind it and wooden PLAY and EXIT buttons (the pause menu's buttons) wait below.
 // PLAY flies out to the player's boat and rides with it in to the dock (OpeningVoyage); SPACE
 // jumps onto the dock, then the camera eases into gameplay. EXIT quits the game. It opens on
@@ -14,6 +14,9 @@ using UnityEngine.SceneManagement;
 public class TitleScreen : MonoBehaviour
 {
     public static bool IsOpen { get; private set; }
+    // The opening's boat ride while it runs, so the story can put Orca on the dock it comes in to.
+    public static OpeningVoyage ActiveVoyage => current != null ? current.opening : null;
+    private static TitleScreen current;
 
     // Screen pixels per art pixel at 1280x720; rounded to a whole number at any resolution.
     [SerializeField]
@@ -32,20 +35,15 @@ public class TitleScreen : MonoBehaviour
     [SerializeField]
     private float flightDuration = 2.4f;
 
-    private const string Title = "ORCA PLACEHOLDER";
+    private const string Title = "The Magic of Moore Isle";
     private const string Label = "PLAY";
     private const string ExitLabel = "EXIT";
     private const string OrcaPath = "TitleScreen/Orca Sprite";
     private const string MapName = "IslanddemoV3";
-    private const string OpeningMessage = "SOMEONE'S BEEN MURDERED!";
 
     private const float FadeInDuration = 1.2f;
     private const float UIFadeDuration = 0.4f;
     private const float HandoffDuration = 1.2f;
-    // The opening message shows this long after the boat sets off, for MessageDuration.
-    private const float MessageStart = 1.2f;
-    private const float MessageDuration = 2.8f;
-    private const float MessageFadeDuration = 0.2f;
     private const string JumpKey = "SPACE";
     private const int MaxTitleScale = 3;
     private const int CornerScale = 2;
@@ -109,8 +107,7 @@ public class TitleScreen : MonoBehaviour
     private Vector3 flightStartPosition;
     private Quaternion flightStartRotation;
     private OpeningVoyage opening;
-    // Seconds since the boat set off, and since the hand-off to gameplay began.
-    private float voyageTime;
+    // Seconds since the hand-off to gameplay began.
     private float handoffTime;
     private bool handingOff;
     private Vector3 handoffPosition;
@@ -125,6 +122,7 @@ public class TitleScreen : MonoBehaviour
     private static void ResetStatics()
     {
         IsOpen = false;
+        current = null;
     }
 
     // Gameplay scenes (the ones with a follow camera) open on the title screen, on the first load
@@ -173,6 +171,7 @@ public class TitleScreen : MonoBehaviour
         }
 
         IsOpen = true;
+        current = this;
         Freeze<CameraFollow>(cameraRigs);
         Freeze<PlayerController>(frozen);
         Freeze<InventoryHUD>(frozen);
@@ -196,6 +195,7 @@ public class TitleScreen : MonoBehaviour
     private void OnDestroy()
     {
         opening?.Dispose();
+        if (current == this) current = null;
         Thaw(cameraRigs);
         Thaw(frozen);
         IsOpen = false;
@@ -350,7 +350,6 @@ public class TitleScreen : MonoBehaviour
             if (!handingOff)
             {
                 // The boat sets off once the camera has reached it; SPACE jumps ashore once it is in.
-                voyageTime += dt;
                 Keyboard jumpKeys = Keyboard.current;
                 opening.Tick(dt, jumpKeys != null && jumpKeys.spaceKey.wasPressedThisFrame);
                 if (opening.HasLanded)
@@ -490,7 +489,6 @@ public class TitleScreen : MonoBehaviour
         flightTime = 0f;
         flightStartPosition = cam.transform.position;
         flightStartRotation = cam.transform.rotation;
-        voyageTime = 0f;
         GameObject map = GameObject.Find(MapName);
         PlayerController player = FindAnyObjectByType<PlayerController>();
         // Without a dock to sail to, PLAY just flies down to the player where they stand.
@@ -615,7 +613,6 @@ public class TitleScreen : MonoBehaviour
             float bars = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(flightTime / UIFadeDuration)) *
                 CinematicBarsAmount(handingOff ? handoffTime : -1f);
             CinematicOverlay.DrawBars(bars);
-            CinematicOverlay.DrawMessage(OpeningMessage, OpeningMessageOpacity(voyageTime), pixelSize);
             if (!handingOff)
                 InteractPrompt.Draw(opening.JumpPromptAnchor, 10f, JumpKey, null, 3, opening.PromptAlpha);
         }
@@ -636,15 +633,6 @@ public class TitleScreen : MonoBehaviour
         color.a *= uiOpacity;
         GUI.color = color;
         GUI.DrawTexture(art, Texture2D.whiteTexture);
-    }
-
-    // The message shows while the boat crosses, MessageStart seconds after it sets off (time).
-    private static float OpeningMessageOpacity(float time)
-    {
-        float elapsed = time - MessageStart;
-        float fadeIn = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / MessageFadeDuration));
-        float fadeOut = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((MessageDuration - elapsed) / MessageFadeDuration));
-        return fadeIn * fadeOut;
     }
 
     // The letterbox stays for the whole opening and opens up over the hand-off to gameplay

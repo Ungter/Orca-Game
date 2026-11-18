@@ -8,7 +8,6 @@ public class MouseTrapWorldTests
 {
     private Scene scene;
     private LighthouseMouseTrap trap;
-    private LighthouseStacker stacker;
     private PlayerController player;
     private Camera view;
 
@@ -20,7 +19,6 @@ public class MouseTrapWorldTests
         {
             if (trap == null) trap = root.GetComponentInChildren<LighthouseMouseTrap>(true);
             if (root.TryGetComponent(out PlayerController p)) player = p;
-            if (root.TryGetComponent(out LighthouseStacker s)) stacker = s;
             foreach (Camera c in root.GetComponentsInChildren<Camera>(true))
                 if (c.CompareTag("MainCamera")) view = c;
         }
@@ -69,7 +67,7 @@ public class MouseTrapWorldTests
     }
 
     [Test]
-    public void TheGameIsLockedUntilTheAnagramIsSolvedAndItsStairDoesNotCrowdTheStacker()
+    public void TheGameIsLockedUntilTheAnagramIsSolved()
     {
         Assert.AreEqual("Lighthouse-aiStandardSurface6 12", trap.Trigger.name);
         Assert.AreEqual("pCylinder3", trap.Lookout.name);
@@ -80,20 +78,15 @@ public class MouseTrapWorldTests
 
         Unlock();
         Assert.Less(trap.InteractDistanceSqr(), 1f, "At the stair's foot, E starts it.");
-        // Edit mode doesn't run OnEnable, which registers them in play.
+        // Edit mode doesn't run OnEnable, which registers it in play.
         Interactables.Add(trap);
-        Interactables.Add(stacker);
         try
         {
             Assert.IsTrue(Interactables.IsNearest(trap));
-            player.transform.position = stacker.Entrance + Vector3.up;
-            Assert.AreEqual(float.MaxValue, trap.InteractDistanceSqr(), "At the stacker's ring, the stacker answers E.");
-            Assert.IsTrue(Interactables.IsNearest(stacker));
         }
         finally
         {
             Interactables.Remove(trap);
-            Interactables.Remove(stacker);
         }
     }
 

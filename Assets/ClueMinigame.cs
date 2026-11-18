@@ -51,7 +51,8 @@ public class ClueMinigame : MonoBehaviour
     private const float PotionPixelsPerUnit = 11f;
     private const float PopSeconds = 0.35f;
     private const float MessageSeconds = 2.5f;
-    private static readonly Vector2 ClueCentre = new Vector2(80f, 46f);
+    // On the paper under the map, so the word never covers it.
+    private static readonly Vector2 ClueCentre = new Vector2(100f, 213f);
     private static readonly Color HouseGlow = new Color(1f, 0.84f, 0.4f, 1f);
     private static readonly Color32 StatusInk = new Color32(80, 68, 56, 255);
 
@@ -60,6 +61,8 @@ public class ClueMinigame : MonoBehaviour
 
     // The player's clue letter, for the inventory to hold up and the alchemist to finish.
     public static ClueMinigame Current { get; private set; }
+    // The island's walkable survey (null until it has begun), also used by Orca to find his way.
+    public ClueMap Map => map;
 
     // The potion hunt is on: from starting it until the potions are handed to the alchemist.
     // The other NPCs won't talk meanwhile (BusyNotice).
@@ -73,7 +76,6 @@ public class ClueMinigame : MonoBehaviour
     public bool IsFound => State == HuntState.Found;
     public bool IsDelivered => State == HuntState.Delivered;
     public bool IsBurning => burn != null && burn.IsPlaying;
-    public ClueMap Map => map;
 
     public int PotionsLeft
     {
@@ -507,6 +509,30 @@ public class ClueMinigame : MonoBehaviour
         return true;
     }
 
+    // The alchemist's room covers the world: the letter comes up over it while he writes the word.
+    public bool IsPresenting { get; private set; }
+    public bool ClueWritten => clueWriter != null && clueWriter.HasStarted && !clueWriter.IsPlaying;
+
+    public bool PresentClue()
+    {
+        if (State != HuntState.Delivered) return false;
+        EnsureView();
+        if (canvas == null) return false;
+        pendingClue = false;
+        IsPresenting = true;
+        canvas.sortingOrder = 160;
+        ShowClue(true);
+        return true;
+    }
+
+    public void EndPresentation()
+    {
+        if (!IsPresenting) return;
+        IsPresenting = false;
+        if (clueWriter != null && clueWriter.IsPlaying) clueWriter.Complete();
+        if (canvas != null) canvas.sortingOrder = 90;
+    }
+
     public bool DebugComplete()
     {
         if (inventory == null) inventory = InventorySystem.instance;
@@ -877,10 +903,10 @@ public class ClueMinigame : MonoBehaviour
     private void ShowClue(bool animate)
     {
         EnsureView();
-        if (clueWriter == null) clueWriter = new CursiveWriter(ClueWord, 150f, 17f, 4);
+        if (clueWriter == null) clueWriter = new CursiveWriter(ClueWord, 150f, 13f, 4);
         clueInk.texture = clueWriter.Texture;
         Place(clueInk.rectTransform, ClueCentre, clueWriter.SizeInLetterPixels);
-        Place(cluePatch.rectTransform, ClueCentre, clueWriter.SizeInLetterPixels * 1.4f);
+        Place(cluePatch.rectTransform, ClueCentre, clueWriter.SizeInLetterPixels * 1.15f);
         clueInk.gameObject.SetActive(true);
         cluePatch.gameObject.SetActive(true);
         if (animate) clueWriter.Play();
@@ -891,7 +917,7 @@ public class ClueMinigame : MonoBehaviour
     {
         if (canvas == null) return;
         // The lighthouse's board stays up through its game, though the game counts as busy.
-        bool show = IsHeld && !Blocked || boardShown && !PauseMenu.IsPaused && !TitleScreen.IsOpen;
+        bool show = IsHeld && !Blocked || boardShown && !PauseMenu.IsPaused && !TitleScreen.IsOpen || IsPresenting;
         slide = Mathf.MoveTowards(slide, show ? 1f : 0f, Time.unscaledDeltaTime / SlideDuration);
         bool active = slide > 0f || IsBurning;
         if (canvas.gameObject.activeSelf != active) canvas.gameObject.SetActive(active);

@@ -14,8 +14,6 @@ public static class WorldModelSetup
     public const string CounterPath = "Assets/Resources/WorldModels/DolphinCounter.prefab";
     public const string IslandPath = "Assets/Generated/WorldModels/LighthouseIsland.prefab";
     public const string IslandName = "Lighthouse island";
-    public const string SectionPath = "Assets/Resources/WorldModels/LighthouseSection.prefab";
-    public const string LanternPath = "Assets/Resources/WorldModels/LighthouseLantern.prefab";
     private const string Generated = "Assets/Generated/WorldModels";
     private const string Materials = "Assets/Materials/WorldModels";
 
@@ -100,9 +98,6 @@ public static class WorldModelSetup
                     new[] { "pCylinder1", "pCylinder2", "pCylinder3", "pCylinder4" }.Contains(r.name)).ToArray();
             Renderer body = towerParts.Single(r => r.name == "pCylinder1");
             Bounds bodyBounds = body.bounds;
-            BuildStackPrefab(SectionPath, new[] { body }, new Vector3(LighthouseStackMatch.StartingWidth,
-                LighthouseStackView.SectionHeight, LighthouseStackMatch.StartingWidth));
-            BuildStackPrefab(LanternPath, towerParts.Where(r => r != body).ToArray(), new Vector3(8.8f, 4.8f, 8.8f));
             var tower = new GameObject("Supplied lighthouse");
             tower.transform.SetParent(root.transform, false);
             tower.transform.position = new Vector3(bodyBounds.center.x, bodyBounds.min.y, bodyBounds.center.z);
@@ -176,7 +171,7 @@ public static class WorldModelSetup
             Bounds combined = BoundsOf(root);
             foreach (Transform part in root.transform)
                 part.localPosition -= new Vector3(combined.center.x, 0f, combined.center.z);
-            root.AddComponent<LighthouseStacker>().Configure(tower.transform, entrance, pier, berth);
+            root.AddComponent<LighthouseIsland>().Configure(tower.transform, entrance, pier, berth);
             PrefabUtility.SaveAsPrefabAsset(root, IslandPath);
             // Remove only stale numbered outputs from previous builds of this generated model.
             string stale;
@@ -206,27 +201,6 @@ public static class WorldModelSetup
         if (float.IsNegativeInfinity(height)) return false;
         anchor.position = new Vector3(anchor.position.x, height, anchor.position.z);
         return true;
-    }
-
-    private static void BuildStackPrefab(string path, Renderer[] parts, Vector3 size)
-    {
-        var root = new GameObject(System.IO.Path.GetFileNameWithoutExtension(path));
-        try
-        {
-            var geometry = new GameObject("Supplied model geometry").transform;
-            geometry.SetParent(root.transform, false);
-            foreach (Renderer part in parts)
-            {
-                GameObject copy = UnityEngine.Object.Instantiate(part.gameObject, geometry, true);
-                foreach (Collider collider in copy.GetComponentsInChildren<Collider>()) UnityEngine.Object.DestroyImmediate(collider);
-            }
-            Bounds bounds = BoundsOf(root);
-            Vector3 scale = new Vector3(size.x / bounds.size.x, size.y / bounds.size.y, size.z / bounds.size.z);
-            geometry.localScale = scale;
-            geometry.localPosition = -Vector3.Scale(new Vector3(bounds.center.x, bounds.min.y, bounds.center.z), scale);
-            PrefabUtility.SaveAsPrefabAsset(root, path);
-        }
-        finally { UnityEngine.Object.DestroyImmediate(root); }
     }
 
     // Keep generated text assets comfortably below source-control file size limits.

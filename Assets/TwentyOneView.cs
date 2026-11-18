@@ -28,9 +28,6 @@ public sealed class TwentyOneView : System.IDisposable
     private readonly PixelText face;
     private readonly PixelText orderQuestion;
     private readonly PixelText normalSpeech;
-    private readonly PixelText prefix;
-    private readonly PixelText keyword;
-    private readonly PixelText suffix;
     private readonly PixelText reward;
     private readonly GameObject rulesPanel;
     private readonly GameObject diePanel;
@@ -38,7 +35,6 @@ public sealed class TwentyOneView : System.IDisposable
     private readonly GameObject resultPanel;
 
     public bool IsVisible => root != null && root.activeSelf;
-    public PixelText KeywordLabel => keyword;
     public TwentyOneTable Table { get; }
 
     public TwentyOneView(Transform parent, Sprite[] art, Sprite npc)
@@ -96,14 +92,6 @@ public sealed class TwentyOneView : System.IDisposable
         Picture("Dialogue inset", resultPanel.transform, null, Vector2.zero, new Vector2(1012f, 182f)).color = Well;
         normalSpeech = Label("Speech", resultPanel.transform, "", 28f,
             new Vector2(0f, 29f), new Vector2(980f, 48f));
-        prefix = Label("Insult prefix", resultPanel.transform, "", 28f,
-            Vector2.zero, new Vector2(1f, 48f));
-        keyword = Label("Highlighted JERK", resultPanel.transform, "", 28f,
-            Vector2.zero, new Vector2(1f, 48f));
-        keyword.color = Gold;
-        suffix = Label("Insult suffix", resultPanel.transform, "", 28f,
-            Vector2.zero, new Vector2(1f, 48f));
-        prefix.alignment = keyword.alignment = suffix.alignment = TextAnchor.MiddleLeft;
         reward = Label("Revealed clue", resultPanel.transform, "", 21f,
             new Vector2(0f, -43f), new Vector2(980f, 40f));
         reward.color = Gold;
@@ -139,11 +127,11 @@ public sealed class TwentyOneView : System.IDisposable
     {
         bool choosing = game.CurrentPhase == TwentyOneGame.Phase.ChoosingOrder;
         bool lost = game.CurrentPhase == TwentyOneGame.Phase.Lost;
-        bool drat = game.CurrentPhase == TwentyOneGame.Phase.Drat;
-        bool insult = game.CurrentPhase == TwentyOneGame.Phase.Insult;
+        // After a win he talks in the shared dialogue box, over the table.
+        bool talking = game.CurrentPhase == TwentyOneGame.Phase.Talking;
         orderPanel.SetActive(choosing);
-        resultPanel.SetActive(lost || drat || insult);
-        bool boardGame = !choosing && !lost && !drat && !insult;
+        resultPanel.SetActive(lost);
+        bool boardGame = !choosing && !lost && !talking;
         diePanel.SetActive(boardGame);
         // Only shown while he asks to go second.
         rulesPanel.SetActive(!game.Match.Started);
@@ -172,46 +160,13 @@ public sealed class TwentyOneView : System.IDisposable
             " TOOK " + game.Match.LastRoll + (game.Match.LastRoll == 1 ? " TILE." : " TILES.");
         controls.text = choosing ? "[1] YES   [2] NO   [LEFT/RIGHT] SELECT   [ENTER] CHOOSE   [ESC] LEAVE" :
             lost ? "[ENTER] TRY AGAIN    [ESC] LEAVE" :
-            drat || insult ? "[ENTER] CONTINUE    [ESC] LEAVE" :
+            talking ? "" :
             game.CurrentPhase == TwentyOneGame.Phase.PlayerRolling ? "[SPACE] STOP DICE    [ESC] LEAVE" :
             "WATCH THE DIE AND TILES    [ESC] LEAVE";
         for (int i = 0; i < choices.Length; i++) choices[i].color = i == game.SelectedOrder ? Gold : Muted;
         orderQuestion.text = "AL CACHUD: " + TwentyOneGame.OrderQuestion;
-        normalSpeech.gameObject.SetActive(!insult);
-        prefix.gameObject.SetActive(insult);
-        keyword.gameObject.SetActive(insult);
-        suffix.gameObject.SetActive(insult);
-        normalSpeech.text = lost ? "YOU TOOK TILE " + limit + ". YOU LOSE!" :
-            drat ? TwentyOneGame.DratLine.Substring(0, game.VisibleCharacters) : "";
-        if (insult)
-        {
-            int n = game.VisibleCharacters;
-            prefix.text = "You're a ".Substring(0, Mathf.Min(n, 9));
-            keyword.text = TwentyOneGame.Keyword.Substring(0, Mathf.Clamp(n - 9, 0, 4));
-            suffix.text = n > 13 ? "!" : "";
-            LayoutInsult();
-        }
-        reward.text = lost ? "Another round?" : insult && game.KeywordRecorded ? "KEYWORD REVEALED: JERK" : "";
-    }
-
-    private void LayoutInsult()
-    {
-        // Use the actual snapped font size, including at resized canvas scales.
-        float pixel = prefix.PixelSize();
-        float gap = PixelFont.Spacing * pixel;
-        float prefixWidth = PixelFont.Measure("You're a ") * pixel;
-        float wordWidth = PixelFont.Measure(TwentyOneGame.Keyword) * pixel;
-        float suffixWidth = PixelFont.Measure("!") * pixel;
-        float left = -(prefixWidth + wordWidth + suffixWidth + gap * 2f) * 0.5f;
-        PlaceFragment(prefix, left, prefixWidth);
-        PlaceFragment(keyword, left + prefixWidth + gap, wordWidth);
-        PlaceFragment(suffix, left + prefixWidth + wordWidth + gap * 2f, suffixWidth);
-    }
-
-    private static void PlaceFragment(PixelText label, float left, float width)
-    {
-        label.rectTransform.sizeDelta = new Vector2(width, 48f);
-        label.rectTransform.anchoredPosition = new Vector2(left + width * 0.5f, 29f);
+        normalSpeech.text = lost ? "YOU TOOK TILE " + limit + ". YOU LOSE!" : "";
+        reward.text = lost ? "Another round?" : "";
     }
 
     private static GameObject Panel(string name, Transform parent, Vector2 position, Vector2 size)

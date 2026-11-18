@@ -238,6 +238,40 @@ public class ClueMinigameTests
     }
 
     // What one of the held letter's lines says.
+    [Test]
+    public void OrcasWayKeepsToTheSidewalks()
+    {
+        // An L of sidewalk: along z = -20 from the west end, then north along x = 40.
+        Box("Front Path", new Vector3(-5f, 0.05f, -20f), new Vector3(90f, 0.1f, 4f));
+        Box("sidewalkToACC", new Vector3(40f, 0.05f, 0f), new Vector3(4f, 0.1f, 44f));
+        ClueMap map = Survey();
+        var route = new SidewalkRoute(map);
+        Assert.IsTrue(route.Advance(int.MaxValue));
+        Assert.IsTrue(route.IsSidewalk(map.SampleAt(new Vector3(0f, 0f, -20f))));
+        Assert.IsFalse(route.IsSidewalk(map.SampleAt(new Vector3(0f, 0f, 0f))));
+
+        int start = route.NearestOnIsland(new Vector3(-48f, 0f, -20f), 3);
+        int goal = route.NearestOnIsland(new Vector3(40f, 0f, 18f), 3);
+        Assert.GreaterOrEqual(start, 0);
+        Assert.GreaterOrEqual(goal, 0);
+        var field = new int[map.SampleCount];
+        route.Distances(goal, field);
+        int steps = 0, onSidewalk = 0;
+        for (int s = start; field[s] > 0 && steps < 1000; steps++)
+        {
+            if (route.IsSidewalk(s)) onSidewalk++;
+            int best = s;
+            for (int n = 0; n < 4; n++)
+            {
+                int next = map.Neighbour(s, n);
+                if (next >= 0 && field[next] < field[best]) best = next;
+            }
+            Assert.AreNotEqual(s, best, "Every spot on the way has a cheaper next one.");
+            s = best;
+        }
+        Assert.Greater(onSidewalk, steps * 0.9f, "The way follows the L instead of cutting across the grass.");
+    }
+
     private string Label(string field)
     {
         typeof(ClueMinigame).GetMethod("UpdateLabels", Private).Invoke(game, null);

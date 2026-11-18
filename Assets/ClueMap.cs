@@ -181,6 +181,43 @@ public sealed class ClueMap
         return best;
     }
 
+    // The spot one step from sample s in direction n (0 +x, 1 -x, 2 +z, 3 -z) when the step can be
+    // walked, else -1.
+    public int Neighbour(int s, int n)
+    {
+        int sx = s % SamplesX, sz = s / SamplesX;
+        switch (n)
+        {
+            case 0: return (edges[s] & 1) != 0 ? s + 1 : -1;
+            case 1: return sx > 0 && (edges[s - 1] & 1) != 0 ? s - 1 : -1;
+            case 2: return (edges[s] & 2) != 0 ? s + SamplesX : -1;
+            default: return sz > 0 && (edges[s - SamplesX] & 2) != 0 ? s - SamplesX : -1;
+        }
+    }
+
+    // Steps walked from source to every spot, one per sample (Unreachable where it can't be walked
+    // to): a plain breadth-first search, so following lower values leads straight to source.
+    public void StepDistances(int source, int[] into)
+    {
+        for (int i = 0; i < into.Length; i++) into[i] = Unreachable;
+        if (source < 0 || source >= into.Length) return;
+        var queue = new int[SampleCount];
+        int head = 0, tail = 0;
+        into[source] = 0;
+        queue[tail++] = source;
+        while (head < tail)
+        {
+            int s = queue[head++];
+            for (int n = 0; n < 4; n++)
+            {
+                int t = Neighbour(s, n);
+                if (t < 0 || into[t] != Unreachable) continue;
+                into[t] = into[s] + 1;
+                queue[tail++] = t;
+            }
+        }
+    }
+
     // Fewest cells crossed walking from source to every spot (Unreachable where it can't be
     // walked to). A breadth-first search where a move inside a cell is free and a move over a
     // cell border costs one step.

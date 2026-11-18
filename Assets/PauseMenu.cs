@@ -130,7 +130,8 @@ public class PauseMenu : MonoBehaviour
             else if (!InventoryInspection.IsOpen && !TitleScreen.IsOpen &&
                      !DolphinWordPuzzle.IsOpen && !MagicianEncounter.IsOpen && !AlchemistEncounter.IsOpen &&
                      !CachudCallout.IsOpen && !TwentyOneGame.IsOpen &&
-                     !LighthouseStacker.IsOpen && !LighthouseFerry.IsSailing)
+                     !LighthouseFerry.IsSailing && !TalkInteractable.IsTalking &&
+                     !StoryDirector.IsTalking && !WandSpell.IsCasting)
             {
                 Pause();
             }

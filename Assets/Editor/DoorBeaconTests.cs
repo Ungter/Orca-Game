@@ -22,7 +22,11 @@ public class DoorBeaconTests
         // Far enough away that the beam is at full strength.
         player = new GameObject("Test player");
         player.transform.position = new Vector3(500f, 0f, 500f);
+        ExploringAlone(true);
     }
+
+    private static void ExploringAlone(bool alone) =>
+        typeof(StoryDirector).GetProperty("ExploringAlone").SetValue(null, alone);
 
     [TearDown]
     public void TearDown()
@@ -31,6 +35,7 @@ public class DoorBeaconTests
         if (cachud != null) Object.DestroyImmediate(cachud);
         if (player != null) Object.DestroyImmediate(player);
         if (door != null) Object.DestroyImmediate(door);
+        ExploringAlone(false);
     }
 
     private DoorBeacon Install()
@@ -79,6 +84,19 @@ public class DoorBeaconTests
         beacon.Tick(DoorBeacon.FadeTime);
         Assert.AreEqual(0f, beacon.Opacity);
         Assert.IsFalse(beam.enabled, "A hidden beam isn't drawn at all.");
+    }
+
+    [Test]
+    public void BeaconsStayDarkUnlessThePlayerChoseToExploreAlone()
+    {
+        ExploringAlone(false);
+        Install();
+        beacon.Tick(DoorBeacon.FadeTime * 2f);
+        Assert.AreEqual(0f, beacon.Opacity, "With Orca along (or before answering him) there are no beacons.");
+        Assert.IsFalse(beacon.GetComponent<MeshRenderer>().enabled);
+        ExploringAlone(true);
+        beacon.Tick(DoorBeacon.FadeTime);
+        Assert.AreEqual(1f, beacon.Opacity, 1e-4f, "Lit once the player turned Orca down.");
     }
 
     [Test]

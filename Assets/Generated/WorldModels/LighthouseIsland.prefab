@@ -151,9 +151,8 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 77d3acd1e621e0f409dee9ca6a3250da, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::LighthouseStacker
-  winThreshold: 10
-  originalTower: {fileID: 5783807771664860871}
+  m_EditorClassIdentifier: Assembly-CSharp::LighthouseIsland
+  tower: {fileID: 5783807771664860871}
   entrance: {fileID: 565012040734256696}
   pierLanding: {fileID: 4599850015856538523}
   ferryBerth: {fileID: 3206327960962432181}

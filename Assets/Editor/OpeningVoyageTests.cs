@@ -130,7 +130,10 @@ public class OpeningVoyageTests
         Assert.IsTrue(controller.enabled);
         Assert.IsTrue(voyage.Boat.GetComponent<Collider>().enabled, "The moored boat is solid.");
         Assert.Less(Flat(voyage.Boat.transform.position - voyage.MooredPoint), 0.01f);
-        CameraFollow follow = Camera.main.GetComponent<CameraFollow>();
+        // The scene's own follow camera (Camera.main can be the test runner's scene camera).
+        CameraFollow follow = null;
+        foreach (GameObject root in scene.GetRootGameObjects())
+            if (follow == null) follow = root.GetComponentInChildren<CameraFollow>(true);
         Assert.IsNotNull(follow);
         Physics.SyncTransforms();
         Assert.IsTrue(follow.HasClearView(player.transform.position, voyage.Inland),

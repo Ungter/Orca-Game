@@ -22,7 +22,6 @@ public class GameplayDebugMenuTests
     private TwentyOneGame twentyOne;
     private DigSite dig;
     private DolphinWordPuzzle anagram;
-    private LighthouseStacker lighthouse;
     private CursorLockMode originalLock;
     private bool originalVisible;
 
@@ -45,7 +44,6 @@ public class GameplayDebugMenuTests
         twentyOne = root.AddComponent<TwentyOneGame>();
         dig = root.AddComponent<DigSite>();
         anagram = root.AddComponent<DolphinWordPuzzle>();
-        lighthouse = root.AddComponent<LighthouseStacker>();
         var visitor = new GameObject("Debug player");
         visitor.transform.SetParent(root.transform);
         visitor.AddComponent<SpriteRenderer>();
@@ -61,7 +59,6 @@ public class GameplayDebugMenuTests
         menu.SetOpen(false);
         twentyOne.Close();
         anagram.Close();
-        lighthouse.Close();
         Call(menu, "OnDisable");
         Call(hunt, "OnDestroy");
         EditorSceneManager.ClosePreviewScene(scene);
@@ -99,8 +96,6 @@ public class GameplayDebugMenuTests
     public void EveryMinigameCanBeCompletedBeforeStartingAndRepeatedWithoutDuplicateRewards()
     {
         inventory.TryAdd("Keep this item");
-        int wins = 0;
-        lighthouse.Won += () => wins++;
         menu.SetOpen(true);
         for (int repeat = 0; repeat < 2; repeat++)
             foreach (GameplayDebugMenu.Minigame choice in Enum.GetValues(typeof(GameplayDebugMenu.Minigame)))
@@ -113,12 +108,9 @@ public class GameplayDebugMenuTests
         Assert.IsTrue(dig.IsDug);
         Assert.IsTrue(anagram.IsSolved);
         Assert.AreEqual("JEFFTHEKILLER", anagram.ArrangedLetters);
-        Assert.IsTrue(lighthouse.IsUnlocked);
-        Assert.IsTrue(lighthouse.HasWon);
-        Assert.AreEqual(1, wins);
         Assert.IsTrue(inventory.Contains("Keep this item"));
         Assert.AreEqual(1, inventory.ItemCount());
-        CollectionAssert.AreEquivalent(new[] { "FELL", "JERK" }, inventory.RevealedWords);
+        CollectionAssert.AreEquivalent(new[] { "FELL", "JERK", "THIEF" }, inventory.RevealedWords);
         Assert.IsTrue(GameplayDebugMenu.IsOpen);
         Assert.IsTrue(Cursor.visible);
         menu.SetOpen(false);
@@ -221,28 +213,7 @@ public class GameplayDebugMenuTests
         Assert.IsTrue(menu.CompleteMinigame(GameplayDebugMenu.Minigame.Hats));
         Assert.IsTrue(hats.IsSolved);
         Assert.IsFalse(hats.IsShowing);
-        Assert.IsTrue(inventory.HasRevealedWord("JERK"));
-    }
-
-    [Test]
-    public void AFailedLighthouseRunCanBeCompletedAndRestoresTheCamera()
-    {
-        anagram.DebugComplete();
-        var tower = new GameObject("Test tower").transform;
-        tower.SetParent(root.transform);
-        lighthouse.Configure(tower, tower, tower, tower);
-        var cameraObject = new GameObject("Stacker camera");
-        cameraObject.transform.SetParent(root.transform);
-        Camera camera = cameraObject.AddComponent<Camera>();
-        camera.transform.position = new Vector3(7f, 8f, 9f);
-        Assert.IsTrue(lighthouse.Begin(player.transform, camera));
-        lighthouse.Tick(0f, true);
-        Assert.IsTrue(lighthouse.Match.Failed);
-        menu.SetOpen(true);
-        Assert.IsTrue(menu.CompleteMinigame(GameplayDebugMenu.Minigame.Lighthouse));
-        Assert.IsTrue(lighthouse.HasWon);
-        Assert.IsFalse(LighthouseStacker.IsOpen);
-        Assert.AreEqual(new Vector3(7f, 8f, 9f), camera.transform.position);
+        Assert.IsTrue(inventory.HasRevealedWord("THIEF"), "The hat trick reveals THIEF.");
     }
 
     [Test]

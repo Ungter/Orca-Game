@@ -22,4 +22,12 @@ public class TitleAtmosphereTests
         Assert.AreEqual(0.009f, TitleScreen.TitleFogDensity(0.009f, 20f), 1e-6f);
         Assert.AreEqual(0f, TitleScreen.TitleFogDensity(0f, 600f), "No fog stays no fog.");
     }
+
+    [Test]
+    public void TheTitleScrollReadsTheMagicOfMooreIsle()
+    {
+        Assert.AreEqual("The Magic of Moore Isle", typeof(TitleScreen)
+            .GetField("Title", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic).GetRawConstantValue());
+        foreach (char c in "The Magic of Moore Isle") Assert.IsTrue(PixelFont.HasGlyph(c), "No pixel glyph for '" + c + "'");
+    }
 }

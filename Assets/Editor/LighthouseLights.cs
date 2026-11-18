@@ -71,8 +71,8 @@ public static class LighthouseLights
     {
         if (EditorApplication.isPlayingOrWillChangePlaymode) return "[LighthouseLights] Not in play mode: nothing would be kept.";
         GameObject island = GameObject.Find(WorldModelSetup.IslandName);
-        LighthouseStacker stacker = island != null ? island.GetComponent<LighthouseStacker>() : null;
-        if (stacker == null) return "[LighthouseLights] No " + WorldModelSetup.IslandName + " in the open scene.";
+        LighthouseIsland lighthouse = island != null ? island.GetComponent<LighthouseIsland>() : null;
+        if (lighthouse == null) return "[LighthouseLights] No " + WorldModelSetup.IslandName + " in the open scene.";
         Material glow = AssetDatabase.LoadAssetAtPath<Material>(LampHeadMaterialPath);
         if (glow == null) return "[LighthouseLights] Missing " + LampHeadMaterialPath;
 
@@ -82,7 +82,7 @@ public static class LighthouseLights
             if (part.name.StartsWith(LampPanelsPrefix, StringComparison.Ordinal)) part.TryGetComponent(out panels);
             else if (part.name.StartsWith(LampFramesPrefix, StringComparison.Ordinal)) part.TryGetComponent(out frames);
         }
-        Transform tower = IslandScenery.LighthouseTower(stacker);
+        Transform tower = IslandScenery.LighthouseTower(lighthouse);
         Transform lantern = tower != null ? tower.Find(LanternName) : null;
         if (panels == null || frames == null || lantern == null) return "[LighthouseLights] The lighthouse island's lamps or lantern are missing.";
 

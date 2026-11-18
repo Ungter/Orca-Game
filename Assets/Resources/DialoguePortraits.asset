@@ -1,0 +1,43 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 89d7d647b56989249925a841dccdcab6, type: 3}
+  m_Name: DialoguePortraits
+  m_EditorClassIdentifier: Assembly-CSharp::DialoguePortraitSet
+  entries:
+  - speaker: 2
+    ghostHead: {fileID: 2800000, guid: bf45aea4b401e3749b07a2e072a9bf9d, type: 3}
+    sprite: {fileID: 0}
+    spriteFacesLeft: 0
+  - speaker: 4
+    ghostHead: {fileID: 2800000, guid: 46aaa3f64797ce247b3a343d6b167af0, type: 3}
+    sprite: {fileID: 0}
+    spriteFacesLeft: 0
+  - speaker: 6
+    ghostHead: {fileID: 2800000, guid: 0cd0053f70935094bb763e0b550905a9, type: 3}
+    sprite: {fileID: 0}
+    spriteFacesLeft: 0
+  - speaker: 1
+    ghostHead: {fileID: 0}
+    sprite: {fileID: 21300000, guid: ce189d6f131a865d27c66164f12c8c66, type: 3}
+    spriteFacesLeft: 0
+  - speaker: 3
+    ghostHead: {fileID: 0}
+    sprite: {fileID: 21300000, guid: c3e14336faa79864299bce18f5e21fa2, type: 3}
+    spriteFacesLeft: 0
+  - speaker: 5
+    ghostHead: {fileID: 0}
+    sprite: {fileID: 0}
+    spriteFacesLeft: 0
+  - speaker: 7
+    ghostHead: {fileID: 0}
+    sprite: {fileID: 0}
+    spriteFacesLeft: 0

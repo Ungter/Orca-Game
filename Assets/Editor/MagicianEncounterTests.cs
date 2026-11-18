@@ -53,12 +53,10 @@ public class MagicianEncounterTests
         Assert.IsTrue(Interactables.Busy);
         Assert.IsTrue(Interactables.BlocksMovement);
         RunUntil(MagicianEncounter.Phase.Waiting);
-        Assert.AreEqual(MagicianEncounter.Greeting, encounter.CurrentLine);
-        Advance();
-        Assert.AreEqual(MagicianEncounter.MissingWand, encounter.CurrentLine);
-        RunUntil(MagicianEncounter.Phase.Waiting);
-        Advance();
+        Assert.AreEqual(StoryScript.MagicianMeeting[0].Text, encounter.CurrentLine);
+        ReadThrough();
         Assert.AreEqual(MagicianEncounter.Phase.LeavingRoom, encounter.CurrentPhase);
+        Assert.IsTrue(encounter.HasRequestedWand);
         Assert.IsFalse(inventory.Contains(PlayerLantern.ItemName), "The player starts with the lantern; the magician has none to give.");
         Assert.IsFalse(encounter.HasWand);
         Assert.IsFalse(root.GetComponent<ShellMinigame>().IsShowing);
@@ -81,9 +79,10 @@ public class MagicianEncounterTests
         Assert.AreEqual(0, encounter.VisibleCharacters);
         Advance();
         Assert.AreEqual(MagicianEncounter.Phase.Waiting, encounter.CurrentPhase);
-        Assert.AreEqual(MagicianEncounter.Greeting, encounter.CurrentLine);
+        Assert.AreEqual(0, encounter.Runner.Index);
         Advance();
-        Assert.AreEqual(MagicianEncounter.MissingWand, encounter.CurrentLine);
+        Assert.AreEqual(1, encounter.Runner.Index);
+        Assert.AreEqual(Speaker.Magician, encounter.Runner.CurrentSpeaker);
     }
 
     [Test]
@@ -94,22 +93,40 @@ public class MagicianEncounterTests
         inventory.TryAdd(MagicianEncounter.WandItemName, Resources.Load<Sprite>("Magician/MagicWand"));
         inventory.TryAdd("Another clue");
         encounter.Begin();
-        Assert.AreEqual(MagicianEncounter.Thanks, encounter.CurrentLine);
+        Assert.AreEqual(StoryScript.WandReturned[0].Text, encounter.CurrentLine);
         Assert.IsTrue(inventory.Contains(MagicianEncounter.WandItemName));
         RunUntil(MagicianEncounter.Phase.Waiting);
-        Assert.AreEqual(MagicianEncounter.Thanks, encounter.CurrentLine);
         Assert.IsTrue(encounter.HasWand);
         Assert.IsFalse(inventory.Contains(MagicianEncounter.WandItemName));
         Assert.AreEqual(2, inventory.ItemCount());
         Assert.AreEqual("Other clue", inventory.GetItem(0));
         Assert.AreEqual("Another clue", inventory.GetItem(1));
         Assert.IsFalse(root.GetComponent<ShellMinigame>().IsShowing);
-        RunUntil(MagicianEncounter.Phase.Waiting);
+        Assert.AreEqual(DialogueRunner.State.Choosing, encounter.Runner.CurrentState);
+        CollectionAssert.AreEqual(StoryScript.Ready, encounter.Runner.Choices);
         Advance();
-        Assert.AreEqual(MagicianEncounter.Phase.LeavingForTrick, encounter.CurrentPhase);
+        Assert.AreEqual(MagicianEncounter.Phase.LeavingForTrick, encounter.CurrentPhase, "Enter picks YES.");
         RunUntil(MagicianEncounter.Phase.Playing);
-        Assert.AreEqual(MagicianEncounter.Phase.Playing, encounter.CurrentPhase);
         Assert.IsTrue(root.GetComponent<ShellMinigame>().IsShowing);
+    }
+
+    [Test]
+    public void AnsweringNoLeavesAndTheTrickWaitsForTheNextVisit()
+    {
+        inventory.TryAdd(MagicianEncounter.WandItemName);
+        encounter.Begin();
+        ReadToChoice();
+        var no = DialogueInput.None;
+        no.Choose = 1;
+        encounter.Tick(0.01f, no);
+        Assert.AreEqual(StoryScript.NotReady[0].Text, encounter.CurrentLine);
+        ReadThrough();
+        RunUntil(MagicianEncounter.Phase.Idle);
+        Assert.IsTrue(encounter.HasWand);
+        Assert.IsFalse(root.GetComponent<ShellMinigame>().IsShowing);
+        encounter.Begin();
+        RunUntil(MagicianEncounter.Phase.Waiting);
+        Assert.AreEqual(StoryScript.TrickOffer[0].Text, encounter.CurrentLine);
     }
 
     [Test]
@@ -118,15 +135,13 @@ public class MagicianEncounterTests
         GiveWand();
         encounter.Tick(0.01f, false, true);
         RunUntil(MagicianEncounter.Phase.Idle);
-        Assert.AreEqual(MagicianEncounter.Phase.Idle, encounter.CurrentPhase);
         Assert.IsFalse(MagicianEncounter.IsOpen);
         Assert.IsTrue(encounter.HasWand);
         encounter.Begin();
         RunUntil(MagicianEncounter.Phase.Waiting);
-        Assert.AreEqual(MagicianEncounter.Greeting, encounter.CurrentLine);
+        Assert.AreEqual(StoryScript.TrickOffer[0].Text, encounter.CurrentLine);
         Advance();
         RunUntil(MagicianEncounter.Phase.Playing);
-        Assert.AreEqual(MagicianEncounter.Phase.Playing, encounter.CurrentPhase);
         Assert.AreEqual(0, inventory.ItemCount(), "The wand was handed in and nothing else is given.");
     }
 
@@ -180,41 +195,31 @@ public class MagicianEncounterTests
     }
 
     [Test]
-    public void ConversationUsesSuppliedArtworkAndTheMagicianBobsWhileTalking()
+    public void TheRoomStaysTheBackdropAndTheMagicianSpeaksInTheSharedBoxWithAQuestionMarkFace()
     {
         encounter.Begin();
         RunUntil(MagicianEncounter.Phase.Typing);
-        Image magician = FindImage("Magician");
-        Assert.AreEqual(Resources.Load<Sprite>("Magician/Magician"), magician.sprite);
         Assert.AreEqual(Resources.Load<Sprite>("Magician/Room"), FindImage("Room").sprite);
-        Image bubble = FindImage("Speech bubble");
-        Assert.AreEqual(Resources.Load<Sprite>("Magician/SpeechBubble"), bubble.sprite);
-        Assert.AreEqual(Image.Type.Sliced, bubble.type);
-        float firstY = magician.rectTransform.anchoredPosition.y;
-        encounter.Tick(0.1f, false);
-        Assert.AreNotEqual(firstY, magician.rectTransform.anchoredPosition.y);
-        RunUntil(MagicianEncounter.Phase.Waiting);
-        Assert.AreEqual(-4f, magician.rectTransform.anchoredPosition.y);
+        foreach (Image image in root.GetComponentsInChildren<Image>(true))
+            Assert.AreNotEqual("Speech bubble", image.name, "The old speech bubble is gone.");
+        Assert.AreEqual(Speaker.Magician, encounter.Runner.Npc);
+        Assert.AreEqual(DialoguePortraits.QuestionMarkTexture, DialoguePortraits.Get(Speaker.Magician).Texture);
         Assert.IsFalse(root.GetComponent<ShellMinigame>().Handles(MagicianEncounter.WandItemName));
     }
 
     [Test]
-    public void LongRequestWrapsInsideTheSpeechBubble()
+    public void TheMeetingAsksForTheWandAndSendsThePlayerToPanthersGrave()
     {
         encounter.Begin();
+        string heard = "";
         RunUntil(MagicianEncounter.Phase.Waiting);
-        Advance();
-        RunUntil(MagicianEncounter.Phase.Waiting);
-        foreach (PixelText text in root.GetComponentsInChildren<PixelText>(true))
+        while (encounter.CurrentPhase == MagicianEncounter.Phase.Waiting || encounter.CurrentPhase == MagicianEncounter.Phase.Typing)
         {
-            if (text.name != "Dialogue") continue;
-            Assert.AreEqual(-6f, text.rectTransform.anchoredPosition.y, "Dialogue sits lower inside the supplied frame.");
-            StringAssert.Contains("\n", text.text);
-            Assert.LessOrEqual(PixelFont.Measure(text.text) * text.PixelSize(), text.rectTransform.rect.width);
-            Assert.LessOrEqual(PixelFont.MeasureHeight(text.text) * text.PixelSize(), text.rectTransform.rect.height);
-            return;
+            heard += encounter.CurrentLine + " ";
+            ReadAndAdvance();
         }
-        Assert.Fail("Missing dialogue label.");
+        StringAssert.Contains("wand", heard);
+        StringAssert.Contains("grave", heard);
     }
 
     [Test]
@@ -236,7 +241,6 @@ public class MagicianEncounterTests
         Assert.AreEqual(root.GetComponentInChildren<Canvas>().transform, surface.parent);
         Assert.IsTrue(surface.gameObject.activeInHierarchy);
         Assert.AreEqual("[ESC] CLOSE", game.Controls);
-        Assert.IsFalse(root.GetComponentInChildren<Canvas>().transform.Find("Cinematic stage/Conversation").gameObject.activeSelf);
         encounter.Tick(0.01f, false);
         Assert.AreEqual(position, player.transform.position);
         encounter.Tick(0.01f, false, true);
@@ -321,7 +325,7 @@ public class MagicianEncounterTests
     }
 
     [Test]
-    public void FinishingTheHatGameDoesNotBringBackTheConversationBackgroundBehindTheReward()
+    public void WinningTheTrickReturnsToTheRoomThenTheWandWritesThiefOutside()
     {
         GiveWand();
         ShellMinigame game = root.GetComponent<ShellMinigame>();
@@ -344,12 +348,31 @@ public class MagicianEncounterTests
             if (round < 3) game.ContinueRound();
         }
         Assert.IsTrue(game.IsSolved);
-        typeof(ShellMinigame).GetMethod("UpdateVisuals", PrivateInstance).Invoke(game, null);
+        Assert.IsTrue(game.WinShown);
         encounter.Tick(0.01f, false);
-        Assert.IsTrue(FindImage("Clue letter").gameObject.activeInHierarchy);
-        Assert.IsFalse(FindGameBackground().gameObject.activeInHierarchy);
-        Assert.IsFalse(FindImage("Room").gameObject.activeInHierarchy);
-        Assert.IsTrue(FindImage("Room backdrop").enabled, "Keep the world covered behind the reward.");
+        Assert.AreEqual(MagicianEncounter.Phase.Typing, encounter.CurrentPhase);
+        Assert.AreEqual(StoryScript.TrickWon[0].Text, encounter.CurrentLine);
+        Assert.IsFalse(game.IsShowing);
+        Assert.IsTrue(FindImage("Room").gameObject.activeInHierarchy, "Back in the room for his line.");
+        ReadThrough();
+        Assert.AreEqual(MagicianEncounter.Phase.LeavingRoom, encounter.CurrentPhase);
+        RunUntil(MagicianEncounter.Phase.Casting);
+        Assert.IsTrue(MagicianEncounter.IsOpen, "The player waits while the wand writes.");
+        Assert.IsTrue(WandSpell.IsCasting);
+        Assert.IsTrue(inventory.HasRevealedWord("THIEF"));
+        WandSpell spell = WandSpell.Active;
+        spell.Tick(WandSpell.PanDuration + WandSpell.DrawDuration);
+        Assert.AreEqual(spell.PointCount, spell.Emitted, "Every point of THIEF and the statue is drawn.");
+        Assert.Greater(spell.Particles.particleCount, 0);
+        spell.Tick(WandSpell.HoldDuration + WandSpell.FadeDuration);
+        Assert.IsFalse(WandSpell.IsCasting);
+        Assert.AreEqual(MagicianEncounter.Phase.Aftermath, encounter.CurrentPhase);
+        Assert.AreEqual(StoryScript.SecretRevealed[0].Text, encounter.CurrentLine);
+        StringAssert.Contains("statue", encounter.CurrentLine);
+        ReadThrough();
+        Assert.AreEqual(MagicianEncounter.Phase.Idle, encounter.CurrentPhase);
+        Assert.IsFalse(MagicianEncounter.IsOpen);
+        Assert.IsTrue(encounter.HasRevealedSecret);
     }
 
     [Test]
@@ -357,14 +380,10 @@ public class MagicianEncounterTests
     {
         inventory.TryAdd(MagicianEncounter.WandItemName);
         encounter.Begin();
-        RunUntil(MagicianEncounter.Phase.Waiting);
+        ReadToChoice();
+        Assert.AreEqual(StoryScript.WandReturned[0].Text, encounter.CurrentLine, "Found before the request, it is handed in straight after it.");
         Advance();
-        RunUntil(MagicianEncounter.Phase.Waiting);
-        Advance();
-        RunUntil(MagicianEncounter.Phase.Waiting);
-        Assert.AreEqual(MagicianEncounter.Thanks, encounter.CurrentLine);
-        Advance();
-        Assert.AreEqual(MagicianEncounter.Phase.LeavingForTrick, encounter.CurrentPhase, "Straight from the thanks to the trick.");
+        Assert.AreEqual(MagicianEncounter.Phase.LeavingForTrick, encounter.CurrentPhase);
         Assert.IsFalse(root.GetComponent<ShellMinigame>().IsShowing);
         RunUntil(MagicianEncounter.Phase.EnteringTrick);
         ShellMinigame game = root.GetComponent<ShellMinigame>();
@@ -388,10 +407,7 @@ public class MagicianEncounterTests
             encounter.Begin();
             Assert.IsTrue(MagicianEncounter.IsOpen);
             RunUntil(MagicianEncounter.Phase.Waiting);
-            Assert.AreEqual(MagicianEncounter.Greeting, encounter.CurrentLine);
-            Advance();
-            Assert.AreEqual(MagicianEncounter.MissingWand, encounter.CurrentLine);
-            RunUntil(MagicianEncounter.Phase.Waiting);
+            Assert.AreEqual(StoryScript.MagicianWaiting[0].Text, encounter.CurrentLine);
             Advance();
             RunUntil(MagicianEncounter.Phase.Idle);
             Assert.IsFalse(MagicianEncounter.IsOpen);
@@ -400,7 +416,7 @@ public class MagicianEncounterTests
         inventory.TryAdd(MagicianEncounter.WandItemName);
         Assert.AreEqual(0f, encounter.InteractDistanceSqr());
         encounter.Begin();
-        Assert.AreEqual(MagicianEncounter.Thanks, encounter.CurrentLine);
+        Assert.AreEqual(StoryScript.WandReturned[0].Text, encounter.CurrentLine);
     }
 
     [Test]
@@ -470,10 +486,9 @@ public class MagicianEncounterTests
         RunUntil(MagicianEncounter.Phase.Idle);
         encounter.Begin();
         RunUntil(MagicianEncounter.Phase.Waiting);
-        Advance();
-        Assert.AreEqual(MagicianEncounter.MissingWand, encounter.CurrentLine);
-        Advance();
-        Assert.IsTrue(encounter.HasRequestedWand, "Finishing the line with Enter also counts as seeing it.");
+        Assert.AreEqual(StoryScript.MagicianMeeting[0].Text, encounter.CurrentLine, "The meeting replays.");
+        ReadThrough();
+        Assert.IsTrue(encounter.HasRequestedWand);
     }
 
     [Test]
@@ -488,7 +503,7 @@ public class MagicianEncounterTests
         Assert.IsFalse(encounter.HasWand);
         encounter.Begin();
         RunUntil(MagicianEncounter.Phase.Waiting);
-        Assert.AreEqual(MagicianEncounter.Thanks, encounter.CurrentLine);
+        Assert.AreEqual(StoryScript.WandReturned[0].Text, encounter.CurrentLine);
         Assert.IsTrue(encounter.HasWand);
     }
 
@@ -528,7 +543,7 @@ public class MagicianEncounterTests
         player.transform.position = root.transform.position;
         encounter.Begin();
         RunUntil(MagicianEncounter.Phase.Waiting);
-        Assert.AreEqual(MagicianEncounter.Greeting, encounter.CurrentLine);
+        Assert.AreEqual(StoryScript.TrickOffer[0].Text, encounter.CurrentLine);
         Advance();
         RunUntil(MagicianEncounter.Phase.Playing);
         Assert.IsTrue(Interactables.BlocksMovement);
@@ -574,11 +589,7 @@ public class MagicianEncounterTests
     {
         inventory.TryAdd(MagicianEncounter.WandItemName);
         encounter.Begin();
-        RunUntil(MagicianEncounter.Phase.Waiting);
-        Advance();
-        RunUntil(MagicianEncounter.Phase.Waiting);
-        Advance();
-        RunUntil(MagicianEncounter.Phase.Waiting);
+        ReadToChoice();
         Advance();
         RunUntil(MagicianEncounter.Phase.Playing);
         Assert.AreEqual(MagicianEncounter.Phase.Playing, encounter.CurrentPhase);
@@ -588,10 +599,33 @@ public class MagicianEncounterTests
     {
         encounter.Begin();
         RunUntil(MagicianEncounter.Phase.Waiting);
-        Advance();
-        RunUntil(MagicianEncounter.Phase.Waiting);
-        Advance();
+        ReadThrough();
         RunUntil(MagicianEncounter.Phase.Idle);
+    }
+
+    // Reads every line until the conversation hands over (to a choice it stops at).
+    private void ReadThrough()
+    {
+        for (int i = 0; i < 50 && (encounter.CurrentPhase == MagicianEncounter.Phase.Typing ||
+            encounter.CurrentPhase == MagicianEncounter.Phase.Waiting || encounter.CurrentPhase == MagicianEncounter.Phase.Aftermath); i++)
+            ReadAndAdvance();
+    }
+
+    private void ReadToChoice()
+    {
+        for (int i = 0; i < 50; i++)
+        {
+            RunUntil(MagicianEncounter.Phase.Waiting);
+            if (encounter.Runner.CurrentState == DialogueRunner.State.Choosing) return;
+            Advance();
+        }
+        Assert.Fail("No choice was offered.");
+    }
+
+    private void ReadAndAdvance()
+    {
+        if (encounter.Runner.IsTyping) Advance();
+        Advance();
     }
 
     private void Advance() => encounter.Tick(0.01f, true);

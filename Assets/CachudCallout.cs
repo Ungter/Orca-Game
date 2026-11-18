@@ -3,23 +3,18 @@ using UnityEngine.InputSystem;
 
 // Al Cachud. He keeps to his house (pasted__building2) until the player knocks on its door
 // (pasted__pCube54, E): the camera pans to the door, it swings open, he walks out
-// (CachudDoorway) and the conversation starts - the dice he lost, where he was last, the
-// fountain - and once the dice are back, a game of twenty-one. Afterwards he stays outside the
-// door and E talks to him again. Without the door in the scene he simply talks where he stands.
+// (CachudDoorway) and the conversation starts (StoryScript: his friend the Antelope, last seen at
+// the fountain) - and once the dice from the fountain are back, a game of twenty-one. Afterwards
+// he stays outside the door and E talks to him again. Without the door in the scene he simply
+// talks where he stands. The lines play in the shared dialogue box (DialogueRunner).
 [DefaultExecutionOrder(200)]
 [DisallowMultipleComponent]
 [RequireComponent(typeof(SpriteRenderer))]
 public class CachudCallout : MonoBehaviour, IInteractable
 {
-    public enum Phase { Idle, Panning, Emerging, Typing, Waiting, Questions, Returning, Complete }
+    public enum Phase { Idle, Panning, Emerging, Typing, Waiting, Returning, Complete }
 
     public const string DiceItemName = "Dice";
-    public const string Greeting = "Want to play a game?";
-    public const string MissingDice = "Oh no! I left my dice somewhere.";
-    public const string LastLocationQuestion = "Where were you last?";
-    public const string FountainClue = "At the fountain, throwing coins.";
-    public const string Thanks = "You found my dice! Thanks!";
-    public const string Ready = "All right, let's play!";
     public const string BusyLine = "AL CACHUD: You look busy. Come back when you are done.";
     public const float PanDuration = 1.25f;
     public const float ReturnDuration = 1.2f;
@@ -27,7 +22,6 @@ public class CachudCallout : MonoBehaviour, IInteractable
 
     [SerializeField] private Transform player;
     [SerializeField, Min(1f)] private float talkRadius = 3f;
-    [SerializeField, Min(1f)] private float charactersPerSecond = 40f;
     [SerializeField] private TwentyOneGame diceGame;
 
     private static CachudCallout active;
@@ -35,27 +29,24 @@ public class CachudCallout : MonoBehaviour, IInteractable
     public Phase CurrentPhase { get; private set; }
     // He has come out of his house (or, without the door, been talked to).
     public bool HasComeOut { get; private set; }
+    // He has told the player about the Antelope and the fountain.
     public bool HasRequestedDice { get; private set; }
-    public bool HasLearnedLocation { get; private set; }
     public bool HasDice { get; private set; }
     public bool IsReadyForGame => HasDice;
     // Start the game only after the conversation has restored its camera and controls.
     public event System.Action GameRequested;
-    public static System.Collections.Generic.IReadOnlyList<string> QuestionOptions { get; } =
-        System.Array.AsReadOnly(new[] { LastLocationQuestion });
-    public string CurrentLine { get; private set; }
-    public int VisibleCharacters { get; private set; }
+    public string CurrentLine => runner.RawText;
+    public int VisibleCharacters => runner.VisibleCharacters;
+    public DialogueRunner Runner => runner;
 
+    private readonly DialogueRunner runner = new DialogueRunner();
     private Camera view;
     private CameraFollow follow;
     private PlayerController playerController;
     private bool followWasEnabled;
     private bool requestGameAfterReturn;
     private float phaseTime;
-    private float typed;
     private float promptAlpha;
-    private string wrappedLine;
-    private Rect questionRect;
     private InventorySystem inventory;
     private Transform door;
     private CachudDoorway doorway;
@@ -76,8 +67,7 @@ public class CachudCallout : MonoBehaviour, IInteractable
     // Before he has come out, E is for knocking on his door rather than talking to him.
     private bool AtDoor => !HasComeOut && door != null;
 
-    private bool IsDialogue => CurrentPhase == Phase.Typing || CurrentPhase == Phase.Waiting ||
-        CurrentPhase == Phase.Questions;
+    private bool IsDialogue => CurrentPhase == Phase.Typing || CurrentPhase == Phase.Waiting;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetStatics() => active = null;
@@ -103,17 +93,9 @@ public class CachudCallout : MonoBehaviour, IInteractable
         if (GameplayDebugMenu.BlocksInput) return;
         if (PauseMenu.IsPaused) return;
         Keyboard keyboard = Keyboard.current;
-        Mouse mouse = Mouse.current;
         if (active == this)
         {
-            bool enter = keyboard != null &&
-                (keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame);
-            bool click = mouse != null && mouse.leftButton.wasPressedThisFrame;
-            bool choose = CurrentPhase == Phase.Questions &&
-                (enter || (keyboard != null && keyboard.digit1Key.wasPressedThisFrame) ||
-                 (click && questionRect.Contains(MousePosition())));
-            bool escape = keyboard != null && keyboard.escapeKey.wasPressedThisFrame;
-            Tick(Time.unscaledDeltaTime, enter || (click && CurrentPhase != Phase.Questions), choose, escape);
+            Tick(Time.unscaledDeltaTime, DialogueInput.Read());
             return;
         }
         bool canTalk = CanBegin() && Interactables.IsNearest(this);
@@ -152,6 +134,9 @@ public class CachudCallout : MonoBehaviour, IInteractable
         Vector3 nearest = door.ClosestPoint(playerPosition);
         return new Vector3(nearest.x, Mathf.Min(door.max.y, door.min.y + 1.7f), nearest.z);
     }
+
+    // Where to go to talk to him: his door until he has come out, then him.
+    public Vector3 MeetingPoint => Anchor();
 
     // Where the player has to be: by his door until he has come out, then by him.
     private Vector3 Anchor()
@@ -194,7 +179,6 @@ public class CachudCallout : MonoBehaviour, IInteractable
         HasComeOut = true;
         inventory = InventorySystem.instance;
         requestGameAfterReturn = false;
-        questionRect = default;
         promptAlpha = 0f;
         active = this;
         SetPhase(Phase.Panning);
@@ -268,7 +252,14 @@ public class CachudCallout : MonoBehaviour, IInteractable
         return true;
     }
 
-    public void Tick(float deltaTime, bool advance = false, bool chooseQuestion = false, bool escape = false)
+    public void Tick(float deltaTime, bool advance = false, bool escape = false)
+    {
+        DialogueInput input = advance ? DialogueInput.Continue : DialogueInput.None;
+        input.Escape = escape;
+        Tick(deltaTime, input);
+    }
+
+    public void Tick(float deltaTime, DialogueInput input)
     {
         if (active != this || PauseMenu.IsPaused) return;
         if (view == null || player == null)
@@ -276,9 +267,10 @@ public class CachudCallout : MonoBehaviour, IInteractable
             Cancel();
             return;
         }
-        if (escape && CurrentPhase != Phase.Returning)
+        if (input.Escape && CurrentPhase != Phase.Returning)
         {
             requestGameAfterReturn = false;
+            runner.Stop();
             BeginReturn();
             return;
         }
@@ -299,18 +291,11 @@ public class CachudCallout : MonoBehaviour, IInteractable
                 StartDialogue();
             }
         }
-        else if (CurrentPhase == Phase.Typing)
+        else if (IsDialogue)
         {
-            typed = advance ? wrappedLine.Length : Mathf.Min(wrappedLine.Length, typed + dt * charactersPerSecond);
-            VisibleCharacters = Mathf.FloorToInt(typed);
-            if (VisibleCharacters >= wrappedLine.Length)
-            {
-                if (CurrentLine == MissingDice) HasRequestedDice = true;
-                SetPhase(Phase.Waiting);
-            }
+            runner.Tick(dt, input);
+            SyncDialoguePhase();
         }
-        else if (CurrentPhase == Phase.Waiting && advance) AdvanceLine();
-        else if (CurrentPhase == Phase.Questions && chooseQuestion) ChooseQuestion(0);
         else if (CurrentPhase == Phase.Returning && phaseTime >= ReturnDuration)
         {
             RestoreFollow();
@@ -341,49 +326,50 @@ public class CachudCallout : MonoBehaviour, IInteractable
         shotBlend = 0f;
     }
 
+    // The first meeting tells of the Antelope and the fountain; then he waits for the dice; with
+    // them back (or already back) the game of 21 follows the conversation.
     private void StartDialogue()
     {
-        ShowLine(HasDice ? Ready :
-            inventory != null && inventory.Contains(DiceItemName) ? Thanks :
-            HasRequestedDice ? MissingDice : Greeting);
-    }
-
-    private void ShowLine(string message)
-    {
-        CurrentLine = message;
-        wrappedLine = string.Join("\n", PixelFont.Wrap(message, 200));
-        typed = 0f;
-        VisibleCharacters = 0;
-        SetPhase(Phase.Typing);
-    }
-
-    private void AdvanceLine()
-    {
-        if (CurrentLine == Greeting) ShowLine(MissingDice);
-        else if (CurrentLine == MissingDice) SetPhase(Phase.Questions);
-        else if (CurrentLine == FountainClue) BeginReturn();
-        else if (CurrentLine == Thanks)
+        if (HasDice) Play(StoryScript.CachudRematch, RequestGame);
+        else if (inventory != null && inventory.Contains(DiceItemName)) Play(StoryScript.CachudDiceReturned, TakeDice);
+        else if (HasRequestedDice) Play(StoryScript.CachudWaiting, BeginReturn);
+        else
         {
-            if (inventory != null && inventory.TryRemove(DiceItemName))
+            var meeting = new System.Collections.Generic.List<DialogueLine>(StoryScript.CachudMeeting);
+            meeting.AddRange(StoryScript.CachudStory);
+            Play(meeting.ToArray(), () =>
             {
-                HasDice = true;
-                ShowLine(Ready);
-            }
-            else ShowLine(MissingDice);
-        }
-        else if (CurrentLine == Ready && HasDice)
-        {
-            requestGameAfterReturn = true;
-            BeginReturn();
+                HasRequestedDice = true;
+                BeginReturn();
+            });
         }
     }
 
-    public bool ChooseQuestion(int index)
+    private void Play(DialogueLine[] lines, System.Action then)
     {
-        if (active != this || CurrentPhase != Phase.Questions || index != 0) return false;
-        HasLearnedLocation = true;
-        ShowLine(FountainClue);
-        return true;
+        runner.Play(Speaker.AlCachud, lines, then);
+        SyncDialoguePhase();
+    }
+
+    private void SyncDialoguePhase()
+    {
+        if (runner.IsActive) CurrentPhase = runner.IsTyping ? Phase.Typing : Phase.Waiting;
+    }
+
+    private void TakeDice()
+    {
+        if (inventory != null && inventory.TryRemove(DiceItemName))
+        {
+            HasDice = true;
+            RequestGame();
+        }
+        else BeginReturn();
+    }
+
+    private void RequestGame()
+    {
+        requestGameAfterReturn = true;
+        BeginReturn();
     }
 
     private void BeginReturn()
@@ -449,15 +435,14 @@ public class CachudCallout : MonoBehaviour, IInteractable
         int previousDepth = GUI.depth;
         GUI.depth = -900;
         CinematicOverlay.DrawBars(BarsAmount);
-        if (IsDialogue)
-            questionRect = CinematicOverlay.DrawDialogue(wrappedLine, VisibleCharacters,
-                CurrentPhase == Phase.Waiting, CurrentPhase == Phase.Questions ? LastLocationQuestion : null);
+        if (IsDialogue) runner.Draw();
         GUI.depth = previousDepth;
     }
 
     public void Cancel()
     {
         if (active != this) return;
+        runner.Stop();
         FinishEmerging();
         if (view != null) view.transform.SetPositionAndRotation(originalPosition, originalRotation);
         RestoreFollow();
@@ -484,10 +469,4 @@ public class CachudCallout : MonoBehaviour, IInteractable
     }
 
     private static float Ease(float t) => Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t));
-
-    private static Vector2 MousePosition()
-    {
-        Vector2 position = Mouse.current.position.ReadValue();
-        return new Vector2(position.x, Screen.height - position.y);
-    }
 }

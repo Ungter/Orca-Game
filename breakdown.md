@@ -25,6 +25,7 @@ Each section names the files involved, so you can jump straight to the code.
 - [19. Door beacons](#19-door-beacons) - `DoorBeacon.cs`
 - [20. Night mood: hard light for a murder mystery](#20-night-mood-hard-light-for-a-murder-mystery) - `LampGlow.cs`, `SampleSceneProfile.asset`
 - [21. Island terrain, rock shore and foliage](#21-island-terrain-rock-shore-and-foliage) - `Editor/IslandTerrain.cs`, `Editor/IslandScenery.cs`
+- [22. The story, the dialogue box and Orca](#22-the-story-the-dialogue-box-and-orca) - `Dialogue.cs`, `StoryDirector.cs`, `OrcaSpirit.cs`, `WandSpell.cs`
 - [Shared rules for crisp pixel art](#shared-rules-for-crisp-pixel-art)
 
 ---
@@ -620,7 +621,11 @@ Maya and follow the map into any scene.
   - **Baked, not built at runtime:** the map's meshes aren't Read/Write, so a build couldn't
     read the ground. The meshes are saved to `Assets/Generated/sideWalkAlch/` and rebuilt in
     place (`EditorUtility.CopySerialized`), so the scene's references survive; meshes and spills
-    of removed slabs are deleted.
+    of removed slabs are deleted, but only once nothing in the scene still shows or collides
+    with them. (Moving slabs into a sub-group used to count as removing them, which deleted
+    their meshes and left them invisible.) Slabs in sub-groups are paved like direct children,
+    the group itself can sit anywhere in the hierarchy, and a slab that has lost its mesh is
+    paved again from a cube.
   - **Rebuilt when slabs change:** a poll every 0.5 s in edit mode hashes the group (slab names,
     poses, sizes, active state) and repaves when it differs from the last paving this session,
     waiting for a scene-view drag to finish. `Tools/Orca/Repave Scene Sidewalks` forces it. Add
@@ -838,8 +843,8 @@ for the opening (below).
 - **The shot:** right behind the player, 5.5 m back, 1.4 m to their right and 2.6 m above their
   feet, looking 8 m ahead the way the boat goes; it follows them through the jump (along the
   jump's line, not its arc, so it doesn't bounce). The player stands with their back to the
-  camera (`PlayerController.FaceAway`, then the idle frame). The letterbox stays up;
-  "SOMEONE'S BEEN MURDERED!" shows 1.2 s after it sets off, for 2.8 s.
+  camera (`PlayerController.FaceAway`, then the idle frame). The letterbox stays up; no message is
+  shown over the ride.
 - **Getting off:** once it's in, "[SPACE]" fades in over the player. SPACE jumps them in a
   0.75 s arc (1.4 m above the straight line, back-walk frames away from the camera) onto the
   landing spot, its height read from the dock's own collider (not a post or lamp on it).
@@ -904,10 +909,11 @@ for the opening (below).
 ## 11. Talking to the gravestone
 
 **Files:** `Assets/TalkInteractable.cs` (on `graveStone1` in the scene), `Assets/InteractPrompt.cs`,
-bubble/tail/Enter-key maps in `Assets/InventoryPixelArt.cs`, portrait `Assets/Resources/ShellGame/panther.png`
+the shared dialogue box (section 22)
 
-Walk up to the gravestone, press E, and the panther slides into the bottom-right corner and says
-"Something is in the forest". Enter or a click sends it away.
+Walk up to the gravestone, press E, and the player (or Orca, when he travels along) asks Panther's
+spirit where the Magician's wand is; Panther answers that it is behind a tree in the forest
+(`StoryScript.PantherGrave`). The conversation is the shared dialogue box over the game.
 
 ### Prompt and who answers E
 
@@ -917,32 +923,17 @@ Walk up to the gravestone, press E, and the panther slides into the bottom-right
 - Pickups, talkables and dig sites all register with `Interactables`; only the one nearest the
   player shows its prompt and answers E, so one press never does two things.
 
-### Conversation phases
+### Conversation
 
-`Entering` (0.45 s ease-out slide) -> `Popping` (bubble fades in and rises 3 px) -> `Typing`
-(40 chars/s) -> `Waiting` (Enter keycap hint fades in and bobs) -> `Leaving` (0.4 s ease-in slide out
-while the bubble fades in place) -> `Idle`.
-
-- Presses are ignored while the panther enters. While typing, the first press finishes the line; the
-  next one closes it.
-- `TalkInteractable.IsTalking` is true from the press until the panther is gone. It feeds
-  `Interactables.Busy`: `PlayerController` stands still, `PickupItem` and `InventoryInspection` ignore
-  input while it is set.
+- `speaker` (default Panther) picks the lines: Panther plays his part of the story; any other speaker
+  just says `line`. Phases are `Typing` and `Waiting` per line, then `Idle`.
+- `TalkInteractable.IsTalking` is true from the press until the last line is dismissed. It feeds
+  `Interactables.Busy`: `PlayerController` stands still, pickups and inspection ignore input, and
+  Esc doesn't pause (Esc on a finished line ends the talk).
 - Runs at execution order -50, before the player and pickups, so the opening E press moves nothing.
-- Pausing freezes it; the click that resumes is swallowed so it cannot dismiss the bubble.
+- Pausing freezes it; the click that resumes is swallowed so it cannot move the talk on.
 - `Tick(deltaTime, advance)` holds all the logic, so `Editor/TalkInteractableTests.cs` drives it
   without a scene.
-
-### Layout and art
-
-- IMGUI under a whole-number `GUI.matrix` scale (3 at 720p): one GUI unit = one art pixel.
-- The panther sheet is 256x512: two square frames stacked, drawn 4 texture px per art pixel at
-  64x64 art px. The frames alternate every 0.5 s as an idle. It is mirrored (negative UV width) so it
-  faces into the screen.
-- The bubble is a 9-sliced 12x12 parchment map (3 px borders, bright top lip). A separate 8x6 tail
-  overlaps the bubble's bottom outline by one row, which opens the outline, and its tip lands on
-  `speechPoint` (the panther's head). A 35% black copy offset by 1 px is the drop shadow.
-- The Enter hint is a 13x9 wooden keycap with a gold return arrow, bottom-right inside the bubble.
 
 ---
 
@@ -1144,9 +1135,9 @@ cascades, plus a full re-render for SSAO's depth-normals prepass.
 **Files:** `Assets/AlchemistEncounter.cs`, `Assets/PickupItem.cs` (`Collect`)
 
 - **Same cinematic as the magician:** E at `alchDoor` ("Knock") fades into the room
-  (`Magician/Room`), the portrait bobs while each line types, Enter finishes typing then
-  continues, Esc leaves, and it fades back out. The portrait is the magician's art and the lines
-  (`Introduction`, `LetterGift`, `Farewell`) are placeholders until the alchemist's own exist.
+  (`Magician/Room`), which stays the backdrop while Iguana's spirit talks in the shared dialogue box
+  (section 22): Enter finishes typing then continues, Esc leaves, and it fades back out. The lines
+  are `StoryScript`'s (`IguanaMeeting`, `LetterGiven`, `KeepLooking`, `PotionsFound`, `ClueRead`).
 - **Sets itself up:** nothing is placed in the scene. On every scene load (`sceneLoaded`, plus
   `AfterSceneLoad` for the first) it finds the object named `alchDoor` and puts an
   `AlchemistEntrance` at the bottom centre of what it renders (FBX nodes keep their pivot at the
@@ -1156,9 +1147,10 @@ cascades, plus a full re-render for SSAO's depth-normals prepass.
   sprite, exactly as picking it up would, so its number holds up the hunt's map (see 5b). A full
   bag gets `LetterNoRoom`; the next visit skips the introduction and offers it again.
 - **Later visits:** while potions are still out there, one line (`KeepLooking`); with all five
-  found, `PotionsFound` then `ClueGift`, which has `ClueMinigame.Deliver()` write "Fell" on the
-  letter; after that `Farewell`. Each visit plays a short script of lines and an action after
-  its last (`Play`).
+  found, `PotionsFound`, then `ClueMinigame.Deliver()` and `PresentClue()`: the letter slides up
+  over the room (its canvas lifted to sort order 160) and "Fell" is written on the paper *under*
+  the map, so it never covers it (phase `Writing`). Once written it holds a moment, goes away and
+  Iguana reads it (`ClueRead`); after that a goodbye.
 - **Blocking:** `AlchemistEncounter.IsOpen` joins the others in `Interactables.Busy` and
   `BlocksMovement`, hides the inventory strip, stops Esc from pausing and holds the camera.
 
@@ -1181,9 +1173,12 @@ cascades, plus a full re-render for SSAO's depth-normals prepass.
   solid facade behind it, he walks from 0.9 m inside to 2 m outside with a small lift on each
   step (he has no walking frames), and the door shuts behind him (3.8 s). Which face is the
   outside comes from where the player knocked.
-- **Then the same conversation:** greeting, missing dice, the one question, the fountain clue,
-  the dice hand-in and the twenty-one invitation, in the shot the entrance ended on. Escape or
-  a cancel mid-entrance finishes it at once: door shut, him outside.
+- **Then the conversation** (`StoryScript`, shared dialogue box, section 22): the first meeting
+  is about his friend the Antelope, last seen at the fountain; then he waits for the dice; with
+  them back, he challenges the player to twenty-one, which starts once the camera is back. After a
+  win he talks over the table (`TwentyOneGame.Phase.Talking`) and his line about the Antelope
+  calling him a JERK reveals the clue word. Escape or a cancel mid-entrance finishes it at once:
+  door shut, him outside.
 - **Afterwards:** he stays where he stopped outside the door and E talks to him again, with the
   usual side-on shot. Without the door in the scene (tests), knocking just starts the
   conversation where he stands.
@@ -1205,6 +1200,8 @@ cascades, plus a full re-render for SSAO's depth-normals prepass.
   across its width, a slow pulse and faint bands drifting up. It is pulled `0.75 x` the door
   width towards the camera so the wall behind the door doesn't cut it in half. No shadows, no
   real light. It lives in `Resources` so builds include it.
+- **Only when exploring alone:** the beacons stay dark unless the player answered NO to Orca's
+  offer of help at the dock (`StoryDirector.ExploringAlone`); with Orca along, he shows the way.
 - **When it shows:** it fades in and out over 0.6 s. It's hidden while `Interactables.Busy` (any
   conversation, cinematic or the magician's outdoor trick) or while its door is inactive.
   Al Cachud's goes out for good once he has come out, since from then on E talks to him, not the door.
@@ -1445,7 +1442,93 @@ from the island's edge down into the sea, all the way round (about 1 km).
 
 ---
 
-## Shared rules for crisp pixel art
+## 22. The story, the dialogue box and Orca
+
+**Files:** `Assets/Dialogue.cs` (`DialogueRunner`, `DialoguePortraits`, `DialogueLine`, `Speaker`),
+`Assets/DialoguePortraitSet.cs` + `Assets/Resources/DialoguePortraits.asset`, `Assets/StoryScript.cs`,
+`Assets/StoryDirector.cs`, `Assets/OrcaSpirit.cs`, `Assets/WandSpell.cs`, `story-script.md`
+
+### One dialogue box for every conversation
+
+- `DialogueRunner` is a plain class every talker owns (gravestone, Al Cachud, the 21 table, Iguana,
+  the Magician, the story director). The owner ticks it with `DialogueInput` and calls `Draw()`
+  from `OnGUI` at depth -900; what is behind it is the owner's: the game itself, or the
+  Magician's room for him and Iguana.
+- Layout, in art pixels (3 screen px at 720p): a wide parchment box (the 9-sliced speech bubble)
+  across the bottom, 4 px from the edges, at least two lines tall. The words are drawn bigger than
+  the frame (5 screen px a font pixel at 720p, `TextScale`), so the box is filled by them. Portraits stand behind it with
+  their lower part hidden: the NPC on the left, the player on the right, and Orca beside the player
+  while he travels along. They slide in over 0.25 s.
+- Whoever speaks bobs (|sin| x 3 px) while their line types; the others are dimmed. Their name is
+  on a wooden tag over the box's edge on their side.
+- Enter or a click finishes the line, the next press moves on. A line can end in a choice (number
+  keys, up/down + Enter, or a click) or in typing the player's name (letters, Backspace, Enter;
+  blank means Alethi). `{NAME}` in any line becomes that name.
+- Portraits (`DialoguePortraits`): the asset's ghost head first, else the character's sprite, else
+  art found at runtime (the player's front idle, Al Cachud's scene sprite, the title's orca, the
+  panther sheet). The Magician is a big pixel question mark. Transparent margins are trimmed (read
+  back through a render texture), so a small figure in a big canvas still fills its portrait.
+
+### The story
+
+- `StoryScript` holds every line from `story-script.md`. Lines Orca says while travelling with the
+  player have versions without him (`StoryDirector.OrcaFollowing`).
+- `StoryDirector` sets itself up on every gameplay scene load. Orca's spirit (`OrcaSpirit`: the
+  title's orca sprite, floating with a blue glow) waits by the dock while the boat comes in. Once
+  the title is gone he greets the player (`Arrival`), asks their name and whether he may help.
+  Yes: he leads the way and the player follows him (below), and he joins every conversation. No:
+  he fades away, and comes back to wait
+  at the Orca statue once the player holds FELL, JERK and THIEF; pressing E at the statue then plays
+  his lines first, and he travels along from there.
+- **Leading the way** (`StoryDirector.TryGetDestination`, `OrcaSpirit.StepLead`): every 0.5 s the
+  director picks the story's next stop in the script's order (Al Cachud, the fountain's dice, Al
+  Cachud for the dice and the game, Iguana, Iguana again with the potions, the Magician, Panther's
+  grave, the dig site, the Magician, the statue, the boat). Orca floats there at the player's own
+  walking speed (`PlayerController.WalkSpeed`, so the hunt's boost too) along the sidewalks (`SidewalkRoute`): over the potion hunt's island survey (`ClueMap`),
+  a step onto a spot of `sideWalkAlch`, `IslandDemo:sideWalk`, `Front Path` or `sidewalkToACC` (or
+  anything under them, such as the gravel spills) costs 1 and any other step 6, and a Dijkstra search
+  from the stop gives the cheapest walk, which keeps to the sidewalks and only crosses grass for the
+  last stretch. Which spots are sidewalk is found by looking straight down at each, a slice a frame;
+  until then he takes the plain shortest walk (`ClueMap.StepDistances`). Stops in a walled-in pocket
+  (a door, the statue's plinth) use the nearest spot on the island's main stretch of walkable
+  ground (`NearestOnIsland`). He aims 2 spots, about 4 m, ahead to round the corners, steps back
+  onto the way if a corner cut leaves him off it, and crosses straight to a stop beyond the
+  island's walkable ground (the boat at the end of the dock); straight at the stop before the
+  survey is ready. He stops while the player is more than 7 m
+  behind and goes on once they are within 4.5 m; if they go ahead he hurries (x1.25). At the stop
+  (2.5 m, or as close as walking gets) he hovers and faces the player. With nowhere to lead (the
+  potion hunt, the lighthouse) he trails the player instead; conversations and games hold him still.
+- Solving the statue closes it after 1.6 s; Orca names the killer, and Al Cachud leaves his house.
+- The Magician's trick: after the win, his line in the room, then outside `WandSpell` writes THIEF
+  in the air with a Unity ParticleSystem (pixel font capitals, one particle per pixel, left to right,
+  glitter falling off the tip) and sketches the Orca statue under it, then the reaction. It goes up
+  in the open beside the player, never inside the house: spots 5.5-13 m away are tried, the
+  camera's right first, and the first whose 4.2 x 3.4 m box overlaps no collider and that the
+  camera can see (rays to the middle, both ends and the top) wins. The camera pans across to it
+  (0.9 s) before the writing starts and back as it fades, with the follow rig off meanwhile.
+- **Hat trick controls** (`ShellMinigame.HandleKeys`): in the magician's window the hats are picked
+  with A/D (or the arrows), not the mouse. A guess opens with the middle hat picked (then the one
+  nearest the last hat lifted); A/D step to the next hat still down on screen and stop at the ends;
+  the picked hat is raised and marked. Enter, Space or E lifts it, and after a result the same keys
+  start the next round or the retry (the controls line reads "[ENTER] NEXT ROUND").
+- **The lighthouse island** (`LighthouseIsland` on the island prefab): only its landmarks (tower,
+  tower foot, ferry landing and berth) and whether it is open, which is once the Orca statue's
+  anagram is solved. The old stacking game that started at the tower's foot is gone (its match,
+  view, gold start ring, section/lantern prefabs and debug-menu entry). Until the anagram is
+  solved the ferry shows no prompt at all (it used to say "[LOCKED] Solve anagram to unlock
+  ferry") and ignores E.
+- At the lighthouse the villain is Al Cachud's sprite, facing the camera and leaning into his hops.
+- Aiming at the lighthouse (`LighthouseMouseTrap.MoveAim`): WASD/arrows pick the neighbouring hex
+  most nearly the way pressed, judged on the ground from the lantern's point of view (up = away
+  from the lighthouse through the aimed hex, right = across that), not in screen pixels, so the
+  camera swinging after the aim no longer bends the controls. Where no neighbour lies straight
+  that way (up and down on this grid) it zigzags between the two either side, held to the line it
+  started on, which is kept in world space. A key pressed while a strike or the villain's hop
+  plays is made once aiming resumes instead of being dropped.
+
+---
+
+## Shared rules for crisp pixel art## Shared rules for crisp pixel art
 
 These apply to the font, inventory, prompt and burn:
 

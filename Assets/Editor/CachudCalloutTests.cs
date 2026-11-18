@@ -49,6 +49,7 @@ public class CachudCalloutTests
     public void TearDown()
     {
         callout.Cancel();
+        StoryDirector.SetFollowing(false);
         Object.DestroyImmediate(root);
         InventorySystem.instance = previousInventory;
     }
@@ -116,7 +117,7 @@ public class CachudCalloutTests
         Assert.AreEqual(CachudCallout.Phase.Typing, callout.CurrentPhase);
         Assert.AreEqual(1f, callout.BarsAmount);
         Assert.IsTrue(Interactables.BlocksMovement);
-        FinishMissingDiceConversation();
+        ReadThrough();
         Assert.AreEqual(CachudCallout.Phase.Returning, callout.CurrentPhase);
         Assert.IsTrue(follow.enabled);
         Assert.IsTrue(Interactables.BlocksMovement);
@@ -190,7 +191,7 @@ public class CachudCalloutTests
         callout.Tick(CachudCallout.PanDuration);
         Call(callout, "LateUpdate");
         Vector3 shot = view.transform.position;
-        FinishMissingDiceConversation();
+        ReadThrough();
         Call(follow, "LateUpdate");
         Call(callout, "LateUpdate");
         Assert.Less(Vector3.Distance(shot, view.transform.position), 0.001f);
@@ -241,26 +242,24 @@ public class CachudCalloutTests
     }
 
     [Test]
-    public void GreetingAndMissingDiceLeadToExactlyOneQuestionAndTheFountainClue()
+    public void TheMeetingTellsOfTheAntelopeAndTheFountainThenHeWaitsForTheDice()
     {
         int games = 0;
         callout.GameRequested += () => games++;
         Assert.IsTrue(callout.TryKnock());
         callout.Tick(CachudCallout.PanDuration);
-        Assert.AreEqual(CachudCallout.Greeting, callout.CurrentLine);
+        Assert.AreEqual(StoryScript.CachudMeeting[0].Text, callout.CurrentLine);
+        Assert.AreEqual(Speaker.AlCachud, callout.Runner.Npc);
         Assert.AreEqual(0, callout.VisibleCharacters);
-        ReadAndAdvance();
-        Assert.AreEqual(CachudCallout.MissingDice, callout.CurrentLine);
-        ReadAndAdvance();
+        bool heardFountain = false;
+        while (callout.CurrentPhase == CachudCallout.Phase.Typing || callout.CurrentPhase == CachudCallout.Phase.Waiting)
+        {
+            heardFountain |= callout.CurrentLine.Contains("fountain");
+            ReadAndAdvance();
+        }
+        Assert.IsTrue(heardFountain);
         Assert.IsTrue(callout.HasRequestedDice);
-        Assert.AreEqual(CachudCallout.Phase.Questions, callout.CurrentPhase);
-        CollectionAssert.AreEqual(new[] { "Where were you last?" }, CachudCallout.QuestionOptions);
-        Assert.IsFalse(callout.ChooseQuestion(-1));
-        Assert.IsFalse(callout.ChooseQuestion(1));
-        Assert.IsTrue(callout.ChooseQuestion(0));
-        Assert.AreEqual("At the fountain, throwing coins.", callout.CurrentLine);
-        Assert.IsTrue(callout.HasLearnedLocation);
-        ReadAndAdvance();
+        Assert.AreEqual(CachudCallout.Phase.Returning, callout.CurrentPhase);
         callout.Tick(CachudCallout.ReturnDuration);
         Assert.IsFalse(callout.IsReadyForGame);
         Assert.AreEqual(0, games);
@@ -268,7 +267,18 @@ public class CachudCalloutTests
     }
 
     [Test]
-    public void FirstPressFinishesTypingWithoutSkippingTheGameInvitation()
+    public void WithOrcaAlongOrcaSpeaksUpInTheMeeting()
+    {
+        StoryDirector.SetFollowing(true);
+        Assert.IsTrue(callout.TryKnock());
+        callout.Tick(CachudCallout.PanDuration);
+        Assert.AreEqual("Orca! What happened to you?", callout.CurrentLine);
+        ReadAndAdvance();
+        Assert.AreEqual(Speaker.Orca, callout.Runner.CurrentSpeaker);
+    }
+
+    [Test]
+    public void FirstPressFinishesTypingWithoutSkippingALine()
     {
         Assert.IsTrue(callout.TryKnock());
         callout.Tick(CachudCallout.PanDuration, true);
@@ -276,28 +286,32 @@ public class CachudCalloutTests
         Assert.AreEqual(0, callout.VisibleCharacters);
         callout.Tick(0f, true);
         Assert.AreEqual(CachudCallout.Phase.Waiting, callout.CurrentPhase);
-        Assert.AreEqual(CachudCallout.Greeting, callout.CurrentLine);
+        Assert.AreEqual(0, callout.Runner.Index);
         callout.Tick(0f, true);
-        Assert.AreEqual(CachudCallout.MissingDice, callout.CurrentLine);
+        Assert.AreEqual(1, callout.Runner.Index);
     }
 
     [Test]
-    public void LeavingTheQuestionListAllowsTalkingAgainWithoutAnotherEntrance()
+    public void LeavingMidMeetingReplaysItAndAfterwardsHeAsksAboutTheFountain()
     {
-        BeginAndReadRequest();
-        callout.Tick(0f, false, false, true);
+        Assert.IsTrue(callout.TryKnock());
+        callout.Tick(CachudCallout.PanDuration);
+        ReadAndAdvance();
+        callout.Tick(0f, false, true);
         callout.Tick(CachudCallout.ReturnDuration);
-        Assert.IsFalse(callout.HasLearnedLocation);
+        Assert.IsFalse(callout.HasRequestedDice);
         Assert.IsFalse(callout.TryKnock());
         player.position = callout.transform.position + Vector3.forward * 8f;
         Assert.IsFalse(callout.TryTalk(), "A remote E must not start the conversation.");
         player.position = callout.transform.position + Vector3.forward * 2f;
         Assert.IsTrue(callout.TryTalk());
         callout.Tick(CachudCallout.PanDuration);
-        Assert.AreEqual(CachudCallout.MissingDice, callout.CurrentLine);
-        ReadAndAdvance();
-        Assert.IsTrue(callout.ChooseQuestion(0));
-        Assert.AreEqual(CachudCallout.FountainClue, callout.CurrentLine);
+        Assert.AreEqual(StoryScript.CachudMeeting[0].Text, callout.CurrentLine);
+        ReadThrough();
+        callout.Tick(CachudCallout.ReturnDuration);
+        Assert.IsTrue(callout.TryTalk());
+        callout.Tick(CachudCallout.PanDuration);
+        Assert.AreEqual(StoryScript.CachudWaiting[0].Text, callout.CurrentLine);
     }
 
     [Test]
@@ -317,7 +331,10 @@ public class CachudCalloutTests
         player.position = callout.transform.position + Vector3.forward * 2f;
         Assert.IsTrue(callout.TryTalk());
         callout.Tick(CachudCallout.PanDuration);
-        Assert.AreEqual(CachudCallout.Thanks, callout.CurrentLine);
+        Assert.AreEqual(StoryScript.CachudDiceReturned[0].Text, callout.CurrentLine);
+        Assert.IsTrue(inventory.Contains(CachudCallout.DiceItemName));
+        ReadAndAdvance();
+        StringAssert.Contains("count", callout.CurrentLine);
         Assert.IsTrue(inventory.Contains(CachudCallout.DiceItemName));
         ReadAndAdvance();
         Assert.IsFalse(inventory.Contains(CachudCallout.DiceItemName));
@@ -325,8 +342,7 @@ public class CachudCalloutTests
         Assert.AreEqual("Other clue", inventory.GetItem(0));
         Assert.AreEqual("Another clue", inventory.GetItem(1));
         Assert.IsTrue(callout.IsReadyForGame);
-        Assert.AreEqual(CachudCallout.Ready, callout.CurrentLine);
-        ReadAndAdvance();
+        Assert.AreEqual(CachudCallout.Phase.Returning, callout.CurrentPhase);
         Assert.AreEqual(0, games);
         callout.Tick(CachudCallout.ReturnDuration * 0.5f);
         Assert.AreEqual(0, games);
@@ -348,8 +364,8 @@ public class CachudCalloutTests
         inventory.TryAdd(CachudCallout.DiceItemName);
         Assert.IsTrue(callout.TryKnock());
         callout.Tick(CachudCallout.PanDuration);
-        Assert.AreEqual(CachudCallout.Thanks, callout.CurrentLine);
-        ReadAndAdvance();
+        Assert.AreEqual(StoryScript.CachudDiceReturned[0].Text, callout.CurrentLine);
+        ReadThrough();
         Assert.IsTrue(callout.IsReadyForGame);
         Assert.IsFalse(inventory.Contains(CachudCallout.DiceItemName));
     }
@@ -360,10 +376,10 @@ public class CachudCalloutTests
         inventory.TryAdd(CachudCallout.DiceItemName);
         Assert.IsTrue(callout.TryKnock());
         callout.Tick(CachudCallout.PanDuration);
-        Assert.AreEqual(CachudCallout.Thanks, callout.CurrentLine);
-        ReadAndAdvance();
+        Assert.AreEqual(StoryScript.CachudDiceReturned[0].Text, callout.CurrentLine);
+        ReadThrough();
         Assert.IsTrue(callout.HasDice);
-        Assert.AreEqual(CachudCallout.Ready, callout.CurrentLine);
+        Assert.AreEqual(CachudCallout.Phase.Returning, callout.CurrentPhase);
     }
 
     [Test]
@@ -372,7 +388,7 @@ public class CachudCalloutTests
         inventory.TryAdd(CachudCallout.DiceItemName);
         Assert.IsTrue(callout.TryKnock());
         callout.Tick(CachudCallout.PanDuration);
-        callout.Tick(0f, false, false, true);
+        callout.Tick(0f, false, true);
         callout.Tick(CachudCallout.ReturnDuration);
         Assert.IsTrue(inventory.Contains(CachudCallout.DiceItemName));
         Assert.IsFalse(callout.IsReadyForGame);
@@ -386,16 +402,15 @@ public class CachudCalloutTests
         callout.GameRequested += () => games++;
         Assert.IsTrue(callout.TryKnock());
         callout.Tick(CachudCallout.PanDuration);
-        ReadAndAdvance();
-        ReadAndAdvance();
+        ReadThrough();
         callout.Cancel();
         Assert.IsTrue(callout.IsReadyForGame);
         Assert.AreEqual(0, games);
         player.position = callout.transform.position + Vector3.forward * 2f;
         Assert.IsTrue(callout.TryTalk());
         callout.Tick(CachudCallout.PanDuration);
-        Assert.AreEqual(CachudCallout.Ready, callout.CurrentLine);
-        ReadAndAdvance();
+        Assert.AreEqual(StoryScript.CachudRematch[0].Text, callout.CurrentLine);
+        ReadThrough();
         callout.Tick(CachudCallout.ReturnDuration);
         Assert.AreEqual(1, games);
         Assert.AreEqual(0, inventory.ItemCount(), "No duplicate dice or extra hand-in.");
@@ -406,9 +421,9 @@ public class CachudCalloutTests
     {
         for (int i = 0; i < inventory.SlotCount(); i++) Assert.IsTrue(inventory.TryAdd("Clue " + i));
         Assert.IsFalse(inventory.TryAdd(CachudCallout.DiceItemName));
-        BeginAndReadRequest();
+        VisitWithoutDice();
         Assert.IsFalse(callout.IsReadyForGame);
-        Assert.AreEqual(CachudCallout.Phase.Questions, callout.CurrentPhase);
+        Assert.IsTrue(callout.HasRequestedDice);
     }
 
     [Test]
@@ -449,29 +464,18 @@ public class CachudCalloutTests
         finally { EditorSceneManager.CloseScene(scene, true); }
     }
 
-    private void BeginAndReadRequest()
-    {
-        Assert.IsTrue(callout.TryKnock());
-        callout.Tick(CachudCallout.PanDuration);
-        ReadAndAdvance();
-        ReadAndAdvance();
-        Assert.AreEqual(CachudCallout.Phase.Questions, callout.CurrentPhase);
-    }
-
     private void VisitWithoutDice()
     {
-        BeginAndReadRequest();
-        Assert.IsTrue(callout.ChooseQuestion(0));
-        ReadAndAdvance();
+        Assert.IsTrue(callout.TryKnock() || callout.TryTalk());
+        callout.Tick(CachudCallout.PanDuration);
+        ReadThrough();
         callout.Tick(CachudCallout.ReturnDuration);
     }
 
-    private void FinishMissingDiceConversation()
+    private void ReadThrough()
     {
-        ReadAndAdvance();
-        ReadAndAdvance();
-        Assert.IsTrue(callout.ChooseQuestion(0));
-        ReadAndAdvance();
+        for (int i = 0; i < 50 && (callout.CurrentPhase == CachudCallout.Phase.Typing ||
+            callout.CurrentPhase == CachudCallout.Phase.Waiting); i++) ReadAndAdvance();
     }
 
     private void ReadAndAdvance()
