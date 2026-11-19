@@ -90,40 +90,9 @@ public static class DialoguePortraits
 {
     public const string SetResource = "DialoguePortraits";
 
-    // The magician has no face yet: a big pixel question mark stands in for him.
-    private static readonly string[] QuestionMark =
-    {
-        "....KKKKKKK.....",
-        "..KKyyyyyyyKK...",
-        ".KywwyyyyyyygK..",
-        "KywyyKKKKKyyygK.",
-        "KyyyK.....KyygK.",
-        "KggK......KyygK.",
-        ".KK.......KyygK.",
-        ".........KyyygK.",
-        "........KyyygK..",
-        ".......KyyygK...",
-        "......KyyggK....",
-        ".....KyygK......",
-        ".....KyygK......",
-        ".....KyygK......",
-        ".....KGGGK......",
-        "......KKK.......",
-        "................",
-        "......KKK.......",
-        ".....KyyyK......",
-        ".....KyygK......",
-        ".....KGGGK......",
-        "......KKK.......",
-    };
-
     private static readonly Dictionary<Speaker, Portrait> Cache = new Dictionary<Speaker, Portrait>();
     private static DialoguePortraitSet set;
     private static bool setLoaded;
-    private static Texture2D questionMark;
-
-    public static Texture2D QuestionMarkTexture =>
-        questionMark != null ? questionMark : questionMark = InventoryPixelArt.Build(QuestionMark, "dialogue_question_mark");
 
     public static string DisplayName(Speaker speaker)
     {
@@ -177,8 +146,6 @@ public static class DialoguePortraits
                 return TopFrame("TitleScreen/Orca Sprite", true);
             case Speaker.Panther:
                 return TopFrame("ShellGame/panther", false);
-            case Speaker.Magician:
-                return new Portrait { Texture = QuestionMarkTexture, UV = new Rect(0f, 0f, 1f, 1f) };
             default:
                 return default;
         }

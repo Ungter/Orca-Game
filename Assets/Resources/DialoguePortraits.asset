@@ -35,7 +35,7 @@ MonoBehaviour:
     spriteFacesLeft: 0
   - speaker: 5
     ghostHead: {fileID: 0}
-    sprite: {fileID: 0}
+    sprite: {fileID: 21300000, guid: f640586b9eb038440a4f3b44a92bd5e5, type: 3}
     spriteFacesLeft: 0
   - speaker: 7
     ghostHead: {fileID: 0}

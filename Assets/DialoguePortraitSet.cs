@@ -4,7 +4,7 @@ using UnityEngine;
 
 // Who appears in the dialogue box, and the art each one uses (Resources/DialoguePortraits).
 // A ghost head wins over the character's normal sprite; with neither, DialoguePortraits falls
-// back to art found in the scene or in Resources (and the magician's pixel question mark).
+// back to art found in the scene or in Resources.
 [CreateAssetMenu(menuName = "Orca/Dialogue Portraits", fileName = "DialoguePortraits")]
 public class DialoguePortraitSet : ScriptableObject
 {

@@ -90,7 +90,7 @@ public class MagicianEncounterTests
     {
         VisitWithoutWand();
         inventory.TryAdd("Other clue");
-        inventory.TryAdd(MagicianEncounter.WandItemName, Resources.Load<Sprite>("Magician/MagicWand"));
+        inventory.TryAdd(MagicianEncounter.WandItemName, UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Sprites/wand.png"));
         inventory.TryAdd("Another clue");
         encounter.Begin();
         Assert.AreEqual(StoryScript.WandReturned[0].Text, encounter.CurrentLine);
@@ -195,7 +195,7 @@ public class MagicianEncounterTests
     }
 
     [Test]
-    public void TheRoomStaysTheBackdropAndTheMagicianSpeaksInTheSharedBoxWithAQuestionMarkFace()
+    public void TheRoomStaysTheBackdropAndTheMagicianSpeaksInTheSharedBoxWithHisOwnFace()
     {
         encounter.Begin();
         RunUntil(MagicianEncounter.Phase.Typing);
@@ -203,7 +203,7 @@ public class MagicianEncounterTests
         foreach (Image image in root.GetComponentsInChildren<Image>(true))
             Assert.AreNotEqual("Speech bubble", image.name, "The old speech bubble is gone.");
         Assert.AreEqual(Speaker.Magician, encounter.Runner.Npc);
-        Assert.AreEqual(DialoguePortraits.QuestionMarkTexture, DialoguePortraits.Get(Speaker.Magician).Texture);
+        Assert.AreEqual(UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/magician.png"), DialoguePortraits.Get(Speaker.Magician).Texture);
         Assert.IsFalse(root.GetComponent<ShellMinigame>().Handles(MagicianEncounter.WandItemName));
     }
 

@@ -45,7 +45,8 @@ public class MagicianSceneTests
             Assert.IsNotNull(wand.GetComponent<WandMagic>());
             Assert.IsNotNull(wand.GetComponent<GrassBillboard>());
             SpriteRenderer sprite = wand.GetComponent<SpriteRenderer>();
-            Assert.AreEqual(Resources.Load<Sprite>("Magician/MagicWand"), sprite.sprite);
+            Assert.AreEqual(AssetDatabase.LoadAssetAtPath<Sprite>("Assets/Sprites/wand.png"), sprite.sprite);
+            Assert.AreEqual(FilterMode.Point, sprite.sprite.texture.filterMode, "Pixel art stays crisp.");
             Assert.IsNotNull(sprite.sharedMaterial);
             Assert.AreEqual("Sprites/Default", sprite.sharedMaterial.shader.name);
             Assert.IsTrue(new SerializedObject(wand).FindProperty("glow").boolValue);

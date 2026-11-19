@@ -119,10 +119,11 @@ public class StoryDialogueTests
     }
 
     [Test]
-    public void TheMagicianHasAQuestionMarkAndEverySpeakerWithArtHasAPortrait()
+    public void TheMagicianHasHisSpriteAndEverySpeakerWithArtHasAPortrait()
     {
-        Assert.AreEqual(DialoguePortraits.QuestionMarkTexture, DialoguePortraits.Get(Speaker.Magician).Texture);
-        foreach (Speaker speaker in new[] { Speaker.Orca, Speaker.Iguana, Speaker.Panther, Speaker.Player, Speaker.AlCachud })
+        Assert.AreEqual(UnityEditor.AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Sprites/magician.png"), DialoguePortraits.Get(Speaker.Magician).Texture);
+        Assert.IsNull(typeof(DialoguePortraits).GetProperty("QuestionMarkTexture"), "The question mark is gone.");
+        foreach (Speaker speaker in new[] { Speaker.Orca, Speaker.Iguana, Speaker.Panther, Speaker.Player, Speaker.AlCachud, Speaker.Magician })
         {
             Portrait portrait = DialoguePortraits.Get(speaker);
             Assert.IsTrue(portrait.IsValid, speaker + " has art.");

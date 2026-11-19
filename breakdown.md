@@ -1467,7 +1467,7 @@ from the island's edge down into the sea, all the way round (about 1 km).
   blank means Alethi). `{NAME}` in any line becomes that name.
 - Portraits (`DialoguePortraits`): the asset's ghost head first, else the character's sprite, else
   art found at runtime (the player's front idle, Al Cachud's scene sprite, the title's orca, the
-  panther sheet). The Magician is a big pixel question mark. Transparent margins are trimmed (read
+  panther sheet). The Magician uses `Assets/Sprites/magician.png`. Transparent margins are trimmed (read
   back through a render texture), so a small figure in a big canvas still fills its portrait.
 
 ### The story
