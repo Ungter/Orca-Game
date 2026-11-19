@@ -26,6 +26,7 @@ Each section names the files involved, so you can jump straight to the code.
 - [20. Night mood: hard light for a murder mystery](#20-night-mood-hard-light-for-a-murder-mystery) - `LampGlow.cs`, `SampleSceneProfile.asset`
 - [21. Island terrain, rock shore and foliage](#21-island-terrain-rock-shore-and-foliage) - `Editor/IslandTerrain.cs`, `Editor/IslandScenery.cs`
 - [22. The story, the dialogue box and Orca](#22-the-story-the-dialogue-box-and-orca) - `Dialogue.cs`, `StoryDirector.cs`, `OrcaSpirit.cs`, `WandSpell.cs`
+- [23. Wind: falling leaves, flying petals, swaying plants](#23-wind-falling-leaves-flying-petals-swaying-plants) - `IslandWind.cs`
 - [Shared rules for crisp pixel art](#shared-rules-for-crisp-pixel-art)
 
 ---
@@ -1525,6 +1526,36 @@ from the island's edge down into the sea, all the way round (about 1 km).
   that way (up and down on this grid) it zigzags between the two either side, held to the line it
   started on, which is kept in world space. A key pressed while a strike or the villain's hop
   plays is made once aiming resumes instead of being dropped.
+
+---
+
+## 23. Wind: falling leaves, flying petals, swaying plants
+
+**Files:** `Assets/IslandWind.cs` (sets itself up in gameplay scenes), `Assets/Resources/Wind/WindParticles.mat`
+
+- **The wind:** it blows one way, wavering about ±20° over a minute or so (Perlin noise), as a faint
+  breeze (strength 0.12). Every 7-16 s a gust comes through: up over 1 s, held, down over 1.5 s,
+  3.5-6.5 s in all, peaking at 0.7-1. `StartGust` starts one at once.
+- **Falling leaves:** pixel leaves (a 6x6, four-frame tumble: flat, turning, flipped, edge-on,
+  white and grey, tinted per leaf) let go of trees within 32 m of the player: about one every 3 s
+  in the breeze, six a second in a full gust. They come from the scenery's tree meshes (every 23rd
+  leaf-coloured vertex) and from inside the model's canopies. Each falls at 0.75 m/s and lives just
+  long enough to reach the ground under where it started (measured on `IslandDemo:pCube1`),
+  shrinking away at the very end. Their colours are lighter than the crowns' own, with a few
+  autumn yellows and oranges, so they catch the moonlight.
+- **Flying petals:** 3x3 two-frame pixel petals hop off the flower heads within 22 m (one every
+  8 s in the breeze, three a second in a gust), in the flower's own colour, and drift for 2.5-4.5 s.
+- **Drift:** both are Unity ParticleSystems in world space. Their velocity over lifetime is set
+  every frame to the wind as it is now (0.6 + 4.2 x strength m/s downwind) plus the fall, so
+  everything in the air speeds up and turns with each gust; a little noise makes them flutter.
+  They use URP's Particles/Simple Lit with alpha clipping, so the night and the lamps light them.
+- **Swaying ground cover:** the scenery's `Ground Cover` patches within 40 m are swapped for a copy
+  of their mesh that is bent every frame on the CPU (the asset itself is never touched; out of
+  reach the original comes back). How far a vertex moves comes from its palette coordinate:
+  grass and fern shades run from 0.12 at a blade's foot to 0.95 at its tip (weight
+  `along^1.5`), a flower's petals sit on its stem's tip (weight 1), and everything else (bushes,
+  boulders) stays put. Tips lean downwind by up to 0.22 m in a full gust, dip a little as they
+  bend, and flutter a few centimetres out of step with their neighbours.
 
 ---
 
